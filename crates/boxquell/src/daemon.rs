@@ -812,7 +812,15 @@ impl Daemon {
         let log = std::fs::File::create(&console)?;
         let mut command = tokio::process::Command::from(command);
         command.stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log).kill_on_drop(true);
+        // Two VMs writing to one disk would destroy it: end a VM that an earlier daemon left behind.
+        let pid_file = dir.join("vm.pid");
+        if let Some(old) = read_pid(&pid_file) {
+            end_leftover(old, &dir.join("disk.img").to_string_lossy());
+        }
         let mut child = command.spawn().context("cannot start the VM process")?;
+        if let Some(pid) = child.id() {
+            let _ = std::fs::write(&pid_file, pid.to_string());
+        }
 
         let failed = |what: &str| anyhow::anyhow!("{what}; last console output:\n{}", tail(&console, 15));
         let link = tokio::select! {
@@ -894,6 +902,7 @@ impl Daemon {
                 task.abort();
             }
             daemon.running.lock().unwrap().remove(&sandbox);
+            let _ = std::fs::remove_file(daemon.home.sandbox(&sandbox).join("vm.pid"));
             #[cfg(unix)]
             let _ = std::fs::remove_file(net_socket(&daemon.home.sandbox(&sandbox)));
             let _ = exited_tx.send(true);
@@ -1052,6 +1061,12 @@ static EXE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 pub async fn serve(home: Home) -> Result<()> {
     EXE.get_or_init(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("boxquell")));
+    // A daemon that stopped answering must not keep its sandboxes running next to ours.
+    if let Some(old) = std::fs::read(home.daemon_file()).ok().and_then(|bytes| serde_json::from_slice::<DaemonFile>(&bytes).ok()) {
+        if old.pid != std::process::id() {
+            end_leftover(old.pid, " daemon");
+        }
+    }
     let daemon = Daemon::new(home)?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let file = DaemonFile { port: listener.local_addr()?.port(), token: daemon.token.clone(), pid: std::process::id() };
@@ -1089,8 +1104,39 @@ pub async fn serve(home: Home) -> Result<()> {
             _ = stopper.shutdown.notified() => {}
         }
     };
-    let served = axum::serve(listener, app).with_graceful_shutdown(shutdown).await;
+    // The API keeps answering while the sandboxes shut down. It is not asked to
+    // finish its connections first: a browser tab holds event streams and
+    // terminals open for as long as it lives, and waiting for them would leave
+    // the sandboxes running under a daemon nobody can reach.
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    shutdown.await;
     daemon.stop_all().await;
     let _ = std::fs::remove_file(&path);
-    served.context("daemon API failed")
+    server.abort();
+    Ok(())
+}
+
+/// End a process left over from an earlier daemon, if `pid` still is one:
+/// its command line has to contain `marker`, so a reused process id is never hit.
+fn end_leftover(pid: u32, marker: &str) {
+    #[cfg(unix)]
+    {
+        let command = std::process::Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output();
+        let is_ours = command.is_ok_and(|output| {
+            let line = String::from_utf8_lossy(&output.stdout).to_string();
+            // A VM is recognised by its disk; a daemon needs the program name as well.
+            line.contains(marker) && (marker != " daemon" || line.contains("boxquell"))
+        });
+        if is_ours {
+            eprintln!("boxquell: ending leftover process {pid} ({marker})");
+            let _ = std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (pid, marker);
+}
+
+fn read_pid(file: &Path) -> Option<u32> {
+    std::fs::read_to_string(file).ok()?.trim().parse().ok()
 }
