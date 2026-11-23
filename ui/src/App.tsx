@@ -3,6 +3,7 @@ import { api, token, type Recipe, type Sandbox, type Secret, type Settings } fro
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
 import { NewSandbox } from "./NewSandbox";
+import { Overview } from "./Overview";
 import { SandboxView, type Tab } from "./SandboxView";
 import { Plugins } from "./Plugins";
 import { Secrets } from "./Secrets";
@@ -76,7 +77,8 @@ export function App() {
     );
   }
 
-  const current = sandboxes.find((s) => s.name === selected) ?? sandboxes[0] ?? null;
+  // Nothing selected means the overview.
+  const current = sandboxes.find((s) => s.name === selected) ?? null;
 
   return (
     <div className="layout">
@@ -86,6 +88,14 @@ export function App() {
           Boxquell
         </h1>
         <nav>
+          <div className={current ? "item" : "item active"}>
+            <button className="grow" onClick={() => setSelected(null)}>
+              <span className="grow">
+                <strong>Overview</strong>
+                <small>load and network of all sandboxes</small>
+              </span>
+            </button>
+          </div>
           {sandboxes.map((s) => (
             <div key={s.name} className={s.name === current?.name ? "item active" : "item"}>
               <button className="grow" onClick={() => setSelected(s.name)}>
@@ -171,9 +181,7 @@ export function App() {
             </section>
           </>
         ) : (
-          <div className="empty">
-            <p>Create a sandbox to run a coding agent with an explicit network allowlist.</p>
-          </div>
+          <Overview sandboxes={sandboxes} open={setSelected} act={act} />
         )}
       </main>
       {dialog === "new" && (

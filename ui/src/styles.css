@@ -150,3 +150,28 @@ button.lockdown.active { background: var(--bad); color: light-dark(#fff, #1a0d0d
 .toast { display: flex; gap: 10px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--bad); border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.5); overflow-wrap: anywhere; }
 .toast-actions { display: flex; gap: 6px; align-items: center; flex: none; }
 .toast-actions button:not(.link) { padding: 4px 10px; }
+
+/* Overview */
+:root { --series: light-dark(#2a78d6, #3987e5); --status-warning: #fab219; --status-critical: #d03b3b; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile-label { color: var(--muted); font-size: 12.5px; }
+.tile-value { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.vm { gap: 12px; }
+.vm-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vm-head strong { font-size: 16px; }
+.vm-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; align-items: stretch; }
+.vm-body .tile { background: var(--bg); }
+.chip.blocked { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: color-mix(in srgb, var(--bad) 9%, transparent); }
+.spark { width: 100%; height: 44px; margin-top: 6px; display: block; }
+.spark-line { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.spark-area { fill: var(--series); opacity: 0.12; }
+.spark-hit { fill: transparent; }
+.spark-hit:hover { fill: color-mix(in srgb, var(--series) 18%, transparent); }
+.meters { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 4px 2px; }
+.meter-row { display: grid; grid-template-columns: 64px 1fr; gap: 4px 10px; align-items: center; font-size: 13px; }
+.meter-row .figure { grid-column: 2; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.meter { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--series) 16%, var(--bg)); overflow: hidden; }
+.meter > div { height: 100%; border-radius: 999px; background: var(--series); transition: width 0.4s; }
+.meter.warning > div { background: var(--status-warning); }
+.meter.critical > div { background: var(--status-critical); }

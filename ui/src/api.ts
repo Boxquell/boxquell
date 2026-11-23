@@ -63,6 +63,22 @@ export interface Repo {
   recipes: number;
 }
 
+export interface Sample {
+  ts_ms: number;
+  /** Busy share of all CPUs, 0 to 100 */
+  cpu: number;
+  mem_used_mib: number;
+  mem_total_mib: number;
+  disk_used_gib: number;
+  disk_total_gib: number;
+  /** Bytes per second */
+  rx_rate: number;
+  tx_rate: number;
+}
+
+/** Per running sandbox: recent load samples and connection counts since its start. */
+export type Stats = Record<string, { samples: Sample[]; allowed: number; blocked: number }>;
+
 export interface Settings {
   notify_blocked: boolean;
   toast_blocked: boolean;
@@ -136,6 +152,7 @@ export const api = {
   removeLocalSecret: (name: string, secret: string) => call<Sandbox>("DELETE", `${box(name)}/secrets/${encodeURIComponent(secret)}`),
   setClaudeSettings: (name: string, settings: string) => call<Sandbox>("PUT", `${box(name)}/claude-settings`, { settings }),
   clearClaudeSettings: (name: string) => call<Sandbox>("DELETE", `${box(name)}/claude-settings`),
+  stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
   settings: () => call<Settings>("GET", "/api/settings"),

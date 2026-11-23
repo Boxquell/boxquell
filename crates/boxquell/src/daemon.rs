@@ -64,6 +64,11 @@ struct Running {
     secrets: Arc<RwLock<Vec<Secret>>>,
     ssh_port: u16,
     gateway: GatewayHandle,
+    /// Recent load measurements from inside the guest, oldest first.
+    samples: Mutex<std::collections::VecDeque<Sample>>,
+    /// Connection attempts since the sandbox started.
+    allowed: std::sync::atomic::AtomicU64,
+    blocked: std::sync::atomic::AtomicU64,
     /// Port forwards by host port; ended when the sandbox stops.
     forwards: Mutex<HashMap<u16, tokio::task::JoinHandle<()>>>,
     /// The VM process, for pausing.
@@ -71,6 +76,76 @@ struct Running {
     paused: std::sync::atomic::AtomicBool,
     stop: Arc<Notify>,
     exited: watch::Receiver<bool>,
+}
+
+/// One load measurement taken inside the guest.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Sample {
+    pub ts_ms: u64,
+    /// Busy share of all CPUs since the previous sample, 0 to 100.
+    pub cpu: f32,
+    pub mem_used_mib: u32,
+    pub mem_total_mib: u32,
+    pub disk_used_gib: f32,
+    pub disk_total_gib: f32,
+    /// Bytes per second through the guest's network device.
+    pub rx_rate: u64,
+    pub tx_rate: u64,
+}
+
+const SAMPLE_EVERY: u64 = 2;
+const SAMPLES_KEPT: usize = 90;
+
+/// Prints one line of counters every few seconds: CPU ticks (total, idle),
+/// memory (total, available, kB), root disk (total, used, kB), network bytes (received, sent).
+const SAMPLER: &str = r#"while :; do read -r _ u n s i w q sq st _ < /proc/stat; mt=0; ma=0; while read -r k v _; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; set -- $(df -k / | tail -n1); rx=0; tx=0; for d in /sys/class/net/e*; do [ -r "$d/statistics/rx_bytes" ] && rx=$(cat "$d/statistics/rx_bytes") && tx=$(cat "$d/statistics/tx_bytes"); done; echo "$((u+n+s+i+w+q+sq+st)) $((i+w)) $mt $ma $2 $3 $rx $tx"; sleep 2; done"#;
+
+/// Keep a measuring loop running in the guest over ssh and record what it prints.
+/// It is restarted when it ends, e.g. while the guest still boots.
+async fn sample_load(running: Arc<Running>, key: PathBuf) {
+    use tokio::io::AsyncBufReadExt;
+    loop {
+        let child = tokio::process::Command::new("ssh")
+            .args(ssh::base_args(&key, running.ssh_port))
+            .arg(SAMPLER)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn();
+        if let Ok(mut child) = child {
+            let mut previous: Option<[u64; 8]> = None;
+            if let Some(stdout) = child.stdout.take() {
+                let mut lines = tokio::io::BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let numbers: Vec<u64> = line.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+                    let Ok(now) = <[u64; 8]>::try_from(numbers) else { continue };
+                    if let Some(before) = previous {
+                        let ticks = now[0].saturating_sub(before[0]).max(1);
+                        let idle = now[1].saturating_sub(before[1]).min(ticks);
+                        let sample = Sample {
+                            ts_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64),
+                            cpu: 100.0 * (ticks - idle) as f32 / ticks as f32,
+                            mem_used_mib: (now[2].saturating_sub(now[3]) / 1024) as u32,
+                            mem_total_mib: (now[2] / 1024) as u32,
+                            disk_used_gib: now[5] as f32 / 1_048_576.0,
+                            disk_total_gib: now[4] as f32 / 1_048_576.0,
+                            rx_rate: now[6].saturating_sub(before[6]) / SAMPLE_EVERY,
+                            tx_rate: now[7].saturating_sub(before[7]) / SAMPLE_EVERY,
+                        };
+                        let mut samples = running.samples.lock().unwrap();
+                        if samples.len() == SAMPLES_KEPT {
+                            samples.pop_front();
+                        }
+                        samples.push_back(sample);
+                    }
+                    previous = Some(now);
+                }
+            }
+            let _ = child.kill().await;
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
 }
 
 const NOTIFY_QUIET: Duration = Duration::from_secs(60);
@@ -241,6 +316,23 @@ impl Daemon {
         let _guard = self.lifecycle.lock().await;
         std::fs::remove_dir_all(self.home.sandbox(name))?;
         self.store.delete_sandbox(name)
+    }
+
+    /// Load and connection counts of every running sandbox, by name.
+    pub fn stats(&self) -> Value {
+        use std::sync::atomic::Ordering;
+        let running = self.running.lock().unwrap();
+        let stats: serde_json::Map<String, Value> = running
+            .iter()
+            .map(|(name, r)| {
+                let samples: Vec<Sample> = r.samples.lock().unwrap().iter().cloned().collect();
+                (
+                    name.clone(),
+                    json!({ "samples": samples, "allowed": r.allowed.load(Ordering::Relaxed), "blocked": r.blocked.load(Ordering::Relaxed) }),
+                )
+            })
+            .collect();
+        stats.into()
     }
 
     /// Whether the emergency stop is on. It survives a restart of the daemon.
@@ -692,6 +784,13 @@ impl Daemon {
                 if !event.allowed {
                     daemon.notify_blocked(&sandbox, &event);
                 }
+                // A closing connection was already counted when it opened.
+                if event.phase != boxquell_net::Phase::Close {
+                    if let Some(running) = daemon.running(&sandbox) {
+                        let counter = if event.allowed { &running.allowed } else { &running.blocked };
+                        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
                 match daemon.store.insert(&sandbox, &event) {
                     Ok(stored) => drop(daemon.live.send(stored)),
                     Err(err) => eprintln!("boxquell: cannot store event: {err:#}"),
@@ -711,12 +810,16 @@ impl Daemon {
             ssh_port,
             gateway: gateway.clone(),
             forwards: Mutex::default(),
+            samples: Mutex::default(),
+            allowed: 0.into(),
+            blocked: 0.into(),
             pid: child.id(),
             paused: false.into(),
             stop: stop.clone(),
             exited,
         });
         self.running.lock().unwrap().insert(name.to_string(), running.clone());
+        let sampler = tokio::spawn(sample_load(running.clone(), dir.join("id_ed25519")));
         for port in &spec.ports {
             // A port taken by another program must not keep the sandbox from starting.
             if let Err(err) = open_forward(&running, *port).await {
@@ -733,6 +836,7 @@ impl Daemon {
                 }
             }
             forward.abort();
+            sampler.abort();
             for (_, task) in ending.forwards.lock().unwrap().drain() {
                 task.abort();
             }

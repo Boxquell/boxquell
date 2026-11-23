@@ -361,6 +361,10 @@ async fn set_settings(State(daemon): App, Json(body): Json<crate::daemon::Settin
     Ok(Json(serde_json::to_value(daemon.settings())?))
 }
 
+async fn stats(State(daemon): App) -> ApiResult {
+    Ok(Json(daemon.stats()))
+}
+
 async fn ping() -> ApiResult {
     Ok(Json(json!({ "version": env!("CARGO_PKG_VERSION") })))
 }
@@ -380,6 +384,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/claude-settings", put(set_claude_settings).delete(clear_claude_settings))
         .route("/api/sandboxes/{name}/ports", post(add_port))
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
+        .route("/api/stats", get(stats))
         .route("/api/lockdown", get(lockdown).post(set_lockdown))
         .route("/api/settings", get(settings).put(set_settings))
         .route("/api/rules", get(global_rules).post(add_global_rule).delete(remove_global_rule))
