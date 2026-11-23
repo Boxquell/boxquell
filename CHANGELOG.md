@@ -27,6 +27,7 @@ First public version.
 - Add your own repositories next to the official ones.
 
 ### Interface
+- A tray icon for the desktop app: open, emergency stop, quit.
 - Desktop app and web interface: overview with load and network monitoring, terminals, software catalogue, settings.
 - A notifications page for blocked connections: allow, ignore or dismiss them.
 - Logs, version, update check, changelog and third-party notices inside the interface.

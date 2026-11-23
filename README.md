@@ -63,7 +63,7 @@ Or pick everything in a form (`boxquell new`), or use the desktop app (below). `
 
 ### Desktop app
 
-`apps/desktop` is a small Tauri app: a window of its own that shows the same interface as `boxquell ui`. It finds the running daemon or starts one, and sandboxes keep running when you close it.
+`apps/desktop` is a small Tauri app: a window of its own that shows the same interface as `boxquell ui`. It finds the running daemon or starts one. Closing the window leaves Boxquell in the system tray, with a menu to open it again, trigger the emergency stop or quit; sandboxes keep running either way.
 
 ```sh
 (cd apps/desktop && npm install && npx tauri build --no-bundle)
