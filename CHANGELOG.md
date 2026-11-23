@@ -14,7 +14,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - SSH keys for git: sandboxes can sign with keys of this computer, chosen for all sandboxes or for one, without the keys entering a sandbox (`boxquell ssh-keys`, and under Secrets in the UI).
 - The overview of a sandbox names the system it runs.
 - Icons for software and systems, taken from their repositories, and a search field in the software catalogue.
-- Choosing the operating system of a new sandbox from cards instead of a list.
+- Choosing the operating system of a new sandbox from tiles, with a version chooser where a system comes in several versions.
+- Icons carry their brand colour (`icon_color`).
 
 ### Fixed
 - Environment variables of a recipe (`[env]`) were not set in login shells on Debian.

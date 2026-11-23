@@ -403,6 +403,8 @@ small.block { display: block; font-weight: 400; }
 
 /* Pictures of software and systems: one colour, taken from the text. */
 .brand-icon { display: inline-block; background: currentColor; flex: none; vertical-align: -2px; }
+.avatar .brand-icon, .os-art .brand-icon { display: block; }
+.chip .brand-icon { vertical-align: -1.5px; margin-right: 2px; }
 .avatar.brand { background: var(--fill); color: var(--text); }
 .search.wide { align-self: stretch; margin-bottom: 4px; }
 
@@ -423,11 +425,14 @@ select option { background: var(--panel); color: var(--text); font-weight: 400; 
 
 /* Choosing a system: one tile each, the chosen one ringed and ticked. */
 .os-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.os-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 20px 12px 16px; min-height: 0; border-radius: 14px; background: var(--fill); text-align: center; box-shadow: inset 0 0 0 0.5px var(--line); transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease); }
-.os-tile:hover:not(:disabled) { transform: translateY(-2px); box-shadow: inset 0 0 0 0.5px var(--line), 0 6px 18px rgb(0 0 0 / 0.1); }
+.os-tile { position: relative; display: flex; flex-direction: column; align-items: center; border-radius: 14px; background: var(--fill); box-shadow: inset 0 0 0 0.5px var(--line); transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease); }
+.os-pick { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; width: 100%; min-height: 0; padding: 20px 12px 16px; background: none; border-radius: inherit; text-align: center; }
+.os-pick:hover:not(:disabled) { background: none; }
+.os-tile select { margin: -6px 12px 14px; min-height: 26px; font-size: 12.5px; background-color: var(--panel); }
+.os-tile:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 0.5px var(--line), 0 6px 18px rgb(0 0 0 / 0.1); }
 .os-tile.picked { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); box-shadow: inset 0 0 0 2px var(--accent); }
 .os-tile strong { font-size: 14px; }
 .os-tile small { color: var(--muted); font-weight: 400; }
 .os-art { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; margin-bottom: 8px; background: var(--panel); color: var(--text); font-weight: 700; font-size: 18px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), inset 0 0 0 0.5px var(--line); }
-.os-tile.picked .os-art { color: var(--accent); }
 .os-check { position: absolute; top: 10px; right: 10px; color: var(--accent); }
+select.version { padding: 1px 24px 1px 8px; background-position: right 7px center; background-size: 8px 12px; }

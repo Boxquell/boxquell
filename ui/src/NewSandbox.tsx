@@ -1,5 +1,5 @@
 import { CircleCheck } from "lucide-react";
-import { BrandIcon } from "./BrandIcon";
+import { BrandIcon, brandColors } from "./BrandIcon";
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Recipe, type System } from "./api";
 import { FolderField } from "./FolderPicker";
@@ -115,28 +115,35 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
           <div className="shelf">
             <h3>Operating system</h3>
             <div className="os-tiles" role="radiogroup" aria-label="Operating system">
-              {/* The default system first, then what is ready, then the rest. */}
-              {[...systems]
-                .sort((a, b) => Number(b.id === "debian") - Number(a.id === "debian") || Number(b.built) - Number(a.built))
-                .map((candidate) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={candidate.id === os}
-                  className={`os-tile ${candidate.id === os ? "picked" : ""}`}
-                  onClick={() => setOs(candidate.id)}
-                >
-                  {candidate.id === os && <CircleCheck className="os-check" size={18} aria-hidden />}
-                  <span className="os-art" aria-hidden="true">
-                    <BrandIcon svg={candidate.icon} size={34}>
-                      {candidate.name.slice(0, 2)}
-                    </BrandIcon>
-                  </span>
-                  <strong>{candidate.name}</strong>
-                  <small>{candidate.built ? "Ready to use" : "Set up on first use"}</small>
-                </button>
-              ))}
+              {systemGroups(systems).map((members) => {
+                const shown = members.find((member) => member.id === os) ?? members[0];
+                const picked = shown.id === os;
+                // With several versions the tile names the system and the chooser the version.
+                const title = members.length > 1 && shown.version ? shown.name.replace(shown.version, "").trim() : shown.name;
+                return (
+                  <div key={members[0].id} className={`os-tile ${picked ? "picked" : ""}`}>
+                    <button type="button" role="radio" aria-checked={picked} className="os-pick" onClick={() => setOs(shown.id)}>
+                      {picked && <CircleCheck className="os-check" size={18} aria-hidden />}
+                      <span className="os-art" aria-hidden="true" style={shown.icon ? brandColors(shown.icon_color) : undefined}>
+                        <BrandIcon svg={shown.icon} size={34}>
+                          {shown.name.slice(0, 2)}
+                        </BrandIcon>
+                      </span>
+                      <strong>{title}</strong>
+                      <small>{shown.built ? "Ready to use" : "Set up on first use"}</small>
+                    </button>
+                    {members.length > 1 && (
+                      <select aria-label={`${title} version`} value={shown.id} onChange={(e) => setOs(e.target.value)}>
+                        {members.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.version ?? member.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
           {system && <p className="muted">{system.description}</p>}
@@ -281,4 +288,21 @@ function Row(props: { label: string; value: string; onEdit: () => void }) {
       </td>
     </tr>
   );
+}
+
+/**
+ * Systems as the choices to show: versions of one system together, its
+ * default first and then newest to oldest. Debian leads, then what is ready.
+ */
+function systemGroups(systems: System[]): System[][] {
+  const groups = new Map<string, System[]>();
+  for (const system of systems) {
+    const key = system.group ?? system.id;
+    groups.set(key, [...(groups.get(key) ?? []), system]);
+  }
+  const lists = [...groups.entries()].map(([key, members]) =>
+    members.sort((a, b) => Number(b.id === key) - Number(a.id === key) || (b.version ?? "").localeCompare(a.version ?? "", undefined, { numeric: true })),
+  );
+  const ready = (members: System[]) => Number(members.some((member) => member.built));
+  return lists.sort((a, b) => Number(b[0].id === "debian") - Number(a[0].id === "debian") || ready(b) - ready(a));
 }

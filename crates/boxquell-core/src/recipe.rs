@@ -33,6 +33,9 @@ pub struct Recipe {
     /// repository's `icons` directory; read back as the drawing itself.
     #[serde(default)]
     pub icon: Option<String>,
+    /// The brand's colour behind the picture, as `#rrggbb`.
+    #[serde(default)]
+    pub icon_color: Option<String>,
     /// Versions on offer, the default first. The install script gets the chosen
     /// one as `BOXQUELL_VERSION`; select it with `<recipe>@<version>`.
     #[serde(default)]

@@ -178,7 +178,7 @@ pub fn icon(definition: &std::path::Path, name: &str) -> Option<String> {
     }
     let dir = definition.parent()?;
     let file = [dir.join("icons").join(name), dir.parent()?.join("icons").join(name)].into_iter().find(|file| file.is_file())?;
-    if std::fs::metadata(&file).ok()?.len() > 16 * 1024 {
+    if std::fs::metadata(&file).ok()?.len() > 64 * 1024 {
         return None;
     }
     let svg = std::fs::read_to_string(file).ok()?;

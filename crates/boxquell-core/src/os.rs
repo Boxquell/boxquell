@@ -48,6 +48,16 @@ pub struct OsDef {
     /// repository's `icons` directory; read back as the drawing itself.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Versions of one system share a group and show as one choice with a
+    /// version chooser. The group is the id of its default version.
+    #[serde(default)]
+    pub group: Option<String>,
+    /// What tells this definition apart within its group, e.g. `12`.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// The brand's colour behind the picture, as `#rrggbb`.
+    #[serde(default)]
+    pub icon_color: Option<String>,
     /// Which recipes fit: they name the families they support.
     pub family: String,
     /// Hosts of the system's package manager. Recipes ask for them as `@packages`.

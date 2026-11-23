@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import { useState } from "react";
-import { BrandIcon } from "./BrandIcon";
+import { BrandIcon, brandColors } from "./BrandIcon";
 import type { Recipe } from "./api";
 
 const TITLES: Record<Recipe["category"], [string, string]> = {
@@ -57,7 +57,7 @@ export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; pic
                 return (
                   <div key={r.id} className={`card ${state}`}>
                     <button type="button" className="card-main" onClick={toggle} aria-pressed={!!picked} disabled={props.busy || (!!installed && !picked)}>
-                      <span className={`avatar ${r.icon ? "brand" : ""}`} style={r.icon ? undefined : { background: `hsl(${hue(r.id)} 55% 42%)` }} aria-hidden="true">
+                      <span className={`avatar ${r.icon ? "brand" : ""}`} style={r.icon ? brandColors(r.icon_color) : { background: `hsl(${hue(r.id)} 55% 42%)` }} aria-hidden="true">
                         <BrandIcon svg={r.icon}>{r.name.replace(/[^A-Za-z0-9+#]/g, "").slice(0, 2)}</BrandIcon>
                       </span>
                       <span className="grow">

@@ -293,6 +293,7 @@ impl Daemon {
             "os": spec.os,
             "os_name": system.as_ref().map(|def| &def.name),
             "os_icon": system.as_ref().and_then(|def| def.icon.as_ref()),
+            "os_icon_color": system.as_ref().and_then(|def| def.icon_color.as_ref()),
             "family": boxquell_core::os::family(&self.home, &spec.os),
             "package_hosts": boxquell_core::os::package_hosts(&self.home, &spec.os),
             "mode": spec.network,
