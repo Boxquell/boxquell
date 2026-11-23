@@ -13,20 +13,24 @@ function bytes(n: number): string {
 const clock = (ms: number) => new Date(ms).toLocaleTimeString();
 
 /** A single measure over the last minutes: 2px line, soft area, a value per point on hover. */
-function Sparkline(props: { samples: Sample[]; value: (s: Sample) => number; max?: number; label: (s: Sample) => string }) {
+function Sparkline(props: { samples: Sample[]; value: (s: Sample) => number; second?: (s: Sample) => number; max?: number; label: (s: Sample) => string }) {
   const { samples } = props;
   const [width, height] = [220, 44];
   if (samples.length < 2) return <svg className="spark" viewBox={`0 0 ${width} ${height}`} aria-hidden="true" />;
   const values = samples.map(props.value);
-  const top = Math.max(props.max ?? 0, ...values, 1);
+  // A second measure in the same unit shares the axis and is drawn as a line of its own.
+  const others = props.second ? samples.map(props.second) : [];
+  const top = Math.max(props.max ?? 0, ...values, ...others, 1);
   const x = (i: number) => (i / (samples.length - 1)) * width;
   const y = (v: number) => height - 2 - (v / top) * (height - 6);
   const line = values.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const second = others.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const step = width / (samples.length - 1);
   return (
     <svg className="spark" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Trend over the last minutes">
       <path d={`${line} L${width},${height} L0,${height} Z`} className="spark-area" />
       <path d={line} className="spark-line" />
+      {second && <path d={second} className="spark-line second" />}
       {samples.map((s, i) => (
         <rect key={s.ts_ms} x={x(i) - step / 2} y={0} width={step} height={height} className="spark-hit">
           <title>{`${clock(s.ts_ms)}  ${props.label(s)}`}</title>
@@ -110,6 +114,9 @@ function HostLoad() {
   // An older daemon does not know this question; then there is nothing to show.
   const now = host?.samples?.at(-1);
   if (!host || !now) return null;
+  // A computer without swap, or an older daemon, shows memory alone.
+  const swap = (now.swap_total_mib ?? 0) > 0;
+  const gib = (mib: number) => (mib / 1024).toFixed(1);
   return (
     <section className="vm">
       <div className="vm-head">
@@ -121,11 +128,28 @@ function HostLoad() {
         <Tile label="CPU" value={`${Math.round(now.cpu)} %`} note={`of ${host.cpus} CPUs`}>
           <Sparkline samples={host.samples} value={(x) => x.cpu} max={100} label={(x) => `${Math.round(x.cpu)} %`} />
         </Tile>
-        <Tile label="Memory" value={`${(now.mem_used_mib / 1024).toFixed(1)} GiB`} note={`of ${(now.mem_total_mib / 1024).toFixed(1)} GiB in use`}>
-          <Sparkline samples={host.samples} value={(x) => x.mem_used_mib} max={now.mem_total_mib} label={(x) => `${(x.mem_used_mib / 1024).toFixed(1)} GiB`} />
+        <Tile label="Memory" value={`${gib(now.mem_used_mib)} GiB`} note={`of ${gib(now.mem_total_mib)} GiB in use`}>
+          {swap && (
+            <ul className="legend spark-legend">
+              <li>
+                <i className="swatch" /> Memory
+              </li>
+              <li>
+                <i className="swatch second" /> Swap {gib(now.swap_used_mib ?? 0)} of {gib(now.swap_total_mib ?? 0)} GiB
+              </li>
+            </ul>
+          )}
+          <Sparkline
+            samples={host.samples}
+            value={(x) => x.mem_used_mib}
+            second={swap ? (x) => x.swap_used_mib ?? 0 : undefined}
+            max={now.mem_total_mib}
+            label={(x) => `${gib(x.mem_used_mib)} GiB${swap ? `, swap ${gib(x.swap_used_mib ?? 0)} GiB` : ""}`}
+          />
         </Tile>
         <div className="tile meters">
           <Meter label="Memory" used={now.mem_used_mib} total={now.mem_total_mib} figure={`${Math.round((100 * now.mem_used_mib) / Math.max(1, now.mem_total_mib))} %`} />
+          {swap && <Meter label="Swap" used={now.swap_used_mib ?? 0} total={now.swap_total_mib ?? 0} figure={`${gib(now.swap_used_mib ?? 0)} / ${gib(now.swap_total_mib ?? 0)} GiB`} />}
           <Meter label="Disk" used={now.disk_used_gib} total={now.disk_total_gib} figure={`${now.disk_used_gib.toFixed(0)} / ${now.disk_total_gib.toFixed(0)} GiB`} />
         </div>
       </div>

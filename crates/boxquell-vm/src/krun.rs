@@ -82,6 +82,11 @@ pub fn command(exe: &Path, library: &Path, spec_json: &str) -> Command {
     if let Some(dir) = library.parent().filter(|d| !d.as_os_str().is_empty()) {
         let var = if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" };
         let mut value = OsString::from(dir);
+        // Homebrew keeps each package in a folder of its own and links them into one; follow the link too.
+        if let Some(real) = std::fs::canonicalize(library).ok().and_then(|path| path.parent().map(Path::to_path_buf)).filter(|real| real != dir) {
+            value.push(":");
+            value.push(real);
+        }
         if let Some(old) = std::env::var_os(var) {
             value.push(":");
             value.push(old);

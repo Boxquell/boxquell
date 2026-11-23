@@ -258,7 +258,7 @@ pub struct Daemon {
     /// Keys whose limit for the day is reached; the gateways refuse requests that would carry one.
     paused_keys: Arc<RwLock<Vec<String>>>,
     /// Recent load of this computer itself, oldest first: (CPU percent, memory used and total in MiB, disk used and total in GiB).
-    host_load: Mutex<std::collections::VecDeque<[f64; 5]>>,
+    host_load: Mutex<std::collections::VecDeque<[f64; 7]>>,
     /// What the last look for a newer release found.
     pub release: Mutex<Option<Value>>,
     jobs: Mutex<HashMap<String, Job>>,
@@ -1198,6 +1198,8 @@ impl Daemon {
                     system.total_memory() as f64 / MIB,
                     disk[0],
                     disk[1],
+                    system.used_swap() as f64 / MIB,
+                    system.total_swap() as f64 / MIB,
                 ]);
                 while load.len() > SAMPLES_KEPT {
                     load.pop_front();
@@ -1214,8 +1216,8 @@ impl Daemon {
             .lock()
             .unwrap()
             .iter()
-            .map(|[cpu, used, total, disk_used, disk_total]| {
-                json!({ "cpu": cpu, "mem_used_mib": used.round(), "mem_total_mib": total.round(), "disk_used_gib": disk_used, "disk_total_gib": disk_total, "rx_rate": 0, "tx_rate": 0 })
+            .map(|[cpu, used, total, disk_used, disk_total, swap_used, swap_total]| {
+                json!({ "cpu": cpu, "mem_used_mib": used.round(), "mem_total_mib": total.round(), "disk_used_gib": disk_used, "disk_total_gib": disk_total, "swap_used_mib": swap_used.round(), "swap_total_mib": swap_total.round(), "rx_rate": 0, "tx_rate": 0 })
             })
             .collect();
         json!({ "cpus": std::thread::available_parallelism().map_or(1, |n| n.get()), "samples": samples })

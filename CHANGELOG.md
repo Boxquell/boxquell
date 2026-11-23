@@ -4,6 +4,13 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+- The start page shows this computer's swap: as a second line in the memory trend and as a bar of its own.
+- `boxquell doctor` says when libkrun is there but libkrunfw is not.
+
+### Fixed
+- macOS: a sandbox did not start with "Couldn't find or load libkrunfw". The signed program could not see the folder libkrun and its kernel are installed in; it now may.
+
 ### Changed
 - An install script gets a temporary folder on the sandbox's disk that is removed afterwards. Downloads no longer stay in `/tmp`, which is memory in a sandbox.
 

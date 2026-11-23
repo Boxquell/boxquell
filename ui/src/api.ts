@@ -272,6 +272,9 @@ export interface Sample {
   mem_total_mib: number;
   disk_used_gib: number;
   disk_total_gib: number;
+  /** This computer only: what has been moved out of memory to the disk. Absent from an older daemon. */
+  swap_used_mib?: number;
+  swap_total_mib?: number;
   /** Bytes per second */
   rx_rate: number;
   tx_rate: number;

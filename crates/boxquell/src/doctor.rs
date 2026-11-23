@@ -37,7 +37,18 @@ pub fn run(home: &Home) -> bool {
     let krun = {
         let library = boxquell_vm::krun::find_library(&home.root().join("lib"));
         match boxquell_vm::krun::probe(&library) {
-            Ok(()) => line(true, "libkrun", &exists(&library)),
+            Ok(()) => {
+                // libkrun loads the kernel it boots from a library of its own, at the first start of a sandbox.
+                let kernel = library.parent().filter(|dir| !dir.as_os_str().is_empty()).map(|dir| {
+                    std::fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("libkrunfw."))
+                });
+                match kernel {
+                    Some(false) => {
+                        line(false, "libkrun", &format!("{} is there, but libkrunfw is not next to it; install libkrunfw", library.display()))
+                    }
+                    _ => line(true, "libkrun", &exists(&library)),
+                }
+            }
             Err(err) => line(false, "libkrun", &format!("{err:#}; install libkrun and libkrunfw or set BOXQUELL_KRUN_LIB")),
         }
     };

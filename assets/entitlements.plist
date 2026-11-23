@@ -8,5 +8,10 @@
     <!-- libkrun is installed separately and signed by someone else. -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- libkrun loads its kernel (libkrunfw) by name. Homebrew's library folder is not on the
+         system's search path, so Boxquell names it in DYLD_LIBRARY_PATH for the process that
+         becomes the VM; a signed program only sees that variable with this entitlement. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
 </dict>
 </plist>

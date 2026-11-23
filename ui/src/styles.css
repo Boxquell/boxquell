@@ -684,3 +684,9 @@ button.large { min-height: 40px; padding: 0 18px; font-size: 15px; }
 
 a.nav-item { text-decoration: none; }
 a.nav-item:hover { text-decoration: none; background: var(--fill); color: var(--text); }
+
+/* A second measure in a trend line, and the legend that names both. */
+.spark-line.second { stroke: light-dark(#d95926, #eb6834); }
+.spark-legend { margin: 2px 0 0; font-size: 12px; gap: 4px 14px; }
+.spark-legend .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; background: var(--series); margin-right: 5px; }
+.spark-legend .swatch.second { background: light-dark(#d95926, #eb6834); }
