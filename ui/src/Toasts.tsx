@@ -13,7 +13,7 @@ const SHOWN_FOR_MS = 9000;
 const QUIET_FOR_MS = 60_000;
 
 /** A message for each blocked connection, with a button to allow the destination. */
-export function Toasts(props: { enabled: boolean; ignored: string[]; onOpen: (sandbox: string) => void; onChange: () => void }) {
+export function Toasts(props: { enabled: boolean; ignored: string[]; onOpen: (sandbox: string) => void; onChange: () => void; onHandled: (key: string) => void }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seen = useRef(new Map<string, number>());
 
@@ -54,6 +54,8 @@ export function Toasts(props: { enabled: boolean; ignored: string[]; onOpen: (sa
                 className="primary"
                 onClick={() => {
                   api.addRule(t.sandbox, `allow ${t.host}`).then(props.onChange, () => {});
+                  // Allowed here, so it has no place in the notification list either.
+                  props.onHandled(t.key);
                   dismiss(t.key);
                 }}
               >

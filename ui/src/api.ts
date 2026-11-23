@@ -315,6 +315,9 @@ export const api = {
     source.onmessage = (message) => onEvent(JSON.parse(message.data));
     return () => source.close();
   },
+  /** Blocked destinations that were dismissed or allowed: `<sandbox> <destination>` with the time up to which they count as seen. */
+  handledNotifications: () => call<Record<string, number>>("GET", "/api/notifications/handled"),
+  markHandled: (items: { key: string; until: number }[]) => call<Record<string, number>>("POST", "/api/notifications/handled", { items }),
   globalRules: () => call<string[]>("GET", "/api/rules"),
   addGlobalRule: (rule: string) => call<string[]>("POST", "/api/rules", { rule }),
   removeGlobalRule: (rule: string) => call<string[]>("DELETE", "/api/rules", { rule }),

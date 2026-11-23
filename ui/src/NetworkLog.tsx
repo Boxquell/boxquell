@@ -118,6 +118,11 @@ export function NetworkLog(props: { sandbox: Sandbox; act: Act }) {
                   <td className="muted">{e.reason}</td>
                   <td className="right">{e.kind !== "dns" && e.bytes_up != null ? `${size(e.bytes_up)} / ${size(e.bytes_down ?? 0)}` : ""}</td>
                   <td className="right">
+                    {e.allowed && e.host && e.kind !== "dns" && (
+                      <button className="link bad" title="Add a rule that blocks this destination" onClick={() => act(() => api.addRule(sandbox.name, `deny ${e.host}`))}>
+                        Block
+                      </button>
+                    )}
                     {!e.allowed && e.host && (
                       <button className="link" onClick={() => act(() => api.addRule(sandbox.name, `allow ${e.host}`))}>
                         allow

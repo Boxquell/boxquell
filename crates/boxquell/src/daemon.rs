@@ -220,6 +220,7 @@ pub struct Daemon {
     /// Secrets that come from a helper command: when each was last fetched, by
     /// `<sandbox>/<secret>`, and what went wrong the last time, if anything.
     helper_runs: Mutex<HashMap<String, (std::time::Instant, Option<String>)>>,
+    handled_lock: Mutex<()>,
     /// What the last look for a newer release found.
     pub release: Mutex<Option<Value>>,
     jobs: Mutex<HashMap<String, Job>>,
@@ -302,6 +303,7 @@ impl Daemon {
             shutdown: Notify::new(),
             running: Mutex::new(HashMap::new()),
             helper_runs: Mutex::default(),
+            handled_lock: Mutex::default(),
             release: Mutex::default(),
             jobs: Mutex::new(HashMap::new()),
             os_jobs: Mutex::new(HashMap::new()),
@@ -775,6 +777,30 @@ impl Daemon {
                 let _ = tokio::task::spawn_blocking(move || daemon.refresh_helpers(&name, false)).await;
             }
         }
+    }
+
+    /// Blocked destinations the user has dealt with, as `<sandbox> <destination>`
+    /// with the time up to which they count as seen. Kept in a file, so they
+    /// do not come back when the interface is opened again.
+    pub fn handled_notifications(&self) -> HashMap<String, u64> {
+        std::fs::read(self.home.root().join("notifications.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+
+    pub fn mark_handled(&self, items: Vec<(String, u64)>) -> Result<HashMap<String, u64>> {
+        let _guard = self.handled_lock.lock().unwrap();
+        let mut handled = self.handled_notifications();
+        for (key, until) in items {
+            let seen = handled.entry(key).or_insert(0);
+            *seen = (*seen).max(until);
+        }
+        // Destinations nobody has tried for a month need no entry any more.
+        let month_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+            .saturating_sub(30 * 24 * 3600 * 1000);
+        handled.retain(|_, until| *until >= month_ago);
+        std::fs::write(self.home.root().join("notifications.json"), serde_json::to_vec(&handled)?)?;
+        Ok(handled)
     }
 
     /// The SSH keys every sandbox may sign with.

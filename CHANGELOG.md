@@ -5,6 +5,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- A Block button for allowed connections in the network log.
+- The software catalogue in the interface follows changes to the repositories without a reload.
 - Claude Code settings with a key helper (`apiKeyHelper`), as used for sign-in through a company account: the helper keeps running on this computer and its key is put into the sandbox's requests, refreshed before it runs out. This computer's managed settings are taken over with their drop-in files (`managed-settings.d`), in the UI with one button.
 - A model field per agent in a sandbox's Agent tab, for agents whose recipe names the variable (`model_env`).
 - `boxquell mcp`: a Model Context Protocol server, so an assistant on this computer can create sandboxes, run commands in them and read the network log ([docs/mcp.md](docs/mcp.md)).
@@ -20,6 +22,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Software that is installed already is greyed out in the catalogue.
 
 ### Fixed
+- Notifications that were dismissed or allowed no longer come back when the interface is opened again.
 - Environment variables of a recipe (`[env]`) were not set in login shells on Debian.
 
 ## [0.0.2] - 2026-11-23

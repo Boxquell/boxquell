@@ -89,6 +89,8 @@ export function App() {
     const look = () => api.updateStatus().then(setRelease, () => {});
     look();
     const hourly = setInterval(look, 60 * 60 * 1000);
+    // Repositories change behind the page: by the daily fetch, the command line or another window.
+    const catalogue = setInterval(() => api.recipes().then(setRecipes, () => {}), 30 * 1000);
     api.recipes().then(setRecipes, () => {});
     api.settings().then(setSettings, () => {});
     refresh();
@@ -96,6 +98,7 @@ export function App() {
     return () => {
       clearInterval(timer);
       clearInterval(hourly);
+      clearInterval(catalogue);
     };
   }, [refresh]);
 
@@ -411,6 +414,7 @@ export function App() {
         enabled={settings.toast_blocked}
         ignored={settings.ignore_blocked}
         onChange={refresh}
+        onHandled={dismiss}
         onOpen={(sandbox) => {
           go("sandbox", sandbox);
           setTabs((all) => ({ ...all, [sandbox]: "network" }));

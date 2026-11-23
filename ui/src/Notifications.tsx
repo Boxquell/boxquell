@@ -43,12 +43,16 @@ function add(list: Blocked[], event: NetEvent): Blocked[] {
 
 /**
  * The blocked destinations of all sandboxes: recent ones from the log, then
- * live. Dismissed entries stay away until the destination is blocked again.
+ * live. Dismissed and allowed entries stay away until the destination is
+ * blocked again; the daemon remembers them, so they do not return when the
+ * page is opened anew.
  */
 export function useBlocked(settings: Settings) {
   const [list, setList] = useState<Blocked[]>([]);
+  const [handled, setHandled] = useState<Record<string, number>>({});
   useEffect(() => {
     let alive = true;
+    api.handledNotifications().then((known) => alive && setHandled(known), () => {});
     api.blockedEvents().then((events) => {
       if (alive) setList((current) => events.sort((a, b) => a.seq - b.seq).reduce(add, current));
     }, () => {});
@@ -58,8 +62,12 @@ export function useBlocked(settings: Settings) {
       stop();
     };
   }, []);
-  const dismiss = useCallback((key: string) => setList((current) => current.filter((item) => item.key !== key)), []);
-  const shown = list.filter((item) => !settings.ignore_blocked.some((pattern) => matches(pattern, item.target)));
+  const dismiss = useCallback((key: string) => {
+    const until = Date.now();
+    setHandled((known) => ({ ...known, [key]: until }));
+    api.markHandled([{ key, until }]).then(setHandled, () => {});
+  }, []);
+  const shown = list.filter((item) => item.last > (handled[item.key] ?? 0) && !settings.ignore_blocked.some((pattern) => matches(pattern, item.target)));
   return { blocked: shown, dismiss };
 }
 
