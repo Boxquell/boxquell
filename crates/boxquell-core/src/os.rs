@@ -269,10 +269,11 @@ fn pack_image(work: &Path, size: &str) -> Result<()> {
         return Ok(());
     }
     let _ = std::fs::remove_file(&image);
+    // mke2fs reads the archive through libarchive, which Debian's e2fsprogs only recommends.
     let mount = format!("{}:/work", work.display());
     let script = format!(
-        "set -e; apt-get update -qq >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends e2fsprogs >/dev/null; \
-         mke2fs -q -t ext4 -L boxquell-root -d /work/rootfs.tar /work/disk.img {size}; chown --reference=/work /work/disk.img"
+        "set -e; apt-get update -qq >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq e2fsprogs libarchive-tools >/dev/null; \
+         LC_ALL=C.UTF-8 mke2fs -q -t ext4 -L boxquell-root -d /work/rootfs.tar /work/disk.img {size}; chown --reference=/work /work/disk.img"
     );
     run(
         "docker",
