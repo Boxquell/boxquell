@@ -439,4 +439,7 @@ select.version { padding: 1px 24px 1px 8px; background-position: right 7px cente
 
 /* A picture sits in the middle of its square, whatever the text settings around it. */
 .avatar, .os-art { display: flex; align-items: center; justify-content: center; line-height: 1; }
-.avatar .brand-icon, .os-art .brand-icon { display: block; margin: 0; vertical-align: baseline; }
+/* Pinned to all four sides with automatic margins: centred without relying on
+   how an engine lays out the square's content. */
+.avatar, .os-art { position: relative; }
+.avatar .brand-icon, .os-art .brand-icon { display: block; position: absolute; inset: 0; margin: auto; vertical-align: baseline; }
