@@ -438,6 +438,33 @@ async fn set_key_limits(State(daemon): App, Json(body): Json<std::collections::B
     Ok(Json(serde_json::to_value(daemon.key_limits())?))
 }
 
+#[derive(Deserialize)]
+struct TaskBody {
+    agent: String,
+    prompt: String,
+    /// Take a snapshot of the sandbox first.
+    #[serde(default)]
+    snapshot: bool,
+}
+
+async fn start_task(State(daemon): App, Path(name): Path<String>, Json(body): Json<TaskBody>) -> ApiResult {
+    Ok(Json(daemon.start_task(&name, &body.agent, &body.prompt, body.snapshot).await?))
+}
+
+async fn task_log(State(daemon): App, Path((name, id)): Path<(String, String)>) -> ApiResult {
+    Ok(Json(json!({ "text": daemon.task_log(&name, &id)? })))
+}
+
+async fn stop_task(State(daemon): App, Path((name, id)): Path<(String, String)>) -> ApiResult {
+    daemon.stop_task(&name, &id)?;
+    Ok(Json(json!({})))
+}
+
+async fn delete_task(State(daemon): App, Path((name, id)): Path<(String, String)>) -> ApiResult {
+    daemon.delete_task(&name, &id)?;
+    Ok(Json(daemon.info(&name)?))
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -947,6 +974,9 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
         .route("/api/sandboxes/{name}/template", post(save_template))
         .route("/api/templates", get(templates))
+        .route("/api/sandboxes/{name}/tasks", post(start_task))
+        .route("/api/sandboxes/{name}/tasks/{id}", get(task_log).delete(delete_task))
+        .route("/api/sandboxes/{name}/tasks/{id}/stop", post(stop_task))
         .route("/api/usage", get(usage))
         .route("/api/prices", get(prices).put(set_prices))
         .route("/api/key-limits", get(key_limits).put(set_key_limits))

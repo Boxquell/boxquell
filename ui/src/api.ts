@@ -55,6 +55,8 @@ export interface Sandbox {
   rule_expiry?: Record<string, number>;
   /** Bytes to and from destinations outside since the start, against the limits */
   traffic?: { up: number; down: number; upload_limit_mib: number | null; download_limit_mib: number | null; cut: boolean };
+  /** Tasks given to its agents, newest first */
+  tasks?: Task[];
   /** Saved states of the disk, oldest first */
   snapshots?: Snapshot[];
   /** Installed software for which there is something newer */
@@ -137,6 +139,20 @@ export interface Price {
   cache_write: number;
 }
 
+/** A task given to an agent to work through in the background. */
+export interface Task {
+  id: string;
+  agent: string;
+  agent_name: string;
+  prompt: string;
+  state: "running" | "done" | "failed" | "stopped" | "interrupted";
+  started_ms: number;
+  ended_ms?: number;
+  exit?: number | null;
+  /** The snapshot taken before it started */
+  snapshot?: string | null;
+}
+
 /** A saved state of a sandbox's disk. */
 export interface Snapshot {
   id: string;
@@ -174,6 +190,8 @@ export interface Recipe {
   uninstall?: string | null;
   /** Recipes that are installed first */
   requires?: string[];
+  /** For agents: the command that works through one task without a terminal */
+  task?: string | null;
   /** For agents: the variable that names the model it starts with */
   model_env?: string | null;
   /** A single-colour SVG drawing, when the definition has one. */
@@ -457,6 +475,10 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  startTask: (name: string, agent: string, prompt: string, snapshot: boolean) => call<Task>("POST", `${box(name)}/tasks`, { agent, prompt, snapshot }),
+  taskLog: (name: string, id: string) => call<{ text: string }>("GET", `${box(name)}/tasks/${encodeURIComponent(id)}`),
+  stopTask: (name: string, id: string) => call<unknown>("POST", `${box(name)}/tasks/${encodeURIComponent(id)}/stop`, {}),
+  deleteTask: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/tasks/${encodeURIComponent(id)}`),
   usage: (days: number) => call<UsageReport>("GET", `/api/usage?days=${days}`),
   prices: () => call<Price[]>("GET", "/api/prices"),
   setPrices: (prices: Price[]) => call<Price[]>("PUT", "/api/prices", prices),

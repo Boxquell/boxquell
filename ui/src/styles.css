@@ -516,3 +516,21 @@ details > summary { cursor: pointer; list-style: none; }
 details > summary h3 { display: inline; }
 details > summary::before { content: "›"; display: inline-block; margin-right: 6px; color: var(--muted); transition: transform 0.15s var(--ease); }
 details[open] > summary::before { transform: rotate(90deg); }
+
+/* Tasks: what was asked, how it went, and its log on demand. */
+.task-form { display: flex; flex-direction: column; gap: 10px; }
+.tasks { list-style: none; margin: 0; padding: 0; }
+.tasks > li { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 12px; border-top: 0.5px solid var(--line); padding: 4px 0; }
+.tasks > li:first-child { border-top: 0; }
+.task-head { display: flex; align-items: center; gap: 12px; text-align: left; background: none; padding: 8px 0; min-height: 0; width: 100%; font-weight: 400; }
+.task-head:hover:not(:disabled) { background: none; }
+.task-head strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.task-head small { display: block; margin-top: 2px; }
+.task-head svg { flex: none; color: var(--muted); }
+.task-head svg.good { color: var(--good); }
+.task-head svg.bad { color: var(--bad); }
+.task-actions { display: flex; gap: 10px; align-items: center; }
+.task-log { grid-column: 1 / -1; margin: 4px 0 10px; max-height: 360px; overflow: auto; background: var(--fill); border-radius: var(--radius-control); padding: 12px 14px; font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.spin { animation: spin 1s linear infinite; color: var(--accent) !important; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

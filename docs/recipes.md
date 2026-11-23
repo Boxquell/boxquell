@@ -91,6 +91,7 @@ Rules of thumb:
 - Keep `allow` as small as possible: these destinations are open for a sandbox for as long as the recipe is installed. Users see them before the install and can switch each one off under Network.
 - The guest is Debian. Install to system paths (`/usr/local`) so every session finds the software.
 - An icon is a small single-colour SVG (under 64 KB, no scripts or links); the UI paints it in the text colour. System definitions in `os/` take the same `icon` line.
+- An agent recipe can name the command that works through one task without a terminal and then ends: `task = "claude -p {prompt} --dangerously-skip-permissions"`. `{prompt}` is replaced by the task's text, quoted for the shell. The agent must not wait for answers: nobody is there, and the sandbox is what limits it.
 - An agent recipe can name the variable that selects its model, `model_env = "ANTHROPIC_MODEL"`; the UI then offers a model field for it.
 - Never put credentials into a recipe. Name a secret instead; its value stays on the host.
 

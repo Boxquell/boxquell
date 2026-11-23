@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Tasks: give an installed agent a task to work through in the background, without a terminal (`boxquell task box "…"`, and a Tasks tab per sandbox with the log of each task). A snapshot of the sandbox can be taken first, and a notification says when the task is over. Agent recipes name the command for it with `task`.
 - Usage: Boxquell reads the tokens a request to a model API used from its answer as it passes (Anthropic and OpenAI formats, also streams) and shows them on a Usage page: a chart per hour or day, sums per key, sandbox and model, and an estimated cost from an editable price list.
 - Limits per key and day, in dollars or tokens: a key that reaches its limit is refused until the next day, with an answer that says so.
 - Project file: a `boxquell.toml` in a project folder describes its sandbox (system, software, rules, ports, variables). `boxquell up` in the folder creates and starts it, `boxquell init` writes the file from a sandbox, and the form for a new sandbox offers to use the file of the chosen folder.

@@ -1,10 +1,11 @@
 import { BrandIcon } from "./BrandIcon";
 import { Config } from "./Config";
 import { Snapshots } from "./Snapshots";
+import { Tasks } from "./Tasks";
 import { count, dollars } from "./Usage";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Activity, Bot, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
+import { Activity, Bot, ListChecks, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
 import { api, type Recipe, type Sandbox, type Secret } from "./api";
 import { FolderField } from "./FolderPicker";
 import { LogViewer } from "./LogViewer";
@@ -18,10 +19,11 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "overview" | "terminal" | "software" | "config" | "agent" | "network" | "log" | "secrets" | "settings";
+export type Tab = "overview" | "terminal" | "tasks" | "software" | "config" | "agent" | "network" | "log" | "secrets" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["terminal", "Terminal"],
+  ["tasks", "Tasks"],
   ["software", "Software"],
   ["config", "Config"],
   ["agent", "Agent"],
@@ -34,6 +36,7 @@ const TABS: [Tab, string][] = [
 const TAB_ICONS: Record<Tab, LucideIcon> = {
   overview: Activity,
   terminal: SquareTerminal,
+  tasks: ListChecks,
   software: Package,
   config: SlidersHorizontal,
   agent: Bot,
@@ -145,6 +148,7 @@ export function SandboxView(props: ViewProps) {
         </section>
       )}
       {tab === "software" && <Software {...props} />}
+      {tab === "tasks" && <Tasks sandbox={sandbox} recipes={recipes} act={act} openSoftware={() => setTab("software")} openSettings={() => setTab("settings")} />}
       {tab === "config" && <Config sandbox={sandbox} recipes={recipes} secrets={props.secrets} act={act} openSoftware={() => setTab("software")} />}
       {tab === "agent" && <AgentSettings sandbox={sandbox.name} act={act} />}
       {tab === "network" && (

@@ -79,6 +79,12 @@ pub struct Recipe {
     /// a field for each on the sandbox's Config tab.
     #[serde(default)]
     pub config: Vec<ConfigOption>,
+    /// For agents: the command that works through one task without a
+    /// terminal and ends, with `{prompt}` where the task's text goes, e.g.
+    /// `claude -p {prompt}`. With it the agent can be given tasks to run in
+    /// the background.
+    #[serde(default)]
+    pub task: Option<String>,
     /// For agents: the environment variable that names the model it starts
     /// with, e.g. `ANTHROPIC_MODEL`. The UI offers a field for it.
     #[serde(default)]

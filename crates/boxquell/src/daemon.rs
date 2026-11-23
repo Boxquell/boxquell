@@ -240,6 +240,8 @@ pub struct Daemon {
     /// `<sandbox>/<secret>`, and what went wrong the last time, if anything.
     helper_runs: Mutex<HashMap<String, (std::time::Instant, Option<String>)>>,
     handled_lock: Mutex<()>,
+    /// Tasks that run now, by `<sandbox>/<id>`, each with the signal that ends it.
+    tasks: Mutex<HashMap<String, Arc<Notify>>>,
     /// Keys whose limit for the day is reached; the gateways refuse requests that would carry one.
     paused_keys: Arc<RwLock<Vec<String>>>,
     /// Recent load of this computer itself, oldest first: (CPU percent, memory used and total in MiB, disk used and total in GiB).
@@ -403,6 +405,7 @@ impl Daemon {
             running: Mutex::new(HashMap::new()),
             helper_runs: Mutex::default(),
             handled_lock: Mutex::default(),
+            tasks: Mutex::default(),
             paused_keys: Arc::default(),
             host_load: Mutex::default(),
             release: Mutex::default(),
@@ -474,6 +477,7 @@ impl Daemon {
             "traffic": traffic,
             "recipe_updates": self.recipe_updates(&spec),
             "snapshots": self.snapshots(name),
+            "tasks": self.tasks(name),
             "auto_rules": self.auto_rules(&spec).into_iter().map(|(source, name, hosts)| json!({
                 "source": source,
                 "name": name,
@@ -711,7 +715,9 @@ impl Daemon {
                     None if spec.autostart.is_empty() => self.settings().idle_stop_minutes,
                     None => 0,
                 };
-                let working = running.paused.load(Relaxed) || self.jobs.lock().unwrap().get(&name).is_some_and(|job| job.state == "running");
+                let in_task = self.tasks.lock().unwrap().keys().any(|key| key.starts_with(&format!("{name}/")));
+                let working =
+                    in_task || running.paused.load(Relaxed) || self.jobs.lock().unwrap().get(&name).is_some_and(|job| job.state == "running");
                 if minutes > 0 && !working && running.busy_at.lock().unwrap().elapsed() >= Duration::from_secs(minutes * 60) {
                     // Counting starts over, so the stop is asked for once.
                     *running.busy_at.lock().unwrap() = std::time::Instant::now();
@@ -1291,6 +1297,119 @@ impl Daemon {
             );
         }
         *paused = over;
+    }
+
+    /// The tasks given to a sandbox's agents, newest first.
+    pub fn tasks(&self, name: &str) -> Vec<Value> {
+        let mut all = records(&self.home.sandbox(name).join("tasks"));
+        for task in &mut all {
+            // A task that was running when the daemon ended did not finish.
+            let live = self.tasks.lock().unwrap().contains_key(&format!("{name}/{}", task["id"].as_str().unwrap_or_default()));
+            if task["state"] == "running" && !live {
+                task["state"] = json!("interrupted");
+            }
+        }
+        all.reverse();
+        all
+    }
+
+    pub fn task_log(&self, name: &str, id: &str) -> Result<String> {
+        validate_name(id)?;
+        Ok(tail(&self.home.sandbox(name).join("tasks").join(format!("{id}.log")), 2000))
+    }
+
+    /// Give an installed agent a task to work through in the background, in
+    /// the project root. Its output goes to a log; a notification says when
+    /// it is over.
+    pub async fn start_task(self: &Arc<Self>, name: &str, agent: &str, prompt: &str, snapshot: bool) -> Result<Value> {
+        let prompt = prompt.trim();
+        ensure!(!prompt.is_empty(), "say what the agent should do");
+        let spec = self.spec(name)?;
+        let catalog = boxquell_core::recipe::Catalog::of(&self.home)?;
+        let recipe = catalog.find(agent)?;
+        ensure!(spec.recipes.iter().any(|entry| entry.split('@').next() == Some(recipe.id.as_str())), "{} is not installed in {name}", recipe.name);
+        let template = recipe
+            .task
+            .clone()
+            .with_context(|| format!("{} cannot be given a task without a terminal; its recipe names no command for that", recipe.name))?;
+        let command = template.replace("{prompt}", &shell_quote(prompt));
+        // The state before the agent starts, to go back to when the result is no good.
+        let mut snapshot_id = None;
+        if snapshot {
+            let label: String = prompt.chars().take(60).collect();
+            snapshot_id = self.take_snapshot(name, &format!("before the task: {label}")).await?["id"].as_str().map(str::to_string);
+        }
+        let info = self.start(name).await?;
+        let port = info["ssh_port"].as_u64().context("the sandbox has no ssh port")? as u16;
+        let dir = self.home.sandbox(name);
+        let tasks = dir.join("tasks");
+        std::fs::create_dir_all(&tasks)?;
+        let started = now_ms();
+        let id = format!("t{}", started / 1000);
+        let record = json!({ "id": id, "agent": recipe.id, "agent_name": recipe.name, "prompt": prompt, "state": "running", "started_ms": started, "created_ms": started, "snapshot": snapshot_id });
+        let file = tasks.join(format!("{id}.json"));
+        std::fs::write(&file, serde_json::to_vec_pretty(&record)?)?;
+        let log = std::fs::File::create(tasks.join(format!("{id}.log")))?;
+        let mut child = tokio::process::Command::new("ssh")
+            .args(ssh::base_args(&dir.join("id_ed25519"), port))
+            // A login shell loads the sandbox's environment; the agent runs where sessions start.
+            .arg(format!("bash -lc {}", shell_quote(&command)))
+            .stdin(Stdio::null())
+            .stdout(log.try_clone()?)
+            .stderr(log)
+            .kill_on_drop(true)
+            .spawn()
+            .context("cannot run ssh; is OpenSSH installed?")?;
+        let stop = Arc::new(Notify::new());
+        let key = format!("{name}/{id}");
+        self.tasks.lock().unwrap().insert(key.clone(), stop.clone());
+        let (daemon, sandbox, agent_name, mut ending) = (self.clone(), name.to_string(), recipe.name.clone(), record.clone());
+        tokio::spawn(async move {
+            let record = &mut ending;
+            let (state, exit) = tokio::select! {
+                status = child.wait() => match status {
+                    Ok(status) if status.success() => ("done", status.code()),
+                    Ok(status) => ("failed", status.code()),
+                    Err(_) => ("failed", None),
+                },
+                _ = stop.notified() => {
+                    let _ = child.kill().await;
+                    ("stopped", None)
+                }
+            };
+            daemon.tasks.lock().unwrap().remove(&key);
+            record["state"] = json!(state);
+            record["exit"] = json!(exit);
+            record["ended_ms"] = json!(now_ms());
+            let _ = std::fs::write(&file, serde_json::to_vec_pretty(record).unwrap_or_default());
+            let outcome = match state {
+                "done" => "finished its task",
+                "stopped" => "was stopped",
+                _ => "ended with an error",
+            };
+            crate::notify::show(&format!("{agent_name} in {sandbox} {outcome}"), record["prompt"].as_str().unwrap_or_default());
+            if let Some(running) = daemon.running(&sandbox) {
+                *running.busy_at.lock().unwrap() = std::time::Instant::now();
+            }
+        });
+        Ok(record)
+    }
+
+    /// End a running task.
+    pub fn stop_task(&self, name: &str, id: &str) -> Result<()> {
+        let stop = self.tasks.lock().unwrap().get(&format!("{name}/{id}")).cloned().with_context(|| format!("the task {id} is not running"))?;
+        stop.notify_one();
+        Ok(())
+    }
+
+    /// Take a task that is over off the list, with its log.
+    pub fn delete_task(&self, name: &str, id: &str) -> Result<()> {
+        validate_name(id)?;
+        ensure!(!self.tasks.lock().unwrap().contains_key(&format!("{name}/{id}")), "the task is still running; stop it first");
+        for extension in ["json", "log"] {
+            let _ = std::fs::remove_file(self.home.sandbox(name).join("tasks").join(format!("{id}.{extension}")));
+        }
+        Ok(())
     }
 
     fn templates_dir(&self) -> PathBuf {

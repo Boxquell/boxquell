@@ -186,6 +186,27 @@ enum Cmd {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Give an installed agent a task to work through in the background, e.g. `boxquell task box "add tests for the parser"`
+    Task {
+        name: String,
+        /// What the agent should do; without it, the tasks of the sandbox are listed
+        prompt: Vec<String>,
+        /// The agent, when more than one that can take tasks is installed
+        #[arg(long)]
+        agent: Option<String>,
+        /// Take a snapshot of the sandbox first, to go back to
+        #[arg(long)]
+        snapshot: bool,
+        /// Print the log of this task instead
+        #[arg(long, value_name = "ID")]
+        log: Option<String>,
+        /// Stop this running task instead
+        #[arg(long, value_name = "ID")]
+        stop: Option<String>,
+        /// Wait for the task to end and print its log
+        #[arg(long)]
+        wait: bool,
+    },
     /// Allow a destination
     Allow {
         name: String,
@@ -875,6 +896,70 @@ fn main() -> Result<()> {
             } else {
                 install::install(&client, &name, &catalog, &with, false)?;
                 println!("{name} is ready; open it with `boxquell shell {name}`");
+            }
+        }
+        Cmd::Task { name, prompt, agent, snapshot, log, stop, wait } => {
+            let client = Client::connect(&home)?;
+            let path = format!("/api/sandboxes/{name}");
+            if let Some(id) = stop {
+                client.post(&format!("{path}/tasks/{id}/stop"), json!({}))?;
+                println!("{name}: stopping the task {id}");
+            } else if let Some(id) = log {
+                print!("{}", client.get(&format!("{path}/tasks/{id}"))?["text"].as_str().unwrap_or_default());
+            } else if prompt.is_empty() {
+                for task in client.get(&path)?["tasks"].as_array().into_iter().flatten() {
+                    let text: String = task["prompt"].as_str().unwrap_or_default().chars().take(70).collect();
+                    println!(
+                        "{:<13} {:<11} {:<14} {text}",
+                        task["id"].as_str().unwrap_or(""),
+                        task["state"].as_str().unwrap_or(""),
+                        task["agent_name"].as_str().unwrap_or("")
+                    );
+                }
+            } else {
+                // Without --agent: the one installed agent that can take a task.
+                let agent = match agent {
+                    Some(agent) => agent,
+                    None => {
+                        let catalog = catalog(&home)?;
+                        let info = client.get(&path)?;
+                        let able: Vec<String> = info["recipes"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|entry| catalog.get(entry.as_str()?.split('@').next()?))
+                            .filter(|recipe| recipe.task.is_some())
+                            .map(|recipe| recipe.id.clone())
+                            .collect();
+                        match able.as_slice() {
+                            [one] => one.clone(),
+                            [] => bail!("no agent in {name} can take a task without a terminal; install one, e.g. `boxquell add {name} claude`"),
+                            many => bail!("several agents can take the task; choose one with --agent: {}", many.join(", ")),
+                        }
+                    }
+                };
+                let task = client.post(&format!("{path}/tasks"), json!({ "agent": agent, "prompt": prompt.join(" "), "snapshot": snapshot }))?;
+                let id = task["id"].as_str().unwrap_or_default().to_string();
+                println!(
+                    "{name}: {} works on it (task {id}); `boxquell task {name} --log {id}` shows what it does",
+                    task["agent_name"].as_str().unwrap_or("the agent")
+                );
+                if wait {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        let state = client.get(&path)?["tasks"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find(|task| task["id"] == id.as_str())
+                            .map(|task| task["state"].clone());
+                        if state.as_ref().is_none_or(|state| state != "running") {
+                            print!("{}", client.get(&format!("{path}/tasks/{id}"))?["text"].as_str().unwrap_or_default());
+                            println!("{name}: the task ended: {}", state.and_then(|state| state.as_str().map(str::to_string)).unwrap_or_default());
+                            break;
+                        }
+                    }
+                }
             }
         }
         Cmd::Snapshot { command } => {
