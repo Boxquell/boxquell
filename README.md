@@ -49,7 +49,7 @@ Coding agents such as Claude Code, Codex, Gemini CLI or opencode run commands on
 </tr>
 </table>
 
-Around that: 13 agents, 14 languages and 60 tools to install with a click, 10 Linux systems, snapshots and templates, background tasks, token usage with a cost estimate, speed and data limits, and a project file that rebuilds a sandbox from the repository.
+Around that: 13 agents, 17 languages and 65 tools to install with a click, 10 Linux systems, snapshots and templates, background tasks, token usage with a cost estimate, speed and data limits, and a project file that rebuilds a sandbox from the repository.
 
 ## A look around
 
