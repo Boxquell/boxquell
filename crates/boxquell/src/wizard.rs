@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn typing_a_name_and_ticking_an_agent_yields_a_choice() {
-        let catalog = Catalog::load(std::path::Path::new("/nonexistent"), std::path::Path::new("/nonexistent")).unwrap();
+        let catalog = boxquell_core::recipe::fixture_catalog(&[]);
         let mut form = Form::new(&catalog, "");
         assert!(matches!(press(&mut form, KeyCode::Enter), Step::Continue), "an empty name is refused");
         assert!(form.error.is_some());
@@ -273,15 +273,15 @@ mod tests {
         let Step::Done(choice) = press(&mut form, KeyCode::Enter) else { panic!("form should be complete") };
         assert_eq!(choice.name, "box1");
         assert_eq!(choice.workspace, None);
-        assert_eq!(choice.recipes, ["claude"]);
+        assert_eq!(choice.recipes, ["agents:claude"]);
 
         // Left/right on a language picks a version and selects it.
-        let node = form.fields.iter().position(|f| matches!(f, Field::Check { id, .. } if id == "node")).unwrap();
+        let node = form.fields.iter().position(|f| matches!(f, Field::Check { id, .. } if id == "languages:node")).unwrap();
         form.cursor = node;
         press(&mut form, KeyCode::Right);
         let Step::Done(choice) = press(&mut form, KeyCode::Enter) else { panic!("form should be complete") };
         let second = catalog.find("node").unwrap().versions[1].clone();
-        assert_eq!(choice.recipes, ["claude".to_string(), format!("node@{second}")]);
+        assert_eq!(choice.recipes, ["agents:claude".to_string(), format!("languages:node@{second}")]);
         assert_eq!((choice.cpus, choice.ram_mib, choice.disk_gib), (2, 4096, 20));
     }
 }

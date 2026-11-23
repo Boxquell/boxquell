@@ -38,8 +38,10 @@ export interface Sandbox {
 
 export interface Recipe {
   id: string;
-  /** `builtin`, `local` or the repository's name */
+  /** The repository's name, or `local` */
   source: string;
+  /** From one of the official repositories */
+  official: boolean;
   install_allow: string[];
   /** Versions on offer, the default first; empty when there is no choice. */
   versions: string[];
@@ -53,6 +55,7 @@ export interface Recipe {
 
 export interface Repo {
   name: string;
+  official: boolean;
   url: string;
   revision: string;
   recipes: number;
@@ -96,11 +99,17 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+/** A daemon older than this page leaves newer fields out; fill them so the page still works. */
+function withDefaults(sandbox: Sandbox): Sandbox {
+  return { ...sandbox, mode: sandbox.mode ?? "whitelist", recipes: sandbox.recipes ?? [], local_secrets: sandbox.local_secrets ?? [], ports: sandbox.ports ?? [] };
+}
+
 const box = (name: string) => `/api/sandboxes/${encodeURIComponent(name)}`;
 
 export const api = {
-  sandboxes: () => call<Sandbox[]>("GET", "/api/sandboxes"),
-  recipes: () => call<Recipe[]>("GET", "/api/recipes"),
+  sandboxes: () => call<Sandbox[]>("GET", "/api/sandboxes").then((list) => list.map(withDefaults)),
+  recipes: () =>
+    call<Recipe[]>("GET", "/api/recipes").then((list) => list.map((r) => ({ ...r, versions: r.versions ?? [], install_allow: r.install_allow ?? [] }))),
   repos: () => call<Repo[]>("GET", "/api/repos"),
   addRepo: (url: string, name?: string) => call<Repo>("POST", "/api/repos", { url, name }),
   updateRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}`, {}),

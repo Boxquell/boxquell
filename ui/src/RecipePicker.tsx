@@ -52,7 +52,7 @@ export function RecipePicker(props: { recipes: Recipe[]; installed: string[]; pi
                       ))}
                     </select>
                   )}
-                  {r.source !== "builtin" && <small className="muted">{r.source}</small>}
+                  {!r.official && <small className="muted">{r.source}</small>}
                 </div>
               );
             })}
@@ -66,6 +66,6 @@ export function RecipePicker(props: { recipes: Recipe[]; installed: string[]; pi
 /** Tooltip: what it is and, for recipes from elsewhere, what they open. */
 function describe(r: Recipe): string {
   const hosts = [...r.allow, ...r.install_allow];
-  if (r.source === "builtin" || hosts.length === 0) return r.description;
+  if (r.official || hosts.length === 0) return r.description;
   return `${r.description}\nFrom ${r.source}. Opens: ${hosts.join(", ")}`;
 }

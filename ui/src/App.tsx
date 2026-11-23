@@ -167,7 +167,6 @@ export function App() {
       )}
       {dialog === "plugins" && (
         <Plugins
-          recipes={recipes}
           onChange={() => api.recipes().then(setRecipes, () => {})}
           onClose={() => setDialog(null)}
         />

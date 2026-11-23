@@ -104,14 +104,23 @@ The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, 
 
 ### Plugins
 
-Agents, languages and tools are **recipes**: a small TOML file with an install script and the network destinations it needs. Recipes live in git repositories, and you can add your own or other people's:
+Agents, languages and tools are **recipes**: a small TOML file with an install script and the network destinations it needs. Boxquell ships none itself. Recipes live in git repositories, and on first use boxquell adds the three official ones:
+
+| Repository | Recipes |
+|---|---|
+| [boxquell-agents](https://github.com/ToBee94/boxquell-agents) | Claude Code, Codex, opencode, pi |
+| [boxquell-languages](https://github.com/ToBee94/boxquell-languages) | Node.js, Python, Go, Rust, with selectable versions (`node@22`) |
+| [boxquell-tools](https://github.com/ToBee94/boxquell-tools) | C/C++ build tools, GitHub CLI, jq, ripgrep |
+
+Add your own or other people's repositories next to them:
 
 ```sh
-boxquell repo add https://github.com/ToBee94/boxquell-recipes
-boxquell add mybox recipes:jq
+boxquell repo add https://example.com/someone/boxquell-extras
+boxquell add mybox extras:some-tool
+boxquell repo update
 ```
 
-Recipes from a repository are named `<repository>:<recipe>` and can never replace a built-in one. They run their own scripts inside the sandbox and open the destinations they list, so add only repositories you trust. See [boxquell-recipes](https://github.com/ToBee94/boxquell-recipes) for the format.
+A recipe is named `<repository>:<recipe>`; the short name works when it is unambiguous, and the official repositories win, so another repository cannot take over a name like `claude`. Recipes run their own scripts inside the sandbox and open the destinations they list, so add only repositories you trust. The format is described in [docs/recipes.md](docs/recipes.md).
 
 ## How it works
 
@@ -156,7 +165,7 @@ cargo test --workspace
 scripts/third-party-notices.sh
 ```
 
-The workspace: `boxquell-net` (gateway, policy, interception), `boxquell-vm` (libkrun and QEMU), `boxquell-core` (configuration, secrets, recipes, log), `boxquell` (CLI, daemon, API), `ui` (React), `image` (guest image), `recipes` (built-in recipes).
+The workspace: `boxquell-net` (gateway, policy, interception), `boxquell-vm` (libkrun and QEMU), `boxquell-core` (configuration, secrets, recipes, log), `boxquell` (CLI, daemon, API), `ui` (React), `image` (guest image).
 
 ## License
 

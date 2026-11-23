@@ -9,8 +9,42 @@ use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
 
+/// The repositories boxquell adds by itself: name and URL.
+pub const OFFICIAL: [(&str, &str); 3] = [
+    ("agents", "https://github.com/ToBee94/boxquell-agents"),
+    ("languages", "https://github.com/ToBee94/boxquell-languages"),
+    ("tools", "https://github.com/ToBee94/boxquell-tools"),
+];
+
+pub fn is_official(name: &str) -> bool {
+    OFFICIAL.iter().any(|(official, _)| *official == name)
+}
+
+/// Add the official repositories once. Later runs do nothing, so one the user
+/// removed stays away; `boxquell repo add <url>` brings it back.
+/// Returns what could not be fetched, e.g. without a network connection.
+pub fn ensure_official(home: &Home) -> Vec<String> {
+    let marker = home.repos().join(".official-added");
+    if marker.exists() {
+        return Vec::new();
+    }
+    let mut problems = Vec::new();
+    for (name, url) in OFFICIAL {
+        if !home.repos().join(name).exists() {
+            if let Err(err) = add(home, url, Some(name)) {
+                problems.push(format!("cannot fetch the {name} recipes from {url}: {err:#}"));
+            }
+        }
+    }
+    if problems.is_empty() {
+        let _ = std::fs::write(marker, "");
+    }
+    problems
+}
+
 #[derive(Debug, Serialize)]
 pub struct Repo {
+    pub official: bool,
     pub name: String,
     pub url: String,
     /// Short commit id of the checkout.
@@ -48,6 +82,7 @@ fn describe(checkout: &Path) -> Option<Repo> {
     let name = checkout.file_name()?.to_str()?.to_string();
     let count = std::fs::read_dir(repo_recipe_dir(checkout)).ok()?.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "toml")).count();
     Some(Repo {
+        official: is_official(&name),
         url: git(Some(checkout), &["config", "--get", "remote.origin.url"]).unwrap_or_default(),
         revision: git(Some(checkout), &["rev-parse", "--short", "HEAD"]).unwrap_or_default(),
         recipes: count,
@@ -69,7 +104,13 @@ pub fn add(home: &Home, url: &str, name: Option<&str>) -> Result<Repo> {
     ensure!(!url.is_empty() && !url.starts_with('-'), "give the repository's URL");
     let name = name.map(str::to_string).unwrap_or_else(|| name_from_url(url));
     ensure!(valid_name(&name), "invalid repository name {name:?}: use 1-32 characters of a-z, 0-9 and '-' (set one with --name)");
-    ensure!(!["builtin", "local"].contains(&name.as_str()), "the name {name:?} is reserved");
+    ensure!(name != "local", "the name {name:?} is reserved");
+    if let Some((_, official)) = OFFICIAL.iter().find(|(official, _)| *official == name) {
+        ensure!(
+            url.trim_end_matches(".git").trim_end_matches('/') == *official,
+            "the name {name:?} belongs to {official}; choose another with --name"
+        );
+    }
     let dir = home.repos().join(&name);
     ensure!(!dir.exists(), "a repository named {name:?} is already added; `boxquell repo update {name}` fetches its latest recipes");
     std::fs::create_dir_all(home.repos())?;

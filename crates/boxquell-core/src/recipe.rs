@@ -20,7 +20,10 @@ pub struct Recipe {
     /// Taken from the file name; recipes from a repository are `<repository>:<file name>`.
     #[serde(default)]
     pub id: String,
-    /// Where the recipe comes from: `builtin`, `local` or the repository's name.
+    /// Whether it comes from one of the official repositories.
+    #[serde(default)]
+    pub official: bool,
+    /// Where the recipe comes from: the repository's name, or `local`.
     #[serde(default)]
     pub source: String,
     pub name: String,
@@ -51,11 +54,6 @@ pub struct Recipe {
     /// Shell script run in the guest as the `dev` user (with passwordless sudo).
     pub install: String,
 }
-
-macro_rules! builtin {
-    ($($id:literal),*) => { [$(($id, include_str!(concat!("../../../recipes/", $id, ".toml")))),*] };
-}
-const BUILTIN: [(&str, &str); 10] = builtin!("claude", "codex", "opencode", "pi", "node", "python", "go", "rust", "build-essential", "gh");
 
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
@@ -114,15 +112,11 @@ impl Pick<'_> {
 pub struct Catalog(BTreeMap<String, Recipe>);
 
 impl Catalog {
-    /// Built-in recipes, the checkouts in `repos_dir` (ids prefixed with the
-    /// repository name, so they can never replace a built-in), and `*.toml`
-    /// files in `user_dir`, which override built-ins of the same id.
+    /// The recipes of the checkouts in `repos_dir`, named `<repository>:<file name>`,
+    /// and `*.toml` files in `user_dir`, named by their file name alone.
     /// A broken file in a repository is skipped; a broken local file is an error.
     pub fn load(user_dir: &Path, repos_dir: &Path) -> Result<Self> {
         let mut all = BTreeMap::new();
-        for (id, text) in BUILTIN {
-            all.insert(id.to_string(), parse(id, "builtin", text)?);
-        }
         let mut repos: Vec<_> = std::fs::read_dir(repos_dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
         repos.sort();
         for checkout in repos {
@@ -130,7 +124,8 @@ impl Catalog {
             for (stem, path) in recipe_files(&repo_recipe_dir(&checkout)) {
                 let id = format!("{repo}:{stem}");
                 if let Ok(mut recipe) = std::fs::read_to_string(&path).map_err(anyhow::Error::from).and_then(|text| parse(&id, repo, &text)) {
-                    // Dependencies name recipes of the same repository first, then built-ins.
+                    recipe.official = crate::repo::is_official(repo);
+                    // Dependencies name recipes of the same repository first, then any other.
                     for dep in &mut recipe.requires {
                         if !dep.contains(':') && recipe_files(&repo_recipe_dir(&checkout)).iter().any(|(s, _)| s == dep) {
                             *dep = format!("{repo}:{dep}");
@@ -156,10 +151,14 @@ impl Catalog {
             return Ok(recipe);
         }
         let matches: Vec<&Recipe> = self.0.values().filter(|r| r.id.split_once(':').is_some_and(|(_, stem)| stem == id)).collect();
-        match matches.as_slice() {
-            [one] => Ok(one),
-            [] => bail!("unknown recipe {id:?}; see `boxquell recipes`"),
-            many => bail!("{id:?} exists in several repositories; use one of: {}", many.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().join(", ")),
+        // The official repositories own the short names, so another repository cannot take one over.
+        let official: Vec<&Recipe> = matches.iter().copied().filter(|r| r.official).collect();
+        match (official.as_slice(), matches.as_slice()) {
+            ([one], _) | ([], [one]) => Ok(one),
+            (_, []) => bail!("unknown recipe {id:?}; see `boxquell recipes`"),
+            (_, many) => {
+                bail!("{id:?} exists in several repositories; use one of: {}", many.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().join(", "))
+            }
         }
     }
 
@@ -239,52 +238,66 @@ impl Catalog {
     }
 }
 
+/// A catalog like the official one, for tests: `agents`, `languages` and `tools` with a few recipes.
+#[doc(hidden)]
+pub fn fixture_catalog(extra: &[(&str, &str, &str)]) -> Catalog {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let dir =
+        std::env::temp_dir().join(format!("boxquell-fixture-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let recipe = |category: &str, more: &str| format!("name='X'\ncategory='{category}'\ndescription='d'\n{more}\ninstall='true'\n");
+    let mut files = vec![
+        ("agents", "claude", recipe("agent", "requires=['node']")),
+        ("agents", "codex", recipe("agent", "requires=['node']")),
+        ("languages", "node", recipe("language", "versions=['24','22']")),
+        ("languages", "rust", recipe("language", "requires=['build-essential']")),
+        ("tools", "build-essential", recipe("tool", "")),
+    ];
+    files.extend(extra.iter().map(|(repo, id, more)| (*repo, *id, recipe("tool", more))));
+    for (repo, id, text) in files {
+        let recipes = dir.join(repo).join("recipes");
+        std::fs::create_dir_all(&recipes).unwrap();
+        std::fs::write(recipes.join(format!("{id}.toml")), text).unwrap();
+    }
+    let catalog = Catalog::load(Path::new("/nonexistent"), &dir).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    catalog
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn builtins_parse_and_resolve_dependencies_first() {
-        let catalog = Catalog::load(Path::new("/nonexistent"), Path::new("/nonexistent")).unwrap();
+    fn short_names_resolve_across_repositories_dependencies_first() {
+        let catalog = fixture_catalog(&[]);
         for recipe in catalog.all() {
             catalog.resolve(std::slice::from_ref(&recipe.id)).unwrap();
         }
-        let order: Vec<&str> = catalog.resolve(&["claude".into(), "codex".into()]).unwrap().iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(order, ["node", "claude", "codex"]);
-        assert!(catalog.resolve(&["nope".into()]).is_err());
-
         let labels = |ids: &[&str]| -> Vec<String> {
             let ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
             catalog.resolve_versions(&ids).unwrap().iter().map(Pick::label).collect()
         };
-        assert_eq!(labels(&["claude", "node@22"]), ["node@22", "claude"]);
-        assert_eq!(labels(&["node"])[0], format!("node@{}", catalog.find("node").unwrap().versions[0]));
+        assert_eq!(labels(&["claude", "codex"]), ["languages:node@24", "agents:claude", "agents:codex"]);
+        assert_eq!(labels(&["claude", "node@22"]), ["languages:node@22", "agents:claude"]);
+        assert_eq!(labels(&["rust"]), ["tools:build-essential", "languages:rust"]);
+        assert!(catalog.resolve(&["nope".into()]).is_err());
         assert!(catalog.resolve_versions(&["node@1".into()]).is_err());
         assert!(catalog.resolve_versions(&["claude@1".into()]).is_err());
     }
-}
-
-#[cfg(test)]
-mod repo_tests {
-    use super::*;
 
     #[test]
-    fn repository_recipes_are_prefixed_and_cannot_replace_builtins() {
-        let dir = std::env::temp_dir().join(format!("boxquell-recipe-test-{}", std::process::id()));
-        let repo = dir.join("extra").join("recipes");
-        std::fs::create_dir_all(&repo).unwrap();
-        let recipe = |requires: &str| format!("name='X'\ncategory='tool'\ndescription='d'\nrequires=[{requires}]\ninstall='true'\n");
-        std::fs::write(repo.join("claude.toml"), recipe("")).unwrap();
-        std::fs::write(repo.join("base.toml"), recipe("'node'")).unwrap();
-        std::fs::write(repo.join("zed.toml"), recipe("'base'")).unwrap();
-        std::fs::write(repo.join("broken.toml"), "nope").unwrap();
-        let catalog = Catalog::load(Path::new("/nonexistent"), &dir).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-
-        assert_eq!(catalog.find("claude").unwrap().source, "builtin");
+    fn other_repositories_cannot_take_over_official_names() {
+        let catalog = fixture_catalog(&[
+            ("extra", "claude", ""),
+            ("extra", "zed", "requires=['base']"),
+            ("extra", "base", "requires=['node']"),
+            ("more", "zed", ""),
+        ]);
+        assert_eq!(catalog.find("claude").unwrap().id, "agents:claude");
         assert_eq!(catalog.find("extra:claude").unwrap().source, "extra");
-        assert!(catalog.find("extra:broken").is_err());
-        let order: Vec<&str> = catalog.resolve(&["zed".into()]).unwrap().iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(order, ["node", "extra:base", "extra:zed"]);
+        assert!(!catalog.find("extra:claude").unwrap().official);
+        assert!(catalog.find("zed").is_err(), "two unofficial repositories offer it");
+        let order: Vec<&str> = catalog.resolve(&["extra:zed".into()]).unwrap().iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(order, ["languages:node", "extra:base", "extra:zed"]);
     }
 }

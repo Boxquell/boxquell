@@ -61,7 +61,7 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
     for pick in &picks {
         let recipe = pick.recipe;
         println!("==> {} ({})", recipe.name, pick.label());
-        if recipe.source != "builtin" && !(recipe.allow.is_empty() && recipe.install_allow.is_empty()) {
+        if !recipe.official && !(recipe.allow.is_empty() && recipe.install_allow.is_empty()) {
             let hosts: Vec<&str> = recipe.allow.iter().chain(&recipe.install_allow).map(String::as_str).collect();
             println!("    from {}: opens {}", recipe.source, hosts.join(", "));
         }

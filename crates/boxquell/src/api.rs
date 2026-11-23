@@ -148,7 +148,15 @@ struct RecipesBody {
 }
 
 async fn recipes(State(daemon): App) -> ApiResult {
-    let catalog = boxquell_core::recipe::Catalog::of(&daemon.home)?;
+    // The first listing fetches the official repositories; git talks to the network.
+    let home = daemon.home.clone();
+    let catalog = tokio::task::spawn_blocking(move || {
+        for problem in boxquell_core::repo::ensure_official(&home) {
+            eprintln!("boxquell: {problem}");
+        }
+        boxquell_core::recipe::Catalog::of(&home)
+    })
+    .await??;
     Ok(Json(serde_json::to_value(catalog.all())?))
 }
 

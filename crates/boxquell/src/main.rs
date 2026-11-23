@@ -273,6 +273,14 @@ enum SecretCmd {
     Attach { sandbox: String, name: String },
 }
 
+/// The recipe catalog; on first use this fetches the official repositories.
+fn catalog(home: &Home) -> Result<Catalog> {
+    for problem in repo::ensure_official(home) {
+        eprintln!("warning: {problem}");
+    }
+    Catalog::of(home)
+}
+
 fn rule(action: &str, host: &str) -> Value {
     json!({ "rule": format!("{action} {host}") })
 }
@@ -367,7 +375,7 @@ fn main() -> Result<()> {
             if !std::io::stdin().is_terminal() {
                 bail!("give the sandbox a name: `boxquell new <name>` (the interactive form needs a terminal)");
             }
-            let catalog = Catalog::of(&home)?;
+            let catalog = catalog(&home)?;
             let Some(choice) = wizard::run(&catalog)? else { return Ok(()) };
             let rules: Vec<String> = allow.iter().map(|host| format!("allow {host}")).collect();
             let spec = json!({ "name": choice.name, "workspace": choice.workspace, "cpus": choice.cpus, "ram_mib": choice.ram_mib,
@@ -386,7 +394,7 @@ fn main() -> Result<()> {
             let workspace = workspace.map(std::path::absolute).transpose()?;
             let rules: Vec<String> = allow.iter().map(|host| format!("allow {host}")).collect();
             let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets });
-            let catalog = Catalog::of(&home)?;
+            let catalog = catalog(&home)?;
             catalog.resolve(&with)?;
             let client = Client::connect(&home)?;
             client.post("/api/sandboxes", spec)?;
@@ -410,7 +418,7 @@ fn main() -> Result<()> {
             println!("{name} deleted");
         }
         Cmd::Recipes => {
-            for recipe in Catalog::of(&home)?.all() {
+            for recipe in catalog(&home)?.all() {
                 let versions = if recipe.versions.is_empty() { String::new() } else { format!("  [versions: {}]", recipe.versions.join(", ")) };
                 println!(
                     "{:<24} {:<9} {:<10} {}{versions}",
@@ -450,7 +458,7 @@ fn main() -> Result<()> {
                 println!("removed {name}");
             }
         },
-        Cmd::Add { name, recipes } => install::install(&Client::connect(&home)?, &name, &Catalog::of(&home)?, &recipes)?,
+        Cmd::Add { name, recipes } => install::install(&Client::connect(&home)?, &name, &catalog(&home)?, &recipes)?,
         Cmd::Ui { no_open } => {
             let url = Client::connect(&home)?.ui_url();
             println!("{url}");
