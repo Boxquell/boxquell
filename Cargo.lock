@@ -275,7 +275,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "futures-util",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "if-addrs",
  "portable-pty",
  "ratatui",
