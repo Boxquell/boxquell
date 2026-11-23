@@ -6,7 +6,7 @@ Boxquell exists to contain software you do not fully trust, so reports about way
 
 Please report privately, not in a public issue:
 
-- Use **[Report a vulnerability](https://github.com/ToBee94/boxquell/security/advisories/new)** on GitHub (private vulnerability reporting).
+- Use **[Report a vulnerability](https://github.com/Boxquell/boxquell/security/advisories/new)** on GitHub (private vulnerability reporting).
 
 Include what you did, what happened, what you expected, and the version or commit. A small reproduction helps most. You can expect a first answer within a week. Please give a fix reasonable time before publishing details; you will be credited in the advisory unless you prefer otherwise.
 

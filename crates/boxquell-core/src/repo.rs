@@ -11,10 +11,10 @@ use std::process::Command;
 
 /// The repositories boxquell adds by itself: name and URL.
 pub const OFFICIAL: [(&str, &str); 4] = [
-    ("agents", "https://github.com/ToBee94/boxquell-agents"),
-    ("languages", "https://github.com/ToBee94/boxquell-languages"),
-    ("tools", "https://github.com/ToBee94/boxquell-tools"),
-    ("os", "https://github.com/ToBee94/boxquell-os"),
+    ("agents", "https://github.com/Boxquell/boxquell-agents"),
+    ("languages", "https://github.com/Boxquell/boxquell-languages"),
+    ("tools", "https://github.com/Boxquell/boxquell-tools"),
+    ("os", "https://github.com/Boxquell/boxquell-os"),
 ];
 
 pub fn is_official(name: &str) -> bool {

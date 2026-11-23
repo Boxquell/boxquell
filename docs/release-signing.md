@@ -46,5 +46,5 @@ Without the Apple secrets the binary still gets an ad-hoc signature with the ent
 1. Push a release-candidate tag, e.g. `v0.1.0-rc1`, and watch the workflow.
 2. Windows: right-click `boxquell.exe` → Properties → Digital Signatures, or `signtool verify /pa /v boxquell.exe`.
 3. macOS: `codesign --verify --strict --verbose=2 boxquell` and `spctl --assess --type execute --verbose boxquell`.
-4. Compare the download with `SHA256SUMS`, and check its build provenance: `gh attestation verify <file> --repo ToBee94/boxquell`.
+4. Compare the download with `SHA256SUMS`, and check its build provenance: `gh attestation verify <file> --repo Boxquell/boxquell`.
 5. Delete the release candidate when everything is fine, then tag the real version.

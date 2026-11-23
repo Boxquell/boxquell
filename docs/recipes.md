@@ -1,6 +1,6 @@
 # Recipes and recipe repositories
 
-Agents, languages and tools are installed into a sandbox by **recipes**. Boxquell ships none itself: on first use it adds three official repositories, [agents](https://github.com/ToBee94/boxquell-agents), [languages](https://github.com/ToBee94/boxquell-languages) and [tools](https://github.com/ToBee94/boxquell-tools), and you can add any number of others.
+Agents, languages and tools are installed into a sandbox by **recipes**. Boxquell ships none itself: on first use it adds three official repositories, [agents](https://github.com/Boxquell/boxquell-agents), [languages](https://github.com/Boxquell/boxquell-languages) and [tools](https://github.com/Boxquell/boxquell-tools), and you can add any number of others.
 
 ```sh
 boxquell repo ls

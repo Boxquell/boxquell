@@ -3,7 +3,7 @@
 Thanks for helping. A few things that make a change easy to accept:
 
 - **Talk first for bigger changes.** Open an issue describing the problem before writing a large patch.
-- **Recipes** (agents, languages, tools) live in their own repositories: [agents](https://github.com/ToBee94/boxquell-agents), [languages](https://github.com/ToBee94/boxquell-languages), [tools](https://github.com/ToBee94/boxquell-tools). The format is in [docs/recipes.md](docs/recipes.md).
+- **Recipes** (agents, languages, tools) live in their own repositories: [agents](https://github.com/Boxquell/boxquell-agents), [languages](https://github.com/Boxquell/boxquell-languages), [tools](https://github.com/Boxquell/boxquell-tools). The format is in [docs/recipes.md](docs/recipes.md).
 - **Security problems** go through the private report in [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Working on the code

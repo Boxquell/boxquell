@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ToBee94/boxquell/actions/workflows/ci.yml"><img src="https://github.com/ToBee94/boxquell/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/Boxquell/boxquell/actions/workflows/ci.yml"><img src="https://github.com/Boxquell/boxquell/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License: MIT or Apache-2.0">
   <img src="https://img.shields.io/badge/status-early%20development-orange" alt="Status: early development">
 </p>
@@ -42,7 +42,7 @@ Boxquell is in early development. It is built and tested on **Linux** (x86_64, K
 You need KVM, an OpenSSH client, git, Docker (only to build the guest image), Rust and Node.js. For the default backend install [libkrun and libkrunfw](https://github.com/containers/libkrun); the `qemu` backend needs `qemu-system-x86_64` instead.
 
 ```sh
-git clone https://github.com/ToBee94/boxquell && cd boxquell
+git clone https://github.com/Boxquell/boxquell && cd boxquell
 (cd ui && npm ci && npm run build)        # the web UI is embedded into the binary
 cargo build --release
 export PATH="$PWD/target/release:$PATH"
@@ -107,7 +107,7 @@ boxquell os build ubuntu
 boxquell new mybox --os ubuntu
 ```
 
-Systems are definitions in a repository, like recipes: a container image plus a setup script, built once into a disk image. The official ones live in [boxquell-os](https://github.com/ToBee94/boxquell-os). Recipes say which systems they support; Debian runs all of them, Ubuntu most, Alpine none yet. Only systems that bring a kernel (Debian) run on the qemu backend.
+Systems are definitions in a repository, like recipes: a container image plus a setup script, built once into a disk image. The official ones live in [boxquell-os](https://github.com/Boxquell/boxquell-os). Recipes say which systems they support; Debian runs all of them, Ubuntu most, Alpine none yet. Only systems that bring a kernel (Debian) run on the qemu backend.
 
 ### Network rules
 
@@ -169,10 +169,10 @@ Agents, languages and tools are **recipes**: a small TOML file with an install s
 
 | Repository | Recipes |
 |---|---|
-| [boxquell-agents](https://github.com/ToBee94/boxquell-agents) | Claude Code, Codex, opencode, pi, Orca server |
-| [boxquell-languages](https://github.com/ToBee94/boxquell-languages) | Node.js, Python, Go, Rust, PHP, with selectable versions (`node@22`) |
-| [boxquell-tools](https://github.com/ToBee94/boxquell-tools) | C/C++ build tools, Git, GitHub CLI, jq, ripgrep, Composer, Docker, code-server, network access for VS Code Remote and JetBrains Gateway |
-| [boxquell-os](https://github.com/ToBee94/boxquell-os) | Debian, Ubuntu, Alpine |
+| [boxquell-agents](https://github.com/Boxquell/boxquell-agents) | Claude Code, Codex, opencode, pi, Orca server |
+| [boxquell-languages](https://github.com/Boxquell/boxquell-languages) | Node.js, Python, Go, Rust, PHP, with selectable versions (`node@22`) |
+| [boxquell-tools](https://github.com/Boxquell/boxquell-tools) | C/C++ build tools, Git, GitHub CLI, jq, ripgrep, Composer, Docker, code-server, network access for VS Code Remote and JetBrains Gateway |
+| [boxquell-os](https://github.com/Boxquell/boxquell-os) | Debian, Ubuntu, Alpine |
 
 Add your own or other people's repositories next to them:
 
@@ -223,7 +223,7 @@ flowchart LR
 
 ## Releases
 
-Release binaries are built by GitHub Actions from version tags, with a `SHA256SUMS` file and build provenance (`gh attestation verify <file> --repo ToBee94/boxquell`). The macOS and Windows binaries are signed once the certificates are configured; see [docs/release-signing.md](docs/release-signing.md). Security reports: [SECURITY.md](SECURITY.md).
+Release binaries are built by GitHub Actions from version tags, with a `SHA256SUMS` file and build provenance (`gh attestation verify <file> --repo Boxquell/boxquell`). The macOS and Windows binaries are signed once the certificates are configured; see [docs/release-signing.md](docs/release-signing.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## Development
 

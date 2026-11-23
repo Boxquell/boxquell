@@ -589,7 +589,7 @@ async fn notices() -> ApiResult {
     Ok(Json(json!({ "text": include_str!("../../../THIRD-PARTY-NOTICES.md") })))
 }
 
-const REPOSITORY: &str = "https://github.com/ToBee94/boxquell";
+const REPOSITORY: &str = "https://github.com/Boxquell/boxquell";
 
 /// Compare two versions such as `0.1.0` and `v0.2.0-rc1` by their numbers.
 fn newer(latest: &str, current: &str) -> bool {
@@ -605,7 +605,7 @@ async fn update_check() -> ApiResult {
         let agent: ureq::Agent =
             ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).http_status_as_error(false).build().into();
         let mut response = agent
-            .get("https://api.github.com/repos/ToBee94/boxquell/releases/latest")
+            .get("https://api.github.com/repos/Boxquell/boxquell/releases/latest")
             .header("User-Agent", "boxquell")
             .header("Accept", "application/vnd.github+json")
             .call()?;
