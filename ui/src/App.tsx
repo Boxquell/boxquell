@@ -44,7 +44,10 @@ export function App() {
   const [tabs, setTabs] = useState<Record<string, Tab>>(() => {
     const query = new URLSearchParams(location.search);
     const [box, tab] = [query.get("box"), query.get("tab")];
-    return box && tab ? { [box]: tab as Tab } : {};
+    // Values from the address bar: accept only what a sandbox name and a tab can be.
+    const known: Tab[] = ["overview", "terminal", "software", "agent", "network", "secrets", "settings"];
+    const valid = box !== null && /^[a-z0-9][a-z0-9-]*$/.test(box) && known.includes(tab as Tab);
+    return valid ? { [box]: tab as Tab } : {};
   });
   const nextSession = useRef(1);
   const openTerminal = useCallback((sandbox: string, title: string, cmd?: string, stay?: boolean) => {

@@ -74,7 +74,13 @@ fn git(dir: Option<&Path>, args: &[&str]) -> Result<String> {
         command.arg("-C").arg(dir);
     }
     // Never stop to ask for a password: a repository that needs one fails with a message instead.
-    let output = command.args(args).env("GIT_TERMINAL_PROMPT", "0").output().context("cannot run git; is it installed?")?;
+    let output = command
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // Only plain transports: a repository URL must never be able to run a program (`ext::…`).
+        .env("GIT_ALLOW_PROTOCOL", "https:http:ssh:git:file")
+        .output()
+        .context("cannot run git; is it installed?")?;
     if !output.status.success() {
         bail!("git {}: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&output.stderr).trim());
     }
