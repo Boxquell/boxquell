@@ -76,11 +76,14 @@ impl Client {
         let unreachable = |err: ureq::Error| anyhow!("cannot reach the boxquell daemon: {err}");
         let mut response = Self::agent(Some(Duration::from_secs(300))).run(builder.body(text)?).map_err(unreachable)?;
         let status = response.status();
-        let value: Value = response.body_mut().read_json().unwrap_or_default();
+        // Errors the daemon raises carry JSON; a request it could not even read comes back as plain text.
+        let text = response.body_mut().read_to_string().unwrap_or_default();
+        let value: Value = serde_json::from_str(&text).unwrap_or_default();
         if status.is_success() {
             Ok(value)
         } else {
-            Err(anyhow!("{}", value["error"].as_str().unwrap_or("request failed")))
+            let plain = if text.trim().is_empty() { format!("request failed ({status})") } else { text.trim().to_string() };
+            Err(anyhow!("{}", value["error"].as_str().unwrap_or(&plain)))
         }
     }
 
