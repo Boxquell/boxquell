@@ -4,6 +4,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Changed
+- An install script gets a temporary folder on the sandbox's disk that is removed afterwards. Downloads no longer stay in `/tmp`, which is memory in a sandbox.
+
 ## [0.1.0] - 2026-11-23
 
 ### Changed
