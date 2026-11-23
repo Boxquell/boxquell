@@ -61,8 +61,8 @@ async fn session(mut socket: WebSocket, key: PathBuf, port: u16, query: Terminal
     command.arg("-tt");
     command.args(ssh::base_args(&key, port));
     if let Some(cmd) = query.cmd.as_deref().map(str::trim).filter(|cmd| !cmd.is_empty()) {
-        // A login shell loads the sandbox environment (placeholders, CA paths) first.
-        command.arg(format!("bash -lc {}", shell_quote(&format!("cd /workspace 2>/dev/null; exec {cmd}"))));
+        // A login shell loads the sandbox environment (placeholders, CA paths) and goes to the project root.
+        command.arg(format!("bash -lc {}", shell_quote(&format!("exec {cmd}"))));
     }
     command.env("TERM", "xterm-256color");
     let mut child = pair.slave.spawn_command(command)?;

@@ -139,10 +139,9 @@ enum Cmd {
     },
     /// Preferences, e.g. `boxquell config notify-blocked off`
     Config {
-        /// `notify-blocked` (desktop notification) or `toast-blocked` (message in the web UI)
-        #[arg(value_parser = ["notify-blocked", "toast-blocked"])]
+        /// `notify-blocked`, `toast-blocked` (on|off), `listen` (addresses separated by commas, or `off`), `listen-port`
+        #[arg(value_parser = ["notify-blocked", "toast-blocked", "listen", "listen-port"])]
         key: Option<String>,
-        #[arg(value_parser = ["on", "off"])]
         value: Option<String>,
     },
     /// Rules for every sandbox: denies no sandbox can undo, allows every sandbox gets
@@ -161,6 +160,14 @@ enum Cmd {
         /// Disk size in GiB; a disk can only grow
         #[arg(long)]
         disk: Option<u32>,
+        /// Directory in the sandbox where shells and agents start, e.g. /workspace/backend (`default` for /workspace)
+        #[arg(long)]
+        workdir: Option<String>,
+    },
+    /// Share more directories of this computer with a sandbox (libkrun backend)
+    Share {
+        #[command(subcommand)]
+        command: ShareCmd,
     },
     /// Forward ports of this computer into a sandbox, e.g. to open a web app running in it
     Port {
@@ -222,6 +229,29 @@ enum GlobalCmd {
     Unrule { rule: String },
     /// List the global rules
     Ls,
+}
+
+#[derive(Subcommand)]
+enum ShareCmd {
+    /// `boxquell share add box ~/data /mnt/data --ro`
+    Add {
+        name: String,
+        /// Directory on this computer
+        host: PathBuf,
+        /// Where it appears in the sandbox
+        guest: String,
+        /// Mount it read-only (guards against accidents, not against root in the sandbox)
+        #[arg(long)]
+        ro: bool,
+    },
+    /// Stop sharing the directory mounted at this path in the sandbox
+    Rm {
+        name: String,
+        guest: String,
+    },
+    Ls {
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -524,7 +554,7 @@ fn main() -> Result<()> {
         Cmd::Run { name, command } => {
             // A login shell loads the sandbox environment (placeholders, CA paths) first.
             let words: Vec<String> = command.iter().map(|word| shell_quote(word)).collect();
-            let script = format!("cd /workspace 2>/dev/null; exec {}", words.join(" "));
+            let script = format!("exec {}", words.join(" "));
             ssh_into(&Client::connect(&home)?, &name, Some(format!("bash -lc {}", shell_quote(&script))))?;
         }
         Cmd::Allow { name, host } => {
@@ -563,12 +593,29 @@ fn main() -> Result<()> {
             let client = Client::connect(&home)?;
             let mut settings = client.get("/api/settings")?;
             if let (Some(key), Some(value)) = (&key, &value) {
-                settings[key.replace('-', "_")] = (value == "on").into();
+                settings[key.replace('-', "_")] = match key.as_str() {
+                    "listen" if value == "off" => json!([]),
+                    "listen" => value
+                        .split(',')
+                        .map(|a| a.trim().parse::<std::net::IpAddr>().map(|a| json!(a)))
+                        .collect::<Result<Vec<_>, _>>()
+                        .context("invalid address")?
+                        .into(),
+                    "listen-port" => value.parse::<u16>().context("invalid port")?.into(),
+                    _ if value == "on" || value == "off" => (value == "on").into(),
+                    _ => bail!("{key} is either on or off"),
+                };
                 settings = client.put("/api/settings", settings)?;
+                if key.starts_with("listen") {
+                    println!("note: applies after the daemon restarts (`boxquell daemon --stop`); traffic on these addresses is not encrypted");
+                }
             }
             for key in ["notify_blocked", "toast_blocked"] {
                 println!("{:<16} {}", key.replace('_', "-"), if settings[key] == true { "on" } else { "off" });
             }
+            let listen: Vec<&str> = settings["listen"].as_array().into_iter().flatten().filter_map(|a| a.as_str()).collect();
+            println!("{:<16} {}", "listen", if listen.is_empty() { "off (this computer only)".to_string() } else { listen.join(", ") });
+            println!("{:<16} {}", "listen-port", settings["listen_port"]);
         }
         Cmd::Global { command } => {
             let client = Client::connect(&home)?;
@@ -582,10 +629,31 @@ fn main() -> Result<()> {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
         }
-        Cmd::Set { name, cpus, ram, disk } => {
-            let info = Client::connect(&home)?.patch(&format!("/api/sandboxes/{name}"), json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk }))?;
+        Cmd::Set { name, cpus, ram, disk, workdir } => {
+            let info = Client::connect(&home)?
+                .patch(&format!("/api/sandboxes/{name}"), json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir }))?;
             let hint = if info["running"] == true { " (from its next start)" } else { "" };
             println!("{name}: {} CPUs, {} MiB memory, {} GiB disk{hint}", info["cpus"], info["ram_mib"], info["disk_gib"]);
+        }
+        Cmd::Share { command } => {
+            let client = Client::connect(&home)?;
+            let info = match command {
+                ShareCmd::Add { name, host, guest, ro } => client
+                    .post(&format!("/api/sandboxes/{name}/shares"), json!({ "host": std::path::absolute(host)?, "guest": guest, "read_only": ro }))?,
+                ShareCmd::Rm { name, guest } => client.delete(&format!("/api/sandboxes/{name}/shares"), Some(json!({ "guest": guest })))?,
+                ShareCmd::Ls { name } => client.get(&format!("/api/sandboxes/{name}"))?,
+            };
+            for share in info["shares"].as_array().into_iter().flatten() {
+                println!(
+                    "{}  ->  {}{}",
+                    share["host"].as_str().unwrap_or(""),
+                    share["guest"].as_str().unwrap_or(""),
+                    if share["read_only"] == true { "  (read-only)" } else { "" }
+                );
+            }
+            if info["running"] == true {
+                println!("note: changes apply from the sandbox's next start");
+            }
         }
         Cmd::Port { command } => {
             let client = Client::connect(&home)?;

@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One pull request for compatible updates; breaking ones come separately.
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+      # Crates that have to move together.
+      tls:
+        patterns: ["rustls*", "tokio-rustls", "rcgen", "ring"]
+        update-types: [major]
+      http:
+        patterns: ["hyper*", "axum*", "http*", "tower*"]
+        update-types: [major]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      ui-minor-and-patch:
+        update-types: [minor, patch]
+      react:
+        patterns: ["react", "react-dom", "@types/react*"]
+        update-types: [major]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci

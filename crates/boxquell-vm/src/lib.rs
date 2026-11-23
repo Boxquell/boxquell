@@ -36,4 +36,7 @@ pub struct VmSpec {
     pub net: NetLink,
     /// Host directory shared into the guest at /workspace.
     pub workspace: Option<PathBuf>,
+    /// More host directories for the guest: virtiofs tag and host path. The guest mounts them by tag.
+    #[serde(default)]
+    pub shares: Vec<(String, PathBuf)>,
 }

@@ -278,10 +278,29 @@ struct ResizeBody {
     cpus: Option<u8>,
     ram_mib: Option<u32>,
     disk_gib: Option<u32>,
+    /// `default` or an empty text goes back to /workspace.
+    workdir: Option<String>,
 }
 
 async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<ResizeBody>) -> ApiResult {
+    if let Some(workdir) = body.workdir {
+        let workdir = Some(workdir.trim().to_string()).filter(|w| !w.is_empty() && w != "default");
+        daemon.set_workdir(&name, workdir)?;
+    }
     Ok(Json(daemon.resize(&name, body.cpus, body.ram_mib, body.disk_gib)?))
+}
+
+#[derive(Deserialize)]
+struct ShareRef {
+    guest: String,
+}
+
+async fn add_share(State(daemon): App, Path(name): Path<String>, Json(share): Json<boxquell_core::Share>) -> ApiResult {
+    Ok(Json(daemon.add_share(&name, share)?))
+}
+
+async fn remove_share(State(daemon): App, Path(name): Path<String>, Json(body): Json<ShareRef>) -> ApiResult {
+    Ok(Json(daemon.remove_share(&name, &body.guest)?))
 }
 
 async fn add_port(State(daemon): App, Path(name): Path<String>, Json(port): Json<boxquell_core::PortForward>) -> ApiResult {
@@ -352,6 +371,17 @@ async fn set_lockdown(State(daemon): App, Json(body): Json<LockdownBody>) -> Api
     Ok(Json(json!({ "on": daemon.lockdown() })))
 }
 
+/// IPv4 addresses of this computer that the UI could be opened on.
+async fn addresses() -> ApiResult {
+    let list: Vec<Value> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|interface| !interface.is_loopback() && interface.ip().is_ipv4())
+        .map(|interface| json!({ "address": interface.ip(), "interface": interface.name }))
+        .collect();
+    Ok(Json(list.into()))
+}
+
 async fn settings(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.settings())?))
 }
@@ -382,11 +412,13 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}", get(show).delete(remove).patch(resize))
         .route("/api/sandboxes/{name}/secrets/{secret}", put(set_local_secret).delete(remove_local_secret))
         .route("/api/sandboxes/{name}/claude-settings", put(set_claude_settings).delete(clear_claude_settings))
+        .route("/api/sandboxes/{name}/shares", post(add_share).delete(remove_share))
         .route("/api/sandboxes/{name}/ports", post(add_port))
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
         .route("/api/stats", get(stats))
         .route("/api/lockdown", get(lockdown).post(set_lockdown))
         .route("/api/settings", get(settings).put(set_settings))
+        .route("/api/addresses", get(addresses))
         .route("/api/rules", get(global_rules).post(add_global_rule).delete(remove_global_rule))
         .route("/api/sandboxes/{name}/start", post(start))
         .route("/api/sandboxes/{name}/stop", post(stop))

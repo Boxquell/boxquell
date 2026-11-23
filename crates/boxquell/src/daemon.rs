@@ -72,6 +72,7 @@ struct Running {
     /// Port forwards by host port; ended when the sandbox stops.
     forwards: Mutex<HashMap<u16, tokio::task::JoinHandle<()>>>,
     /// The VM process, for pausing.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pid: Option<u32>,
     paused: std::sync::atomic::AtomicBool,
     stop: Arc<Notify>,
@@ -158,11 +159,16 @@ pub struct Settings {
     pub notify_blocked: bool,
     /// Message in the web UI when a sandbox's connection is blocked.
     pub toast_blocked: bool,
+    /// Addresses of this computer, besides 127.0.0.1, on which the UI and API
+    /// are reachable. Traffic there is not encrypted. Read when the daemon starts.
+    pub listen: Vec<std::net::IpAddr>,
+    /// The port used on those addresses.
+    pub listen_port: u16,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { notify_blocked: true, toast_blocked: true }
+        Self { notify_blocked: true, toast_blocked: true, listen: Vec::new(), listen_port: 7878 }
     }
 }
 
@@ -277,6 +283,8 @@ impl Daemon {
             "local_secrets": self.local_secrets(name).list()?.iter().map(|s| json!({ "name": s.name, "hosts": s.hosts, "env": s.env })).collect::<Vec<_>>(),
             "claude_settings": self.claude_settings_file(name).exists(),
             "ports": spec.ports,
+            "shares": spec.shares,
+            "workdir": spec.workdir,
             "warnings": self.warnings(&spec),
             "disk_gib": spec.disk_gib,
             "recipes": spec.recipes,
@@ -517,6 +525,38 @@ impl Daemon {
         self.info(name)
     }
 
+    /// Where shells and agents start in the guest; `None` goes back to `/workspace`.
+    pub fn set_workdir(&self, name: &str, workdir: Option<String>) -> Result<Value> {
+        let mut spec = self.spec(name)?;
+        if let Some(path) = &workdir {
+            boxquell_core::spec::validate_guest_path(path)?;
+        }
+        spec.workdir = workdir;
+        spec.save(&self.home.sandbox(name))?;
+        self.info(name)
+    }
+
+    /// Share another directory of this computer with the sandbox, from its next start.
+    pub fn add_share(&self, name: &str, mut share: boxquell_core::Share) -> Result<Value> {
+        let mut spec = self.spec(name)?;
+        ensure!(spec.backend == Backend::Krun, "the qemu backend cannot share directories yet");
+        boxquell_core::spec::validate_guest_path(&share.guest)?;
+        ensure!(share.guest != "/workspace", "/workspace is the project folder of the sandbox");
+        ensure!(!spec.shares.iter().any(|s| s.guest == share.guest), "{} is already shared into {name}", share.guest);
+        share.host = std::fs::canonicalize(&share.host).with_context(|| format!("{} not found", share.host.display()))?;
+        ensure!(share.host.is_dir(), "{} is not a directory", share.host.display());
+        spec.shares.push(share);
+        spec.save(&self.home.sandbox(name))?;
+        self.info(name)
+    }
+
+    pub fn remove_share(&self, name: &str, guest: &str) -> Result<Value> {
+        let mut spec = self.spec(name)?;
+        spec.shares.retain(|s| s.guest != guest);
+        spec.save(&self.home.sandbox(name))?;
+        self.info(name)
+    }
+
     /// Forward a port of this computer into the sandbox, now and on every start.
     pub async fn add_port(&self, name: &str, port: PortForward) -> Result<Value> {
         let mut spec = self.spec(name)?;
@@ -725,13 +765,26 @@ impl Daemon {
         for (key, value) in &spec.env {
             export(key, value);
         }
-        env.push_str("[ \"$PWD\" = \"$HOME\" ] && [ -d /workspace ] && cd /workspace\n");
+        // Sessions start in the project root.
+        let workdir = shell_quote(spec.workdir.as_deref().unwrap_or("/workspace"));
+        env.push_str(&format!("[ \"$PWD\" = \"$HOME\" ] && [ -d {workdir} ] && cd {workdir}\n"));
+        // Shared directories: the VM gets them by tag, the guest learns from `mounts` where they go.
+        let shares: Vec<(String, PathBuf)> = spec.shares.iter().enumerate().map(|(i, share)| (format!("share{i}"), share.host.clone())).collect();
+        let mounts: String = spec
+            .shares
+            .iter()
+            .enumerate()
+            .map(|(i, share)| format!("share{i} {} {}\n", share.guest, if share.read_only { "ro" } else { "rw" }))
+            .collect();
         let claude_settings = std::fs::read(self.claude_settings_file(name)).ok();
         let mut drive_files = vec![
             DriveFile { path: "ca.crt", contents: self.ca.cert_pem().as_bytes(), mode: 0o644 },
             DriveFile { path: "authorized_keys", contents: &public_key, mode: 0o600 },
             DriveFile { path: "env.sh", contents: env.as_bytes(), mode: 0o644 },
         ];
+        if !mounts.is_empty() {
+            drive_files.push(DriveFile { path: "mounts", contents: mounts.as_bytes(), mode: 0o644 });
+        }
         if let Some(settings) = &claude_settings {
             drive_files.push(DriveFile { path: "claude-managed-settings.json", contents: settings, mode: 0o644 });
         }
@@ -739,7 +792,7 @@ impl Daemon {
         drive::write(&config_drive, &drive_files)?;
 
         let (listener, net) = LinkListener::bind(&dir).await?;
-        let vm = VmSpec { cpus: spec.cpus, ram_mib: spec.ram_mib, disk, config_drive, net, workspace: spec.workspace.clone() };
+        let vm = VmSpec { cpus: spec.cpus, ram_mib: spec.ram_mib, disk, config_drive, net, workspace: spec.workspace.clone(), shares };
         let command = match spec.backend {
             #[cfg(unix)]
             Backend::Krun => {
@@ -1007,6 +1060,20 @@ pub async fn serve(home: Home) -> Result<()> {
     eprintln!("boxquell daemon listening on 127.0.0.1:{}", file.port);
 
     let app = crate::api::router(daemon.clone());
+    // Extra addresses the user chose in the settings. They end with the process.
+    let settings = daemon.settings();
+    for address in settings.listen {
+        match TcpListener::bind((address, settings.listen_port)).await {
+            Ok(extra) => {
+                eprintln!("boxquell daemon also listening on {address}:{} (not encrypted)", settings.listen_port);
+                let app = app.clone();
+                tokio::spawn(async move {
+                    let _ = axum::serve(extra, app).await;
+                });
+            }
+            Err(err) => eprintln!("boxquell: cannot listen on {address}:{}: {err}", settings.listen_port),
+        }
+    }
     let stopper = daemon.clone();
     let shutdown = async move {
         #[cfg(unix)]

@@ -29,6 +29,38 @@ pub struct PortForward {
     pub guest: u16,
 }
 
+/// A directory of this computer mounted in the guest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Share {
+    pub host: PathBuf,
+    /// Absolute path in the guest.
+    pub guest: String,
+    /// Mounted read-only. This guards against accidents; it is not a barrier
+    /// against a program with root rights in the guest.
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+/// Check a path in the guest that ends up in shell scripts and mount commands.
+pub fn validate_guest_path(path: &str) -> Result<()> {
+    let safe = path.starts_with('/')
+        && path.len() <= 200
+        && path
+            .split('/')
+            .skip(1)
+            .all(|part| !part.is_empty() && part != "." && part != ".." && part.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)));
+    if !safe {
+        bail!("invalid path in the sandbox {path:?}: use an absolute path of letters, digits, '.', '_' and '-'");
+    }
+    if ["/proc", "/sys", "/dev", "/run", "/etc", "/usr", "/bin", "/sbin", "/lib", "/boot"]
+        .iter()
+        .any(|root| path == *root || path.starts_with(&format!("{root}/")))
+    {
+        bail!("{path} is a system directory of the sandbox; choose another place, e.g. /mnt/data");
+    }
+    Ok(())
+}
+
 fn default_disk_gib() -> u32 {
     20
 }
@@ -54,6 +86,12 @@ pub struct SandboxSpec {
     /// Names of host secrets whose placeholders are exported into the guest.
     #[serde(default)]
     pub secrets: Vec<String>,
+    /// More directories of this computer for the guest, besides the workspace.
+    #[serde(default)]
+    pub shares: Vec<Share>,
+    /// Directory in the guest where shells and agents start; `/workspace` when unset.
+    #[serde(default)]
+    pub workdir: Option<String>,
     /// Ports of this computer (127.0.0.1) that lead to a port in the guest.
     #[serde(default)]
     pub ports: Vec<PortForward>,

@@ -1,8 +1,18 @@
-import type { Settings } from "./api";
+import { useEffect, useState } from "react";
+import { api, type Settings } from "./api";
 
 export function Preferences(props: { settings: Settings; onChange: (settings: Settings) => void; onClose: () => void }) {
   const { settings } = props;
-  const toggle = (key: keyof Settings) => props.onChange({ ...settings, [key]: !settings[key] });
+  const [addresses, setAddresses] = useState<{ address: string; interface: string }[]>([]);
+  useEffect(() => {
+    api.addresses().then(setAddresses, () => {});
+  }, []);
+  const toggle = (key: "notify_blocked" | "toast_blocked") => props.onChange({ ...settings, [key]: !settings[key] });
+  const toggleAddress = (address: string) =>
+    props.onChange({ ...settings, listen: settings.listen.includes(address) ? settings.listen.filter((a) => a !== address) : [...settings.listen, address] });
+  // Addresses that were chosen earlier but are not present right now stay visible.
+  const known = [...addresses, ...settings.listen.filter((a) => !addresses.some((x) => x.address === a)).map((address) => ({ address, interface: "not connected" }))];
+
   return (
     <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <div className="dialog">
@@ -17,6 +27,39 @@ export function Preferences(props: { settings: Settings; onChange: (settings: Se
           Show a message on this page, with a button to allow the destination
         </label>
         <p className="muted">Each destination is announced at most once a minute. Every attempt is in the network log either way.</p>
+
+        <h3>Where this page can be opened</h3>
+        <label className="check">
+          <input type="checkbox" checked disabled />
+          This computer only (127.0.0.1), always on
+        </label>
+        {known.map((a) => (
+          <label key={a.address} className="check">
+            <input type="checkbox" checked={settings.listen.includes(a.address)} onChange={() => toggleAddress(a.address)} />
+            <code>{a.address}</code> <span className="muted">{a.interface}</span>
+          </label>
+        ))}
+        <div className="row">
+          <label>
+            Port on these addresses
+            <input type="number" min={1024} max={65535} value={settings.listen_port} onChange={(e) => props.onChange({ ...settings, listen_port: +e.target.value })} />
+          </label>
+        </div>
+        {settings.listen.length > 0 && (
+          <div className="warning">
+            <div>
+              <strong>The connection is not encrypted.</strong> Anyone in that network who learns the address with its token can control every sandbox,
+              including their terminals. Choose only networks you trust, such as a VPN.
+            </div>
+            <div>
+              Open it elsewhere with the token from <code>boxquell ui --no-open</code>, replacing the address:{" "}
+              <code>
+                http://{settings.listen[0]}:{settings.listen_port}/#token=…
+              </code>
+            </div>
+          </div>
+        )}
+        <p className="muted">Changes to the addresses apply after the daemon restarts (boxquell daemon --stop).</p>
         <div className="actions">
           <button className="primary" onClick={props.onClose}>
             Done

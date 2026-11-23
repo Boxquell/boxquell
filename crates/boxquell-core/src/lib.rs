@@ -12,7 +12,7 @@ pub mod store;
 
 pub use home::Home;
 pub use secrets::{SecretDef, SecretStore};
-pub use spec::{Backend, PortForward, SandboxSpec};
+pub use spec::{Backend, PortForward, SandboxSpec, Share};
 pub use store::{EventFilter, EventStore};
 
 /// Create or replace a file that only the current user may read.

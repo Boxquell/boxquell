@@ -606,6 +606,7 @@ function Resources(props: { sandbox: Sandbox; act: Act; remove: () => void }) {
           {sandbox.workspace ? ` · project folder ${sandbox.workspace}` : " · no project folder"}
         </p>
       </section>
+      <Folders sandbox={sandbox} act={act} />
       <section>
         <h3>Delete</h3>
         <p className="muted">Removes the sandbox, its disk and its secrets. The project folder is kept.</p>
@@ -616,5 +617,82 @@ function Resources(props: { sandbox: Sandbox; act: Act; remove: () => void }) {
         </div>
       </section>
     </>
+  );
+}
+
+function Folders(props: { sandbox: Sandbox; act: Act }) {
+  const { sandbox, act } = props;
+  const [workdir, setWorkdir] = useState(sandbox.workdir ?? "");
+  const [host, setHost] = useState("");
+  const [guest, setGuest] = useState("");
+  const [readOnly, setReadOnly] = useState(false);
+  return (
+    <section>
+      <h3>Folders</h3>
+      <form
+        className="row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          act(() => api.resize(sandbox.name, { workdir: workdir.trim() || "default" }));
+        }}
+      >
+        <label className="grow">
+          Project root: where shells and agents start in the sandbox
+          <input placeholder="/workspace" value={workdir} onChange={(e) => setWorkdir(e.target.value)} />
+        </label>
+        <button disabled={(sandbox.workdir ?? "") === workdir.trim()}>Save</button>
+      </form>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <code>/workspace</code> <span className="chip">project folder</span>
+            </td>
+            <td className="muted" colSpan={2}>
+              {sandbox.workspace ?? "not shared"}
+            </td>
+          </tr>
+          {sandbox.shares.map((share) => (
+            <tr key={share.guest}>
+              <td>
+                <code>{share.guest}</code> {share.read_only && <span className="chip">read-only</span>}
+              </td>
+              <td className="muted">{share.host}</td>
+              <td className="right">
+                <button className="link" onClick={() => act(() => api.removeShare(sandbox.name, share.guest))}>
+                  remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {sandbox.backend === "krun" ? (
+        <form
+          className="row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            act(() => api.addShare(sandbox.name, host.trim(), guest.trim(), readOnly)).then(() => (setHost(""), setGuest("")));
+          }}
+        >
+          <label className="grow">
+            Folder on this computer
+            <input required placeholder="/home/me/data" value={host} onChange={(e) => setHost(e.target.value)} />
+          </label>
+          <label>
+            Path in the sandbox
+            <input required placeholder="/mnt/data" value={guest} onChange={(e) => setGuest(e.target.value)} />
+          </label>
+          <label className="check" title="Guards against accidents. A program with root rights in the sandbox can undo it.">
+            <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} />
+            read-only
+          </label>
+          <button>Share folder</button>
+        </form>
+      ) : (
+        <p className="muted">The qemu backend cannot share folders yet.</p>
+      )}
+      {sandbox.running && <p className="muted">Folder changes apply the next time the sandbox starts.</p>}
+    </section>
   );
 }

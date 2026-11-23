@@ -130,6 +130,11 @@ pub fn enter(library: &Path, spec: &VmSpec) -> Result<std::convert::Infallible> 
             check("krun_add_virtiofs", (api.krun_add_virtiofs)(ctx, tag.as_ptr(), dir.as_ptr()))?;
         }
 
+        for (tag, dir) in &spec.shares {
+            let (tag, dir) = (cstr(tag)?, path_cstr(dir)?);
+            check("krun_add_virtiofs", (api.krun_add_virtiofs)(ctx, tag.as_ptr(), dir.as_ptr()))?;
+        }
+
         // Adding a net device turns TSI networking off; dropping the implicit vsock
         // removes the last channel that bypasses the gateway.
         let socket = path_cstr(socket)?;

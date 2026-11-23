@@ -17,7 +17,7 @@ export function App() {
   const [dialog, setDialog] = useState<"new" | "secrets" | "plugins" | "settings" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lockdown, setLockdown] = useState(false);
-  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true });
+  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, listen: [], listen_port: 7878 });
   // Terminals live here so they stay connected while another sandbox is shown.
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Record<string, number>>({});

@@ -31,6 +31,9 @@ export interface Sandbox {
   local_secrets: Secret[];
   claude_settings: boolean;
   ports: { host: number; guest: number }[];
+  shares: { host: string; guest: string; read_only: boolean }[];
+  /** Where shells and agents start; null means /workspace */
+  workdir: string | null;
   /** What keeps installed agents from working, e.g. a missing credential. */
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
@@ -82,6 +85,9 @@ export type Stats = Record<string, { samples: Sample[]; allowed: number; blocked
 export interface Settings {
   notify_blocked: boolean;
   toast_blocked: boolean;
+  /** Addresses besides 127.0.0.1 on which the UI is reachable */
+  listen: string[];
+  listen_port: number;
 }
 
 export interface Secret {
@@ -124,7 +130,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 /** A daemon older than this page leaves newer fields out; fill them so the page still works. */
 function withDefaults(sandbox: Sandbox): Sandbox {
-  return { ...sandbox, mode: sandbox.mode ?? "whitelist", recipes: sandbox.recipes ?? [], local_secrets: sandbox.local_secrets ?? [], ports: sandbox.ports ?? [], warnings: sandbox.warnings ?? [] };
+  return { ...sandbox, mode: sandbox.mode ?? "whitelist", recipes: sandbox.recipes ?? [], local_secrets: sandbox.local_secrets ?? [], ports: sandbox.ports ?? [], shares: sandbox.shares ?? [], workdir: sandbox.workdir ?? null, warnings: sandbox.warnings ?? [] };
 }
 
 const box = (name: string) => `/api/sandboxes/${encodeURIComponent(name)}`;
@@ -144,7 +150,9 @@ export const api = {
   resume: (name: string) => call<Sandbox>("POST", `${box(name)}/resume`, {}),
   stop: (name: string) => call<Sandbox>("POST", `${box(name)}/stop`, {}),
   remove: (name: string) => call<unknown>("DELETE", box(name)),
-  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number }) => call<Sandbox>("PATCH", box(name), change),
+  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string }) => call<Sandbox>("PATCH", box(name), change),
+  addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
+  removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
   removePort: (name: string, host: number) => call<Sandbox>("DELETE", `${box(name)}/ports/${host}`),
   setLocalSecret: (name: string, secret: string, value: string, hosts: string[], env: string[]) =>
@@ -155,7 +163,8 @@ export const api = {
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
-  settings: () => call<Settings>("GET", "/api/settings"),
+  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
+  addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
   /** Blocked connections of every sandbox, live; returns a function that ends the stream. */
   followBlocked: (onEvent: (event: NetEvent) => void) => {
