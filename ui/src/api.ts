@@ -70,6 +70,8 @@ export interface Repo {
   url: string;
   revision: string;
   recipes: number;
+  /** Operating system definitions */
+  systems?: number;
 }
 
 export interface Sample {

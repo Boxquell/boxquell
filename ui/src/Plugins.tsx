@@ -44,7 +44,7 @@ export function Plugins(props: { onChange: () => void }) {
                 <td>
                   <strong>{r.name}</strong> {r.official && <span className="chip on">official</span>}
                 </td>
-                <td className="muted">{r.recipes} recipes</td>
+                <td className="muted">{[r.recipes > 0 && `${r.recipes} recipes`, (r.systems ?? 0) > 0 && `${r.systems} systems`].filter(Boolean).join(", ") || "empty"}</td>
                 <td className="muted">
                   {r.url} @ {r.revision}
                 </td>

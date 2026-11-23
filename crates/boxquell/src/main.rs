@@ -434,6 +434,16 @@ fn refresh_ssh_config(home: &Home, client: &Client) {
     }
 }
 
+/// What a repository offers, e.g. `10 recipes` or `3 systems`.
+fn repo_contents(repo: &repo::Repo) -> String {
+    let count = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    match (repo.recipes, repo.systems) {
+        (recipes, 0) => count(recipes, "recipe"),
+        (0, systems) => count(systems, "system"),
+        (recipes, systems) => format!("{}, {}", count(recipes, "recipe"), count(systems, "system")),
+    }
+}
+
 fn rule(action: &str, host: &str) -> Value {
     json!({ "rule": format!("{action} {host}") })
 }
@@ -613,15 +623,18 @@ fn main() -> Result<()> {
         Cmd::Repo { command } => match command {
             RepoCmd::Add { url, name } => {
                 let added = repo::add(&home, &url, name.as_deref())?;
-                println!(
-                    "added {} ({} recipes, revision {}); install with `boxquell add <sandbox> {}:<recipe>`",
-                    added.name, added.recipes, added.revision, added.name
-                );
+                println!("added {} ({}, revision {})", added.name, repo_contents(&added), added.revision);
+                if added.recipes > 0 {
+                    println!("install its recipes with `boxquell add <sandbox> {}:<recipe>`", added.name);
+                }
+                if added.systems > 0 {
+                    println!("build its systems with `boxquell os build <id>`, see `boxquell os ls`");
+                }
                 println!("note: its recipes run their own install scripts in the sandbox and open the network destinations they list");
             }
             RepoCmd::Ls => {
                 for r in repo::list(&home) {
-                    println!("{:<16} {:>3} recipes  {:<9} {}", r.name, r.recipes, r.revision, r.url);
+                    println!("{:<16} {:<22} {:<9} {}", r.name, repo_contents(&r), r.revision, r.url);
                 }
             }
             RepoCmd::Update { name } => {
@@ -631,7 +644,7 @@ fn main() -> Result<()> {
                 };
                 for name in names {
                     let updated = repo::update(&home, &name)?;
-                    println!("{}: {} recipes, revision {}", updated.name, updated.recipes, updated.revision);
+                    println!("{}: {}, revision {}", updated.name, repo_contents(&updated), updated.revision);
                 }
             }
             RepoCmd::Rm { name } => {
