@@ -10,6 +10,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Installers for Linux, macOS and Windows, a Homebrew formula, and a software bill of materials with every release.
 - A tray icon for the desktop app.
 - The desktop app is part of releases, and the installers set it up with an entry in the application menu (Linux), Applications (macOS) or the Start menu (Windows).
+- The installers offer to install what is missing (libkrun or QEMU, an SSH client, access to KVM) with the system's package manager.
 - The desktop app finds the `boxquell` command where the installers and Homebrew put it, also when started from the menu.
 - SSH keys for git: sandboxes can sign with keys of this computer, chosen for all sandboxes or for one, without the keys entering a sandbox (`boxquell ssh-keys`, and under Secrets in the UI).
 - The overview of a sandbox names the system it runs.

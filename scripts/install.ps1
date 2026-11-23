@@ -10,6 +10,8 @@
 # Parameters (when run from a file):
 #   -Dir <path>     install into this folder instead
 #   -NoDesktop      install the command only, without the desktop app
+#   -Deps           install what boxquell needs (QEMU, OpenSSH, the Windows
+#                   Hypervisor Platform) without asking; -NoDeps never does
 #   -Uninstall      remove the command and the app again (sandboxes and settings stay)
 # Environment:
 #   BOXQUELL_INSTALL_DIR   same as -Dir
@@ -17,6 +19,8 @@
 param(
     [string]$Dir = $env:BOXQUELL_INSTALL_DIR,
     [switch]$NoDesktop,
+    [switch]$Deps,
+    [switch]$NoDeps,
     [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
@@ -140,15 +144,75 @@ try {
         }
     }
 
+    # QEMU's installer does not put it on the PATH; look in its folder too.
+    $qemuDir = Join-Path $env:ProgramFiles 'qemu'
+    function Test-Qemu { [bool](Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $qemuDir 'qemu-system-x86_64.exe')) }
+    function Test-Ssh { [bool](Get-Command ssh -ErrorAction SilentlyContinue) }
+    # Whether the Windows Hypervisor Platform is on; $null when only an administrator can tell.
+    function Test-Whpx {
+        try { (Get-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -ErrorAction Stop).State -eq 'Enabled' } catch { $null }
+    }
+    function Show-Needs {
+        $script:missing = 0
+        function Check([bool]$present, [string]$name, [string]$how) {
+            if ($present) { Ok $name } else { Note "$name is missing  ($how)"; $script:missing++ }
+        }
+        Check (Test-Qemu) 'QEMU (runs the sandboxes)' 'winget install SoftwareFreedomConservancy.QEMU'
+        Check (Test-Ssh) 'OpenSSH client' 'Settings > Optional features > OpenSSH Client'
+        $whpx = Test-Whpx
+        if ($null -eq $whpx) {
+            Note 'Windows Hypervisor Platform: could not be checked without administrator rights. It has to be on under "Turn Windows features on or off".'
+        } else {
+            Check $whpx 'Windows Hypervisor Platform' 'Turn Windows features on or off > Windows Hypervisor Platform, then restart'
+        }
+    }
+
     Write-Host ''
     Write-Host 'What boxquell needs'
     $missing = 0
-    function Check([bool]$present, [string]$name, [string]$how) {
-        if ($present) { Ok $name } else { Note "$name is missing  ($how)"; $script:missing++ }
+    Show-Needs
+    Note 'Boxquell on Windows has not been tested yet.'
+
+    if ($missing -gt 0 -and -not $NoDeps) {
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        # What can be done as this user, and what only an administrator can do.
+        $userSteps = @()
+        $adminSteps = @()
+        if (-not (Test-Qemu)) { $userSteps += 'winget install --id SoftwareFreedomConservancy.QEMU -e --accept-source-agreements --accept-package-agreements' }
+        if (-not (Test-Ssh)) { $adminSteps += 'Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0' }
+        if ((Test-Whpx) -eq $false) { $adminSteps += 'Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All -NoRestart' }
+        $steps = if ($isAdmin) { $userSteps + $adminSteps } else { $userSteps }
+        if ($steps.Count -gt 0) {
+            Write-Host ''
+            Write-Host 'These commands install what is missing:'
+            $steps | ForEach-Object { Write-Host "    $_" -ForegroundColor Cyan }
+            $run = [bool]$Deps
+            # Ask only when somebody can answer.
+            if (-not $Deps -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+                try { $run = (Read-Host '? Run them now? [y/N]') -match '^(y|yes|j|ja)$' } catch { $run = $false }
+            }
+            if ($run) {
+                foreach ($step in $steps) {
+                    Step $step
+                    try { Invoke-Expression $step | Out-Null } catch { Note 'That did not work; run it yourself to see why.' }
+                }
+                Write-Host ''
+                Write-Host 'What boxquell needs'
+                Show-Needs
+                if ($steps -match 'HypervisorPlatform') { Note 'Restart Windows for the Hypervisor Platform to apply.' }
+            }
+        }
+        if (-not $isAdmin -and $adminSteps.Count -gt 0) {
+            Write-Host ''
+            Write-Host 'These need a PowerShell started as administrator:'
+            $adminSteps | ForEach-Object { Write-Host "    $_" -ForegroundColor Cyan }
+        }
     }
-    Check ([bool](Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue)) 'QEMU (runs the sandboxes)' 'winget install SoftwareFreedomConservancy.QEMU, and add it to PATH'
-    Check ([bool](Get-Command ssh -ErrorAction SilentlyContinue)) 'OpenSSH client' 'Settings > Optional features > OpenSSH Client'
-    Note 'Boxquell on Windows has not been tested yet. It uses QEMU with the Windows Hypervisor Platform, which has to be enabled under "Turn Windows features on or off".'
+    # QEMU is found by boxquell on the PATH.
+    if ((Test-Path (Join-Path $qemuDir 'qemu-system-x86_64.exe')) -and -not (Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue)) {
+        Set-UserPath $qemuDir $true
+        Ok "Added $qemuDir to your PATH"
+    }
 
     Write-Host ''
     Write-Host 'Next'

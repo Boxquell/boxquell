@@ -45,7 +45,7 @@ brew install boxquell/tap/boxquell                                              
 irm https://github.com/Boxquell/boxquell/releases/latest/download/install.ps1 | iex          # Windows (PowerShell)
 ```
 
-The scripts download the latest release, check it against the release's checksums and install the `boxquell` command and the desktop app for your user (application menu on Linux, Applications on macOS, Start menu on Windows); they tell you what else your computer needs. `--no-desktop` (`-NoDesktop` on Windows) installs the command alone. Then:
+The scripts download the latest release, check it against the release's checksums and install the `boxquell` command and the desktop app for your user (application menu on Linux, Applications on macOS, Start menu on Windows); they tell you what else your computer needs. `--no-desktop` (`-NoDesktop` on Windows) installs the command alone. When something is missing (libkrun or QEMU, an SSH client, access to KVM), the script shows the commands for your package manager and asks whether to run them; `--deps` runs them without asking, `--no-deps` never. Then:
 
 ```sh
 boxquell doctor
