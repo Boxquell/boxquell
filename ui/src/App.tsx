@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { SshKeys } from "./SshKeys";
+import { Usage } from "./Usage";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings, type UpdateInfo } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
-import { Bell, LayoutDashboard, Plus, Power, Settings as SettingsIcon, SquareTerminal, ShieldAlert } from "lucide-react";
+import { Bell, ChartColumn, LayoutDashboard, Plus, Power, Settings as SettingsIcon, SquareTerminal, ShieldAlert } from "lucide-react";
 import { About } from "./About";
 import { AgentSettings } from "./AgentSettings";
 import { LogViewer } from "./LogViewer";
@@ -25,7 +26,7 @@ export function App() {
   const [page, setPage] = useState<Page>(() => {
     const query = new URLSearchParams(location.search);
     const wanted = query.get("page") as Page | null;
-    return query.get("box") ? "sandbox" : wanted && ["terminals", "notifications", "settings", "new"].includes(wanted) ? wanted : "overview";
+    return query.get("box") ? "sandbox" : wanted && ["terminals", "notifications", "usage", "settings", "new"].includes(wanted) ? wanted : "overview";
   });
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   // The sidebar can be folded away; the choice is remembered in this browser.
@@ -169,6 +170,7 @@ export function App() {
             badge={blocked.length || undefined}
             onClick={() => go("notifications")}
           />
+          <NavItem icon={<ChartColumn size={17} />} active={page === "usage"} title="Usage" note="tokens and costs" onClick={() => go("usage")} />
           <NavItem icon={<SettingsIcon size={17} />} active={page === "settings"} title="Settings" note={release?.newer ? `version ${(release.latest ?? "").replace(/^v/, "")} is available` : "plugins, secrets, network"}
             badge={release?.newer ? 1 : undefined}
             onClick={() => {
@@ -287,6 +289,7 @@ export function App() {
             </div>
           ))}
 
+        {page === "usage" && <Usage act={act} secrets={secrets.map((secret) => secret.name)} />}
         {page === "notifications" && (
           <>
             <header className="hero">
@@ -424,7 +427,7 @@ export function App() {
   );
 }
 
-type Page = "overview" | "terminals" | "notifications" | "settings" | "new" | "sandbox";
+type Page = "overview" | "terminals" | "notifications" | "usage" | "settings" | "new" | "sandbox";
 type SettingsTab = "general" | "agents" | "plugins" | "secrets" | "network" | "logs" | "about";
 const SETTINGS_TABS: [SettingsTab, string][] = [
   ["general", "General"],

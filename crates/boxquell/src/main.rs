@@ -11,6 +11,7 @@ mod notify;
 mod pull;
 mod ssh;
 mod terminal;
+mod usage;
 mod wizard;
 
 use anyhow::{bail, Context, Result};

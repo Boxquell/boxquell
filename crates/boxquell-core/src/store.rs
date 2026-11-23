@@ -41,7 +41,19 @@ impl EventStore {
                  allowed INTEGER NOT NULL,
                  event TEXT NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS events_sandbox ON events (sandbox, seq);",
+             CREATE INDEX IF NOT EXISTS events_sandbox ON events (sandbox, seq);
+             CREATE TABLE IF NOT EXISTS usage (
+                 ts_ms INTEGER NOT NULL,
+                 sandbox TEXT NOT NULL,
+                 secret TEXT NOT NULL,
+                 host TEXT NOT NULL,
+                 model TEXT NOT NULL,
+                 input INTEGER NOT NULL,
+                 output INTEGER NOT NULL,
+                 cache_read INTEGER NOT NULL,
+                 cache_write INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS usage_time ON usage (ts_ms);",
         )?;
         Ok(Self { db: Mutex::new(db) })
     }
@@ -54,6 +66,44 @@ impl EventStore {
             params![sandbox, event.ts_ms as i64, event.allowed, serde_json::to_string(event)?],
         )?;
         Ok(row(db.last_insert_rowid(), sandbox, serde_json::to_value(event)?))
+    }
+
+    /// Note the tokens one request to a model API used.
+    pub fn record_usage(&self, sandbox: &str, event: &NetEvent) -> Result<()> {
+        let Some(usage) = &event.usage else { return Ok(()) };
+        self.db.lock().unwrap().execute(
+            "INSERT INTO usage (ts_ms, sandbox, secret, host, model, input, output, cache_read, cache_write) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                event.ts_ms as i64,
+                sandbox,
+                event.secret.as_deref().unwrap_or(""),
+                event.host.as_deref().unwrap_or(""),
+                usage.model,
+                usage.input as i64,
+                usage.output as i64,
+                usage.cache_read as i64,
+                usage.cache_write as i64
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Token use since `since_ms`, summed per stretch of `bucket_ms`, sandbox,
+    /// secret and model, oldest first. A bucket's `t` is its start.
+    pub fn usage(&self, since_ms: u64, bucket_ms: u64) -> Result<Vec<Value>> {
+        let db = self.db.lock().unwrap();
+        let mut statement = db.prepare(
+            "SELECT (ts_ms / ?2) * ?2, sandbox, secret, model, SUM(input), SUM(output), SUM(cache_read), SUM(cache_write), COUNT(*)
+             FROM usage WHERE ts_ms >= ?1 GROUP BY 1, 2, 3, 4 ORDER BY 1",
+        )?;
+        let rows = statement.query_map(params![since_ms as i64, bucket_ms.max(1) as i64], |row| {
+            Ok(serde_json::json!({
+                "t": row.get::<_, i64>(0)?, "sandbox": row.get::<_, String>(1)?, "secret": row.get::<_, String>(2)?, "model": row.get::<_, String>(3)?,
+                "input": row.get::<_, i64>(4)?, "output": row.get::<_, i64>(5)?, "cache_read": row.get::<_, i64>(6)?, "cache_write": row.get::<_, i64>(7)?,
+                "requests": row.get::<_, i64>(8)?,
+            }))
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     /// The newest matching events, oldest first.

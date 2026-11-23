@@ -13,6 +13,7 @@ pub mod proxy;
 pub mod sniff;
 pub mod stack;
 pub mod tls;
+pub mod usage;
 
 pub use event::{EventKind, NetEvent, Phase};
 pub use gateway::{spawn, GatewayHandle, SystemUpstream, Upstream};
@@ -20,3 +21,4 @@ pub use mitm::{Intercept, Secret};
 pub use policy::{Action, Mode, Policy, Rule};
 pub use stack::{GuestStream, DNS_IP, GATEWAY_IP, GUEST_IP};
 pub use tls::CertAuthority;
+pub use usage::Usage;

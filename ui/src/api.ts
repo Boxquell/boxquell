@@ -96,6 +96,47 @@ export interface ProjectFile {
   env?: Record<string, string>;
 }
 
+/** Tokens used in one stretch of time by one sandbox with one key and model. */
+export interface UsageRow {
+  t: number;
+  sandbox: string;
+  secret: string;
+  model: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  requests: number;
+  /** Dollars at the price list; `null` when no price fits the model */
+  cost: number | null;
+}
+
+export interface UsageSum {
+  name: string;
+  tokens: number;
+  cost: number;
+  requests: number;
+}
+
+export interface UsageReport {
+  bucket_ms: number;
+  rows: UsageRow[];
+  by_key: UsageSum[];
+  by_sandbox: UsageSum[];
+  by_model: UsageSum[];
+  limits: { key: string; daily_usd: number | null; daily_tokens: number | null; tokens_today: number; cost_today: number; reached: boolean }[];
+  unpriced: string[];
+}
+
+/** Prices of a model or family, in US dollars per million tokens. */
+export interface Price {
+  model: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+}
+
 /** A saved state of a sandbox's disk. */
 export interface Snapshot {
   id: string;
@@ -416,6 +457,11 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  usage: (days: number) => call<UsageReport>("GET", `/api/usage?days=${days}`),
+  prices: () => call<Price[]>("GET", "/api/prices"),
+  setPrices: (prices: Price[]) => call<Price[]>("PUT", "/api/prices", prices),
+  keyLimits: () => call<Record<string, { daily_usd?: number; daily_tokens?: number }>>("GET", "/api/key-limits"),
+  setKeyLimits: (limits: Record<string, { daily_usd?: number; daily_tokens?: number }>) => call<unknown>("PUT", "/api/key-limits", limits),
   /** The `boxquell.toml` of a folder, or `null` when it has none. */
   projectFile: (dir: string) => call<{ file: string; name: string; project: ProjectFile } | null>("GET", `/api/project?dir=${encodeURIComponent(dir)}`),
   /** Give a sandbox what the project file of `dir` names beyond what creating it covers. */

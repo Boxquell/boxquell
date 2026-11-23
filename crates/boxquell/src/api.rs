@@ -410,6 +410,34 @@ async fn apply_project(State(daemon): App, Path(name): Path<String>, Json(body):
     }
 }
 
+#[derive(Deserialize)]
+struct UsageQuery {
+    #[serde(default)]
+    days: Option<u64>,
+}
+
+async fn usage(State(daemon): App, Query(query): Query<UsageQuery>) -> ApiResult {
+    Ok(Json(daemon.usage_report(query.days.unwrap_or(7).clamp(1, 90))?))
+}
+
+async fn prices(State(daemon): App) -> ApiResult {
+    Ok(Json(serde_json::to_value(daemon.prices())?))
+}
+
+async fn set_prices(State(daemon): App, Json(body): Json<Vec<crate::usage::Price>>) -> ApiResult {
+    daemon.set_prices(&body)?;
+    Ok(Json(serde_json::to_value(daemon.prices())?))
+}
+
+async fn key_limits(State(daemon): App) -> ApiResult {
+    Ok(Json(serde_json::to_value(daemon.key_limits())?))
+}
+
+async fn set_key_limits(State(daemon): App, Json(body): Json<std::collections::BTreeMap<String, crate::usage::Limit>>) -> ApiResult {
+    daemon.set_key_limits(&body)?;
+    Ok(Json(serde_json::to_value(daemon.key_limits())?))
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -919,6 +947,9 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
         .route("/api/sandboxes/{name}/template", post(save_template))
         .route("/api/templates", get(templates))
+        .route("/api/usage", get(usage))
+        .route("/api/prices", get(prices).put(set_prices))
+        .route("/api/key-limits", get(key_limits).put(set_key_limits))
         .route("/api/project", get(project_file))
         .route("/api/sandboxes/{name}/project", post(apply_project))
         .route("/api/templates/{name}", delete(delete_template))

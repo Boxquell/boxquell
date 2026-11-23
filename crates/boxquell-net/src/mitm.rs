@@ -53,6 +53,9 @@ pub struct Intercept {
     pub log_all_requests: bool,
     /// Certificate authorities accepted for the real servers.
     pub roots: Arc<RootCertStore>,
+    /// Names of secrets that may not be used for now, e.g. because their limit
+    /// for the day is reached. A request that would carry one is answered here.
+    pub paused: Arc<RwLock<Vec<String>>>,
 }
 
 /// The certificate authorities the host itself trusts.
@@ -95,6 +98,26 @@ struct Session {
     events: mpsc::UnboundedSender<NetEvent>,
     /// Only requests that fetch are passed on; see `Action::Read`.
     read_only: bool,
+}
+
+/// Follows an answer as it passes and, when it is over, reports the tokens it used.
+struct UsageReport {
+    scanner: crate::usage::Scanner,
+    events: mpsc::UnboundedSender<NetEvent>,
+    host: String,
+    secret: String,
+}
+
+impl Drop for UsageReport {
+    fn drop(&mut self) {
+        let usage = std::mem::take(&mut self.scanner.usage);
+        if !usage.is_empty() {
+            let mut event = NetEvent::new(EventKind::Http, true, "tokens used").host(&self.host);
+            event.secret = Some(std::mem::take(&mut self.secret));
+            event.usage = Some(usage);
+            let _ = self.events.send(event);
+        }
+    }
 }
 
 fn status(code: StatusCode) -> Response<Body> {
@@ -162,6 +185,24 @@ impl Session {
         }
 
         event.secret = self.inject(&mut request);
+        if let Some(secret) = event.secret.as_ref().filter(|secret| self.intercept.paused.read().unwrap().contains(secret)) {
+            event.allowed = false;
+            event.reason = format!("the limit set for the key {secret} is reached");
+            event.status = Some(StatusCode::TOO_MANY_REQUESTS.as_u16());
+            let message = format!(
+                "Boxquell: the limit set for the key \"{secret}\" is reached. Raise it or wait for the next day; see Usage in the Boxquell app.\n"
+            );
+            let _ = self.events.send(event);
+            let mut response = Response::new(http_body_util::Full::new(Bytes::from(message)).map_err(|never| match never {}).boxed());
+            *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+            return Ok(response);
+        }
+        // A request that carries a key goes to a model API or the like: its
+        // answer is read for the tokens it used, which needs it uncompressed.
+        let metered = event.secret.clone();
+        if metered.is_some() {
+            request.headers_mut().remove(hyper::header::ACCEPT_ENCODING);
+        }
         let guest_upgrade = request.headers().contains_key(UPGRADE).then(|| hyper::upgrade::on(&mut request));
         let sent = match &self.sender {
             Sender::H1(sender) => {
@@ -193,7 +234,21 @@ impl Session {
                 }
             });
         }
-        Ok(response.map(BodyExt::boxed))
+        match metered.filter(|_| response.status().is_success()) {
+            Some(secret) => {
+                let mut report = UsageReport { scanner: Default::default(), events: self.events.clone(), host: self.host.clone(), secret };
+                Ok(response.map(|body| {
+                    body.map_frame(move |frame| {
+                        if let Some(data) = frame.data_ref() {
+                            report.scanner.feed(data);
+                        }
+                        frame
+                    })
+                    .boxed()
+                }))
+            }
+            None => Ok(response.map(BodyExt::boxed)),
+        }
     }
 }
 
@@ -343,8 +398,13 @@ mod tests {
         let sandbox_ca = Arc::new(CertAuthority::generate().unwrap());
         let server = TcpStream::connect(real_server(&internet_ca).await).await.unwrap();
         let secret = Secret { name: "test".into(), hosts: vec!["api.test".into()], placeholder: PLACEHOLDER.into(), value: REAL.into() };
-        let intercept =
-            Intercept { ca: sandbox_ca.clone(), secrets: Arc::new(RwLock::new(vec![secret])), log_all_requests: false, roots: roots(&internet_ca) };
+        let intercept = Intercept {
+            ca: sandbox_ca.clone(),
+            secrets: Arc::new(RwLock::new(vec![secret])),
+            log_all_requests: false,
+            roots: roots(&internet_ca),
+            paused: Default::default(),
+        };
         let (guest_end, proxy_end) = tokio::io::duplex(1 << 16);
         let (events_tx, events) = mpsc::unbounded_channel();
         tokio::spawn(serve(proxy_end, server, "api.test".into(), intercept, events_tx, read_only));

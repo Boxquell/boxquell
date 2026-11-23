@@ -240,6 +240,8 @@ pub struct Daemon {
     /// `<sandbox>/<secret>`, and what went wrong the last time, if anything.
     helper_runs: Mutex<HashMap<String, (std::time::Instant, Option<String>)>>,
     handled_lock: Mutex<()>,
+    /// Keys whose limit for the day is reached; the gateways refuse requests that would carry one.
+    paused_keys: Arc<RwLock<Vec<String>>>,
     /// Recent load of this computer itself, oldest first: (CPU percent, memory used and total in MiB, disk used and total in GiB).
     host_load: Mutex<std::collections::VecDeque<[f64; 5]>>,
     /// What the last look for a newer release found.
@@ -401,6 +403,7 @@ impl Daemon {
             running: Mutex::new(HashMap::new()),
             helper_runs: Mutex::default(),
             handled_lock: Mutex::default(),
+            paused_keys: Arc::default(),
             host_load: Mutex::default(),
             release: Mutex::default(),
             jobs: Mutex::new(HashMap::new()),
@@ -1162,6 +1165,8 @@ impl Daemon {
     pub async fn keep_helpers(self: Arc<Self>) {
         loop {
             tokio::time::sleep(Duration::from_secs(20)).await;
+            // A new day releases the keys that reached their limit yesterday.
+            self.check_key_limits();
             let names: Vec<String> = self.running.lock().unwrap().keys().cloned().collect();
             for name in names {
                 let daemon = self.clone();
@@ -1217,6 +1222,75 @@ impl Daemon {
         ensure!(force || !file.exists(), "{} exists already", file.display());
         std::fs::write(&file, boxquell_core::project::Project::of(&spec).to_toml()?)?;
         Ok(file)
+    }
+
+    /// Prices per million tokens, by model: the first entry whose pattern fits
+    /// a model's name applies. Kept in `prices.json`, which the user can edit;
+    /// without that file, the list that came with this version.
+    pub fn prices(&self) -> Vec<crate::usage::Price> {
+        std::fs::read(self.home.root().join("prices.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_else(crate::usage::default_prices)
+    }
+
+    pub fn set_prices(&self, prices: &[crate::usage::Price]) -> Result<()> {
+        Ok(std::fs::write(self.home.root().join("prices.json"), serde_json::to_vec_pretty(prices)?)?)
+    }
+
+    /// Limits per key and day: the secret's name with a sum in dollars, a number of tokens, or both.
+    pub fn key_limits(&self) -> std::collections::BTreeMap<String, crate::usage::Limit> {
+        std::fs::read(self.home.root().join("key-limits.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+
+    pub fn set_key_limits(&self, limits: &std::collections::BTreeMap<String, crate::usage::Limit>) -> Result<()> {
+        std::fs::write(self.home.root().join("key-limits.json"), serde_json::to_vec_pretty(limits)?)?;
+        self.check_key_limits();
+        Ok(())
+    }
+
+    /// Token use over the last `days`, in stretches of an hour or a day, with
+    /// what it costs at the price list and how each key stands against its limit.
+    pub fn usage_report(&self, days: u64) -> Result<Value> {
+        let hourly = days <= 2;
+        let bucket = if hourly { 3_600_000 } else { 86_400_000 };
+        let rows = self.store.usage(now_ms().saturating_sub(days * 86_400_000), bucket)?;
+        Ok(crate::usage::report(rows, &self.prices(), &self.key_limits(), &self.today_by_key()?, bucket))
+    }
+
+    /// What each key used since midnight (UTC): tokens and dollars at the price list.
+    fn today_by_key(&self) -> Result<std::collections::BTreeMap<String, (u64, f64)>> {
+        let midnight = now_ms() / 86_400_000 * 86_400_000;
+        let prices = self.prices();
+        let mut today = std::collections::BTreeMap::new();
+        for row in self.store.usage(midnight, 86_400_000)? {
+            let entry: &mut (u64, f64) = today.entry(row["secret"].as_str().unwrap_or_default().to_string()).or_default();
+            entry.0 += crate::usage::tokens(&row);
+            entry.1 += crate::usage::cost(&row, &prices).unwrap_or(0.0);
+        }
+        Ok(today)
+    }
+
+    /// Pause the keys that reached their limit for the day, and release those that have not.
+    pub fn check_key_limits(&self) {
+        let limits = self.key_limits();
+        let today = self.today_by_key().unwrap_or_default();
+        let over: Vec<String> = limits
+            .iter()
+            .filter(|(key, limit)| {
+                let (tokens, dollars) = today.get(*key).copied().unwrap_or((0, 0.0));
+                limit.daily_tokens.is_some_and(|max| tokens >= max) || limit.daily_usd.is_some_and(|max| dollars >= max)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut paused = self.paused_keys.write().unwrap();
+        for key in over.iter().filter(|key| !paused.contains(key)) {
+            crate::notify::show(
+                &format!("The key {key} reached its limit for today"),
+                "Requests with it are refused until tomorrow or until you raise the limit under Usage.",
+            );
+        }
+        *paused = over;
     }
 
     fn templates_dir(&self) -> PathBuf {
@@ -1830,7 +1904,13 @@ impl Daemon {
 
         let policy = Arc::new(RwLock::new(Policy { mode: spec.network, rules: self.effective_rules(&spec), lockdown: self.lockdown() }));
         let live_secrets = Arc::new(RwLock::new(secrets.iter().map(net_secret).collect::<Vec<_>>()));
-        let intercept = Intercept { ca: self.ca.clone(), secrets: live_secrets.clone(), log_all_requests: false, roots: self.roots.clone() };
+        let intercept = Intercept {
+            ca: self.ca.clone(),
+            secrets: live_secrets.clone(),
+            log_all_requests: false,
+            roots: self.roots.clone(),
+            paused: self.paused_keys.clone(),
+        };
         let (events_tx, mut events) = mpsc::unbounded_channel();
         let gateway = boxquell_net::spawn(link, SystemUpstream, policy.clone(), Some(intercept), events_tx);
         let (daemon, sandbox) = (self.clone(), name.to_string());
@@ -1845,6 +1925,14 @@ impl Daemon {
                         let counter = if event.allowed { &running.allowed } else { &running.blocked };
                         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
+                }
+                // The tokens a request used go to the usage records, not into the connection log.
+                if event.usage.is_some() {
+                    if let Err(err) = daemon.store.record_usage(&sandbox, &event) {
+                        eprintln!("boxquell: cannot store usage: {err:#}");
+                    }
+                    daemon.check_key_limits();
+                    continue;
                 }
                 match daemon.store.insert(&sandbox, &event) {
                     Ok(stored) => drop(daemon.live.send(stored)),

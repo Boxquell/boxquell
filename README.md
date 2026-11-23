@@ -183,6 +183,12 @@ boxquell claude-settings mybox settings.json
 
 The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and model names. The sandbox receives it as its managed settings with the token replaced by a placeholder, the token becomes a secret of that sandbox, and the gateway is added to the allowed destinations. A gateway on your own computer (`localhost`) is reachable from the sandbox as `10.0.2.2`. A key helper in the settings (`apiKeyHelper`, e.g. for a token from a company sign-in) keeps running on your computer: Boxquell calls it, refreshes the key before it runs out and puts it into the requests; the sandbox only has a placeholder. Without a file name, `boxquell claude-settings mybox` takes this computer's managed settings, drop-in files included.
 
+### Usage and costs
+
+Requests that carry one of your keys pass through Boxquell, so it can read from the answer how many tokens they used. The **Usage** page of the app shows tokens per hour or day, sums per key, sandbox and model, and an estimated cost. The estimate comes from a price list you can edit (it ships with the providers' list prices of 23 November 2026); discounts, batch prices and long prompts are not in it. Per key you can set a limit per day in dollars or tokens: once it is reached, requests with that key are answered by Boxquell with "limit reached" until the next day (UTC).
+
+Answers are read uncompressed, and only for requests that carry a key Boxquell keeps. An agent that signs in another way, for example with its own login, is not counted.
+
 ### Project file
 
 ```toml

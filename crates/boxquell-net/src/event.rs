@@ -44,6 +44,9 @@ pub struct NetEvent {
     pub status: Option<u16>,
     /// Name of the secret that was put into this request.
     pub secret: Option<String>,
+    /// The tokens a request to a model API used, read from its answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<crate::usage::Usage>,
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -67,6 +70,7 @@ impl NetEvent {
             path: None,
             status: None,
             secret: None,
+            usage: None,
         }
     }
 

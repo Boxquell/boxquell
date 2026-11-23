@@ -1,6 +1,7 @@
 import { BrandIcon } from "./BrandIcon";
 import { Config } from "./Config";
 import { Snapshots } from "./Snapshots";
+import { count, dollars } from "./Usage";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Activity, Bot, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
@@ -870,6 +871,11 @@ function Status(props: { sandbox: Sandbox; recipes: Recipe[]; start: () => void;
   const { sandbox, recipes } = props;
   const stats = useStats()[sandbox.name];
   const installed = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))?.name ?? recipeName(id));
+  // What this sandbox used at model APIs in the last day, when it used anything.
+  const [used, setUsed] = useState<{ tokens: number; cost: number; requests: number } | null>(null);
+  useEffect(() => {
+    api.usage(1).then((report) => setUsed(report.by_sandbox?.find((row) => row.name === sandbox.name) ?? null), () => {});
+  }, [sandbox.name]);
   const system = sandbox.os_name ?? sandbox.os ?? "debian";
   const machine = `${sandbox.backend === "krun" ? "libkrun" : "QEMU"} · ${sandbox.cpus} CPUs · ${Math.round(sandbox.ram_mib / 102.4) / 10} GiB memory`;
   if (!sandbox.running) {
@@ -901,6 +907,7 @@ function Status(props: { sandbox: Sandbox; recipes: Recipe[]; start: () => void;
           )}
         </Tile>
         <Tile label="Network mode" value={sandbox.mode === "blacklist" ? "Blacklist" : "Whitelist"} note={`${sandbox.rules.length} rules`} />
+        {used && <Tile label="Tokens, last 24 hours" value={count(used.tokens)} note={`${dollars(used.cost)} estimated · ${used.requests} requests`} />}
         <Tile label="Software" value={`${installed.length}`} note={installed.slice(0, 4).join(", ") || "nothing installed yet"} />
       </div>
       <section className="vm">
