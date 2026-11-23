@@ -1412,7 +1412,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ### ISC License
 
 Used by:
-- libloading 0.8.9 (https://github.com/nagisa/rust_libloading/)
+- libloading 0.9.1 (https://github.com/nagisa/rust_libloading/)
 
 ```
 Copyright © 2015, Simonas Kazlauskas
@@ -4375,16 +4375,17 @@ Used by:
 - anstyle 1.0.14 (https://github.com/rust-cli/anstyle.git)
 - clap 4.6.9 (https://github.com/clap-rs/clap)
 - clap_builder 4.6.7 (https://github.com/clap-rs/clap)
+- clap_complete 4.6.12 (https://github.com/clap-rs/clap)
 - clap_derive 4.6.9 (https://github.com/clap-rs/clap)
 - clap_lex 1.1.2 (https://github.com/clap-rs/clap)
 - colorchoice 1.0.5 (https://github.com/rust-cli/anstyle.git)
 - is_terminal_polyfill 1.70.2 (https://github.com/polyfill-rs/is_terminal_polyfill)
 - once_cell_polyfill 1.70.2 (https://github.com/polyfill-rs/once_cell_polyfill)
-- serde_spanned 0.6.9 (https://github.com/toml-rs/toml)
-- toml 0.8.23 (https://github.com/toml-rs/toml)
-- toml_datetime 0.6.11 (https://github.com/toml-rs/toml)
-- toml_edit 0.22.27 (https://github.com/toml-rs/toml)
-- toml_write 0.1.2 (https://github.com/toml-rs/toml)
+- serde_spanned 1.1.3 (https://github.com/toml-rs/toml)
+- toml 1.2.2+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_datetime 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_parser 1.1.6+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_writer 1.2.0+spec-1.1.0 (https://github.com/toml-rs/toml)
 
 ```
 Copyright (c) Individual contributors
@@ -4641,6 +4642,39 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 Used by:
+- if-addrs 0.15.0 (https://github.com/messense/if-addrs)
+
+```
+Copyright 2018 MaidSafe.net limited.
+Copyright 2020 messense
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+```
+
+### MIT License
+
+Used by:
+- ureq-proto 0.7.1 (https://github.com/algesten/ureq-proto)
+
+```
+Copyright 2022 Martin Algesten
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+```
+
+### MIT License
+
+Used by:
 - zerocopy 0.8.64 (https://github.com/google/zerocopy)
 
 ```
@@ -4833,7 +4867,7 @@ SOFTWARE.
 ### MIT License
 
 Used by:
-- ureq 2.12.1 (https://github.com/algesten/ureq)
+- ureq 3.5.2 (https://github.com/algesten/ureq)
 
 ```
 MIT License
@@ -5384,6 +5418,7 @@ Used by:
 - thiserror 1.0.69 (https://github.com/dtolnay/thiserror)
 - thiserror 2.0.21 (https://github.com/dtolnay/thiserror)
 - unicode-ident 1.0.27 (https://github.com/dtolnay/unicode-ident)
+- utf8-zero 0.8.1 (https://github.com/algesten/utf8-zero)
 - wasi 0.11.1+wasi-snapshot-preview1 (https://github.com/bytecodealliance/wasi)
 - wasip2 1.0.4+wasi-0.2.12 (https://github.com/bytecodealliance/wasi-rs)
 - wit-bindgen 0.57.1 (https://github.com/bytecodealliance/wit-bindgen)
@@ -5451,7 +5486,7 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 Used by:
-- winnow 0.7.15 (https://github.com/winnow-rs/winnow)
+- winnow 1.0.5 (https://github.com/winnow-rs/winnow)
 
 ```
 Permission is hereby granted, free of charge, to any person obtaining
@@ -5761,37 +5796,6 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-```
-
-### MIT License
-
-Used by:
-- ureq 2.12.1 (https://github.com/algesten/ureq)
-
-```
-The MIT License (MIT)
-
-Copyright (c) 2015 The tiny-http Contributors
-Copyright (c) 2015 The rust-chunked-transfer Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ```
 

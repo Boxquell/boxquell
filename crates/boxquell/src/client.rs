@@ -60,22 +60,27 @@ impl Client {
         bail!("the boxquell daemon did not come up; see {}", home.root().join("daemon.log").display())
     }
 
+    /// An HTTP client that hands back error statuses as responses, so the daemon's message can be read.
+    fn agent(timeout: Option<Duration>) -> ureq::Agent {
+        ureq::Agent::config_builder().timeout_global(timeout).http_status_as_error(false).build().into()
+    }
+
     fn request(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value> {
         // Starting a sandbox for the first time copies its disk image, which can take a while.
-        let request = ureq::request(method, &format!("{}{path}", self.base))
-            .set("Authorization", &format!("Bearer {}", self.token))
-            .timeout(Duration::from_secs(300));
-        let response = match body {
-            Some(body) => request.send_json(body),
-            None => request.call(),
-        };
-        match response {
-            Ok(response) => Ok(response.into_json()?),
-            Err(ureq::Error::Status(_, response)) => {
-                let body: Value = response.into_json().unwrap_or_default();
-                Err(anyhow!("{}", body["error"].as_str().unwrap_or("request failed")))
-            }
-            Err(err) => Err(anyhow!("cannot reach the boxquell daemon: {err}")),
+        let builder = ureq::http::Request::builder()
+            .method(method)
+            .uri(format!("{}{path}", self.base))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Content-Type", "application/json");
+        let text = body.map(|body| body.to_string()).unwrap_or_default();
+        let unreachable = |err: ureq::Error| anyhow!("cannot reach the boxquell daemon: {err}");
+        let mut response = Self::agent(Some(Duration::from_secs(300))).run(builder.body(text)?).map_err(unreachable)?;
+        let status = response.status();
+        let value: Value = response.body_mut().read_json().unwrap_or_default();
+        if status.is_success() {
+            Ok(value)
+        } else {
+            Err(anyhow!("{}", value["error"].as_str().unwrap_or("request failed")))
         }
     }
 
@@ -97,12 +102,14 @@ impl Client {
 
     /// Call `on_event` for every new log entry until the daemon goes away.
     pub fn follow(&self, query: &str, mut on_event: impl FnMut(&Value)) -> Result<()> {
-        let response = ureq::get(&format!("{}/api/events/stream?{query}", self.base))
-            .set("Authorization", &format!("Bearer {}", self.token))
+        let response = Self::agent(None)
+            .get(format!("{}/api/events/stream?{query}", self.base))
+            .header("Authorization", format!("Bearer {}", self.token))
             .call()
             .map_err(|err| anyhow!("cannot reach the boxquell daemon: {err}"))?;
-        for line in std::io::BufReader::new(response.into_reader()).lines() {
-            if let Some(event) = line?.strip_prefix("data:").and_then(|data| serde_json::from_str(data.trim()).ok()) {
+        for line in std::io::BufReader::new(response.into_body().into_reader()).lines() {
+            let line = line?;
+            if let Some(event) = line.strip_prefix("data:").and_then(|data| serde_json::from_str(data.trim()).ok()) {
                 on_event(&event);
             }
         }
