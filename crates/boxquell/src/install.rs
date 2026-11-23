@@ -154,28 +154,31 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
         }
         let existing = rules_of(&client.get(&path)?);
         let add = |host: &String| client.post(&format!("{path}/rules"), json!({ "rule": format!("allow {host}") })).map(drop);
-        let mut temporary = Vec::new();
+        let mut temporary: Vec<String> = Vec::new();
+        // A rule of the user's for the same destination (reading only, or a refusal) gives way while
+        // the script runs and comes back afterwards: a destination has one rule at a time.
+        let mut put_back: Vec<String> = Vec::new();
         let (install_allow, allow) = (expand(&recipe.install_allow), expand(&recipe.allow));
-        for host in &install_allow {
-            let rule = format!("allow {host}");
-            if !existing.contains(&rule) {
-                add(host)?;
-                temporary.push(rule);
-            }
-        }
         // What the software needs later opens by itself once it is recorded as
         // installed, and can be switched off there. Until then it is open like the rest.
-        for host in &allow {
+        for host in install_allow.iter().chain(&allow) {
             let rule = format!("allow {host}");
-            if !existing.contains(&rule) && !temporary.contains(&rule) {
-                add(host)?;
-                temporary.push(rule);
+            if existing.contains(&rule) || temporary.contains(&rule) {
+                continue;
             }
+            if let Some(own) = existing.iter().find(|own| own.split_once(' ').is_some_and(|(_, target)| target == host)) {
+                put_back.push(own.clone());
+            }
+            add(host)?;
+            temporary.push(rule);
         }
 
         let outcome = run_script(&key, port, &guest_script(pick, again && named.contains(&recipe.id)));
         for rule in temporary {
             client.delete(&format!("{path}/rules"), Some(json!({ "rule": rule })))?;
+        }
+        for rule in put_back {
+            client.post(&format!("{path}/rules"), json!({ "rule": rule }))?;
         }
         outcome.with_context(|| format!("installing {} failed; `boxquell logs {sandbox} --blocked` shows refused connections", recipe.id))?;
         // Noted as installed at once: what it opens is then open for the recipes that follow and need it.

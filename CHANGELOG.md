@@ -49,6 +49,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Software that is installed already is greyed out in the catalogue.
 
 ### Fixed
+- Installing software no longer removes a rule of yours for a destination the install opens for a moment (for example `read github.com`): the rule gives way while the script runs and is put back afterwards.
 - The Config tab showed the names of secrets instead of the labels, help texts and links their recipes give.
 - Notifications that were dismissed or allowed no longer come back when the interface is opened again.
 - Environment variables of a recipe (`[env]`) were not set in login shells on Debian.
