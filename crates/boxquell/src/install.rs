@@ -31,6 +31,9 @@ fn guest_script(pick: &Pick, again: bool) -> String {
         let exports: String = recipe.env.iter().map(|(k, v)| format!("export {k}={}\n", shell_quote(v))).collect();
         script += &format!("printf %s {} | sudo tee {profile} >/dev/null\n. {profile}\n", shell_quote(&exports));
     }
+    // Downloads go to a folder on the disk that is gone afterwards: /tmp is memory in a sandbox,
+    // and what a script leaves there would stay until the next start.
+    script += "export TMPDIR=$(mktemp -d -p /var/tmp boxquell-install.XXXXXX)\ntrap 'rm -rf \"$TMPDIR\"' EXIT\n";
     script += &format!("(\n{}\n)\nsudo mkdir -p {MARKERS}\nsudo rm -f {MARKERS}/{}@*\nsudo touch {marker}\n", recipe.install.trim(), recipe.id);
     script
 }
