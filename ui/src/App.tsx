@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { SshKeys } from "./SshKeys";
+import { Mcp } from "./Mcp";
 import { Usage } from "./Usage";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings, type UpdateInfo } from "./api";
 import { Preferences } from "./Preferences";
@@ -44,7 +45,7 @@ export function App() {
   const [lockdown, setLockdown] = useState(false);
   const [outdated, setOutdated] = useState(false);
   const [release, setRelease] = useState<UpdateInfo | null>(null);
-  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878, update_repos: true, check_updates: true, idle_stop_minutes: 0 });
+  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878, update_repos: true, check_updates: true, idle_stop_minutes: 0, mcp_read_only: false, mcp_network_rules: false, mcp_delete: false, mcp_review_apply: false });
   const { blocked, dismiss } = useBlocked(settings);
   const saveSettings = useCallback((next: Settings) => {
     setSettings(next);
@@ -356,6 +357,7 @@ export function App() {
               />
             )}
             {settingsTab === "agents" && <AgentSettings sandbox={null} act={act} />}
+            {settingsTab === "mcp" && <Mcp settings={settings} onChange={saveSettings} act={act} />}
             {settingsTab === "plugins" && <Plugins onChange={() => api.recipes().then(setRecipes, () => {})} />}
             {settingsTab === "secrets" && (
               <>
@@ -428,10 +430,11 @@ export function App() {
 }
 
 type Page = "overview" | "terminals" | "notifications" | "usage" | "settings" | "new" | "sandbox";
-type SettingsTab = "general" | "agents" | "plugins" | "secrets" | "network" | "logs" | "about";
+type SettingsTab = "general" | "agents" | "mcp" | "plugins" | "secrets" | "network" | "logs" | "about";
 const SETTINGS_TABS: [SettingsTab, string][] = [
   ["general", "General"],
   ["agents", "Agents"],
+  ["mcp", "MCP"],
   ["plugins", "Plugins"],
   ["secrets", "Secrets"],
   ["network", "Network"],

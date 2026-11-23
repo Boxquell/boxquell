@@ -265,7 +265,7 @@ enum Cmd {
     /// Preferences, e.g. `boxquell config notify-blocked off`
     Config {
         /// `notify-blocked`, `toast-blocked`, `browser-ui` (on|off), `listen` (addresses separated by commas, or `off`), `listen-port`
-        #[arg(value_parser = ["notify-blocked", "toast-blocked", "browser-ui", "listen", "listen-port", "update-repos", "check-updates", "idle-stop-minutes"])]
+        #[arg(value_parser = ["notify-blocked", "toast-blocked", "browser-ui", "listen", "listen-port", "update-repos", "check-updates", "idle-stop-minutes", "mcp-read-only", "mcp-network-rules", "mcp-delete", "mcp-review-apply"])]
         key: Option<String>,
         value: Option<String>,
     },
@@ -321,6 +321,9 @@ enum Cmd {
         /// Also offer the tool that deletes a sandbox
         #[arg(long)]
         allow_delete: bool,
+        /// Also offer the tool that takes a sandbox's changes in review mode into the project folder
+        #[arg(long)]
+        allow_review_apply: bool,
     },
     /// SSH keys of this computer a sandbox may use, e.g. for git over SSH; the keys stay on this computer
     SshKeys {
@@ -1392,7 +1395,17 @@ fn main() -> Result<()> {
                     println!("note: applies after the daemon restarts (`boxquell daemon --stop`); traffic on these addresses is not encrypted");
                 }
             }
-            for key in ["notify_blocked", "toast_blocked", "browser_ui", "update_repos", "check_updates"] {
+            for key in [
+                "notify_blocked",
+                "toast_blocked",
+                "browser_ui",
+                "update_repos",
+                "check_updates",
+                "mcp_read_only",
+                "mcp_network_rules",
+                "mcp_delete",
+                "mcp_review_apply",
+            ] {
                 println!("{:<16} {}", key.replace('_', "-"), if settings[key] == true { "on" } else { "off" });
             }
             let listen: Vec<&str> = settings["listen"].as_array().into_iter().flatten().filter_map(|a| a.as_str()).collect();
@@ -1438,8 +1451,8 @@ fn main() -> Result<()> {
                 println!("  {key}={}", value.as_str().unwrap_or_default());
             }
         }
-        Cmd::Mcp { read_only, allow_network_rules, allow_delete } => {
-            mcp::serve(mcp::Access { read_only, network_rules: allow_network_rules, delete: allow_delete })?;
+        Cmd::Mcp { read_only, allow_network_rules, allow_delete, allow_review_apply } => {
+            mcp::serve(mcp::Access { read_only, network_rules: allow_network_rules, delete: allow_delete, review_apply: allow_review_apply })?;
         }
         Cmd::SshKeys { name, agent, add, rm } => {
             let client = Client::connect(&home)?;

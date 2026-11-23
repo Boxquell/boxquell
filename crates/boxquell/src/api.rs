@@ -513,6 +513,58 @@ async fn traffic(State(daemon): App, Path(name): Path<String>, Query(query): Que
     Ok(Json(daemon.traffic_report(&name, query.days.unwrap_or(7).clamp(1, 90))?))
 }
 
+/// What is needed to connect an assistant to `boxquell mcp`: where the program
+/// is, and whether Claude Code is on this computer to be set up with a click.
+async fn mcp_info() -> ApiResult {
+    let exe = crate::daemon::program();
+    let claude = which("claude");
+    let connected = match &claude {
+        Some(claude) => tokio::process::Command::new(claude)
+            .args(["mcp", "get", "boxquell"])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .await
+            .is_ok_and(|output| output.status.success()),
+        None => false,
+    };
+    Ok(Json(json!({ "exe": exe, "claude": claude.is_some(), "claude_connected": connected })))
+}
+
+/// A program on the PATH or in the usual places of a user's own programs.
+fn which(name: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::home_dir();
+    let extra = home.iter().flat_map(|home| [home.join(".local/bin"), home.join(".claude/local"), home.join(".npm-global/bin")]);
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .chain(extra)
+        .map(|dir| dir.join(name))
+        .find(|file| file.is_file())
+}
+
+#[derive(Deserialize)]
+struct McpConnect {
+    /// `true` adds Boxquell to Claude Code for this user, `false` takes it out again.
+    connect: bool,
+}
+
+async fn mcp_connect(Json(body): Json<McpConnect>) -> ApiResult {
+    let claude = which("claude").ok_or_else(|| anyhow::anyhow!("Claude Code was not found on this computer"))?;
+    let exe = crate::daemon::program().ok_or_else(|| anyhow::anyhow!("the path of the boxquell program is unknown"))?;
+    let mut command = tokio::process::Command::new(claude);
+    if body.connect {
+        command.args(["mcp", "add", "--scope", "user", "boxquell", "--"]).arg(exe).arg("mcp");
+    } else {
+        command.args(["mcp", "remove", "--scope", "user", "boxquell"]);
+    }
+    let output = command.stdin(std::process::Stdio::null()).output().await?;
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Claude Code said: {}", said.lines().last().unwrap_or("nothing").trim()).into());
+    }
+    mcp_info().await
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -1027,6 +1079,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
         .route("/api/sandboxes/{name}/template", post(save_template))
         .route("/api/templates", get(templates))
+        .route("/api/mcp", get(mcp_info).post(mcp_connect))
         .route("/api/sandboxes/{name}/review", get(review_changes).put(set_review).post(review_settle))
         .route("/api/sandboxes/{name}/review/diff", get(review_diff))
         .route("/api/sandboxes/{name}/tasks", post(start_task))

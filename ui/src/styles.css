@@ -579,3 +579,9 @@ section.review-bar { flex-direction: row; }
 section.notice { flex-direction: row; text-align: left; }
 
 .row.between { justify-content: space-between; align-items: center; }
+
+/* Text to copy: a title line with the button, the text below. */
+.snippet { border-radius: var(--radius-control); background: var(--fill); margin: 8px 0; overflow: hidden; }
+.snippet-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; font-size: 13px; }
+.snippet pre { margin: 0; padding: 8px 12px 12px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; background: none; }
+.snippet .link { display: inline-flex; align-items: center; gap: 5px; }

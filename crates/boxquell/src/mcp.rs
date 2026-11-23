@@ -23,6 +23,25 @@ pub struct Access {
     pub network_rules: bool,
     /// Delete sandboxes.
     pub delete: bool,
+    /// Take what a sandbox in review mode changed into the project folder.
+    pub review_apply: bool,
+}
+
+impl Access {
+    /// What applies now: what the server was started with, and on top what
+    /// the settings allow. Read anew for every request, so a switch in the
+    /// app takes effect without touching the client's configuration.
+    fn now(self, home: &boxquell_core::Home) -> Access {
+        let settings: Value =
+            std::fs::read(home.root().join("settings.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null);
+        let on = |key: &str| settings[key] == true;
+        Access {
+            read_only: self.read_only || on("mcp_read_only"),
+            network_rules: self.network_rules || on("mcp_network_rules"),
+            delete: self.delete || on("mcp_delete"),
+            review_apply: self.review_apply || on("mcp_review_apply"),
+        }
+    }
 }
 
 /// The newest protocol revision this server was written against. A client
@@ -49,6 +68,7 @@ enum Kind {
     Change,
     NetworkRule,
     Delete,
+    ReviewApply,
 }
 
 fn tools() -> Vec<Tool> {
@@ -130,6 +150,61 @@ fn tools() -> Vec<Tool> {
             kind: Kind::NetworkRule,
         },
         Tool {
+            name: "give_task",
+            description: "Give an agent that is installed in the sandbox a task to work through on its own, in the background, in the project folder. Returns at once with the task's id; follow it with list_tasks and task_log.",
+            properties: json!({
+                "name": name,
+                "prompt": { "type": "string", "description": "What the agent should do" },
+                "agent": { "type": "string", "description": "The agent's id, e.g. claude; only needed when several agents in the sandbox can take tasks" },
+                "snapshot": { "type": "boolean", "description": "Take a snapshot of the sandbox first" },
+            }),
+            required: &["name", "prompt"],
+            kind: Kind::Change,
+        },
+        Tool { name: "list_tasks", description: "The tasks given to a sandbox's agents, with their state: running, done, failed, stopped.", properties: json!({ "name": name }), required: &["name"], kind: Kind::Read },
+        Tool {
+            name: "task_log",
+            description: "What a task has printed so far.",
+            properties: json!({ "name": name, "id": { "type": "string", "description": "The task's id from give_task or list_tasks" } }),
+            required: &["name", "id"],
+            kind: Kind::Read,
+        },
+        Tool {
+            name: "stop_task",
+            description: "Stop a running task.",
+            properties: json!({ "name": name, "id": { "type": "string" } }),
+            required: &["name", "id"],
+            kind: Kind::Change,
+        },
+        Tool {
+            name: "take_snapshot",
+            description: "Save the state of a sandbox's disk, to go back to later. A running sandbox stops for a moment and starts again.",
+            properties: json!({ "name": name, "label": { "type": "string", "description": "A few words to recognise it by" } }),
+            required: &["name"],
+            kind: Kind::Change,
+        },
+        Tool {
+            name: "review_changes",
+            description: "For a sandbox in review mode, which works on a copy of the project folder: the files that differ between the copy and the project, with who changed them.",
+            properties: json!({ "name": name }),
+            required: &["name"],
+            kind: Kind::Read,
+        },
+        Tool {
+            name: "review_diff",
+            description: "How one file differs between the project and the sandbox's copy, line by line.",
+            properties: json!({ "name": name, "path": { "type": "string", "description": "The file, relative to the project folder" } }),
+            required: &["name", "path"],
+            kind: Kind::Read,
+        },
+        Tool {
+            name: "review_apply",
+            description: "Take what the sandbox changed into the project folder on this computer: all of it, or the files named.",
+            properties: json!({ "name": name, "paths": { "type": "array", "items": { "type": "string" } } }),
+            required: &["name"],
+            kind: Kind::ReviewApply,
+        },
+        Tool {
             name: "delete_sandbox",
             description: "Delete a sandbox with its disk. The shared project folder on this computer is not touched.",
             properties: json!({ "name": name }),
@@ -145,12 +220,14 @@ fn offered(tool: &Tool, access: Access) -> bool {
         Kind::Change => !access.read_only,
         Kind::NetworkRule => !access.read_only && access.network_rules,
         Kind::Delete => !access.read_only && access.delete,
+        Kind::ReviewApply => !access.read_only && access.review_apply,
     }
 }
 
 /// Serve requests until standard input ends.
-pub fn serve(access: Access) -> Result<()> {
+pub fn serve(started_with: Access) -> Result<()> {
     let exe = std::env::current_exe().context("cannot find the boxquell program")?;
+    let home = boxquell_core::Home::locate()?;
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -159,7 +236,7 @@ pub fn serve(access: Access) -> Result<()> {
             continue;
         }
         let answer = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle(&message, access, &exe),
+            Ok(message) => handle(&message, started_with.now(&home), &exe),
             Err(err) => Some(json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": format!("not JSON: {err}") } })),
         };
         if let Some(answer) = answer {
@@ -300,6 +377,37 @@ fn call(tool: &Tool, arguments: &Value, exe: &PathBuf) -> Result<String> {
         "allow_destination" => run(words(&["allow", sandbox(arguments)?, text(arguments, "destination")?]), 30),
         "deny_destination" => run(words(&["deny", sandbox(arguments)?, text(arguments, "destination")?]), 30),
         "delete_sandbox" => run(words(&["rm", sandbox(arguments)?]), 120),
+        "give_task" => {
+            let prompt = arguments["prompt"].as_str().context("the argument `prompt` is missing")?;
+            ensure!(!prompt.trim().is_empty(), "the argument `prompt` is empty");
+            let mut args = words(&["task", sandbox(arguments)?]);
+            if !arguments["agent"].is_null() {
+                args.extend(["--agent".into(), text(arguments, "agent")?.to_string()]);
+            }
+            if arguments["snapshot"] == true {
+                args.push("--snapshot".into());
+            }
+            // After `--` the text is the prompt, whatever it starts with.
+            args.extend(["--".into(), prompt.to_string()]);
+            run(args, 600)
+        }
+        "list_tasks" => run(words(&["task", sandbox(arguments)?]), 30),
+        "task_log" => run(words(&["task", sandbox(arguments)?, "--log", text(arguments, "id")?]), 30),
+        "stop_task" => run(words(&["task", sandbox(arguments)?, "--stop", text(arguments, "id")?]), 30),
+        "take_snapshot" => {
+            let mut args = words(&["snapshot", "take", sandbox(arguments)?]);
+            if let Some(label) = arguments["label"].as_str().filter(|label| !label.trim().is_empty() && !label.starts_with('-')) {
+                args.push(label.to_string());
+            }
+            run(args, 600)
+        }
+        "review_changes" => run(words(&["review", sandbox(arguments)?]), 120),
+        "review_diff" => run(words(&["review", sandbox(arguments)?, "--diff", text(arguments, "path")?]), 60),
+        "review_apply" => {
+            let mut args = words(&["review", sandbox(arguments)?, "--apply"]);
+            args.extend(list(arguments, "paths")?);
+            run(args, 300)
+        }
         other => bail!("unknown tool {other}"),
     }
 }
@@ -372,10 +480,14 @@ mod tests {
         assert!(default.contains(&"run_command".to_string()));
         assert!(!default.contains(&"allow_destination".to_string()));
         assert!(!default.contains(&"delete_sandbox".to_string()));
-        let open = names(Access { network_rules: true, delete: true, read_only: false });
+        let open = names(Access { network_rules: true, delete: true, read_only: false, review_apply: false });
         assert!(open.contains(&"allow_destination".to_string()) && open.contains(&"delete_sandbox".to_string()));
-        let reading = names(Access { read_only: true, network_rules: true, delete: true });
-        assert_eq!(reading, ["list_sandboxes", "sandbox_info", "list_software", "network_log"]);
+        assert!(!open.contains(&"review_apply".to_string()) && open.contains(&"give_task".to_string()));
+        let reading = names(Access { read_only: true, network_rules: true, delete: true, review_apply: true });
+        assert_eq!(
+            reading,
+            ["list_sandboxes", "sandbox_info", "list_software", "network_log", "list_tasks", "task_log", "review_changes", "review_diff"]
+        );
     }
 
     #[test]

@@ -353,6 +353,11 @@ export interface Settings {
   check_updates: boolean;
   /** Stop a sandbox after this many minutes without work; 0 for never */
   idle_stop_minutes: number;
+  /** What assistants connected through MCP may do */
+  mcp_read_only: boolean;
+  mcp_network_rules: boolean;
+  mcp_delete: boolean;
+  mcp_review_apply: boolean;
 }
 
 export interface Secret {
@@ -471,7 +476,7 @@ export const api = {
   sshKeys: (sandbox: string | null) => call<SshKeyChoice>("GET", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys"),
   setSshKeys: (sandbox: string | null, keys: { agent: boolean; files: string[] }) =>
     call<SshKeyChoice>("PUT", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys", keys),
-  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878, update_repos: s.update_repos ?? true, check_updates: s.check_updates ?? true, idle_stop_minutes: s.idle_stop_minutes ?? 0 })),
+  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878, update_repos: s.update_repos ?? true, check_updates: s.check_updates ?? true, idle_stop_minutes: s.idle_stop_minutes ?? 0, mcp_read_only: !!s.mcp_read_only, mcp_network_rules: !!s.mcp_network_rules, mcp_delete: !!s.mcp_delete, mcp_review_apply: !!s.mcp_review_apply })),
   addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
   /** The most recent blocked connections of every sandbox. */
@@ -501,6 +506,9 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  /** Where the Boxquell program is, and whether Claude Code is here and connected. */
+  mcp: () => call<{ exe: string | null; claude: boolean; claude_connected: boolean }>("GET", "/api/mcp"),
+  connectMcp: (connect: boolean) => call<{ exe: string | null; claude: boolean; claude_connected: boolean }>("POST", "/api/mcp", { connect }),
   /** A sandbox's traffic to and from destinations outside: per hour or day, and the destinations that carried most of it. */
   traffic: (name: string, days: number) =>
     call<{ bucket_ms: number; buckets: { t: number; up: number; down: number }[]; top: { host: string | null; up: number; down: number; connections: number }[] }>("GET", `${box(name)}/traffic?days=${days}`),

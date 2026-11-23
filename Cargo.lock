@@ -319,6 +319,7 @@ name = "boxquell-net"
 version = "0.0.2"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "bytes",
  "hickory-proto",
  "http-body-util",

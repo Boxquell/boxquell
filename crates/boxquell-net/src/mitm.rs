@@ -100,6 +100,19 @@ struct Session {
     read_only: bool,
 }
 
+/// A `Basic …` header value with the secret's placeholder in its decoded
+/// `user:password` replaced by the real value; `None` when it is not there.
+fn basic_with(value: &str, secret: &Secret) -> Option<String> {
+    use base64::Engine;
+    let (scheme, encoded) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("basic") {
+        return None;
+    }
+    let engine = base64::engine::general_purpose::STANDARD;
+    let decoded = String::from_utf8(engine.decode(encoded.trim()).ok()?).ok()?;
+    decoded.contains(&secret.placeholder).then(|| format!("{scheme} {}", engine.encode(decoded.replace(&secret.placeholder, &secret.value))))
+}
+
 /// Follows an answer as it passes and, when it is over, reports the tokens it used.
 struct UsageReport {
     scanner: crate::usage::Scanner,
@@ -141,10 +154,14 @@ impl Session {
         for secret in secrets.iter().filter(|s| s.applies_to(&self.host)) {
             for value in request.headers_mut().values_mut() {
                 let Ok(text) = value.to_str() else { continue };
-                if !text.contains(&secret.placeholder) {
-                    continue;
-                }
-                if let Ok(mut replaced) = HeaderValue::from_str(&text.replace(&secret.placeholder, &secret.value)) {
+                // In `Basic` sign-in the placeholder is inside an encoded `user:password`.
+                let swapped = if text.contains(&secret.placeholder) {
+                    Some(text.replace(&secret.placeholder, &secret.value))
+                } else {
+                    basic_with(text, secret)
+                };
+                let Some(swapped) = swapped else { continue };
+                if let Ok(mut replaced) = HeaderValue::from_str(&swapped) {
                     replaced.set_sensitive(true);
                     *value = replaced;
                     used = Some(secret.name.clone());
@@ -479,6 +496,18 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let event = f.events.recv().await.unwrap();
         assert!(!event.allowed && event.reason.contains("POST"));
+    }
+
+    #[test]
+    fn a_placeholder_in_basic_sign_in_is_replaced() {
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let secret = Secret { name: "test".into(), hosts: vec![], placeholder: PLACEHOLDER.into(), value: REAL.into() };
+        let sent = format!("Basic {}", engine.encode(format!("me@example.com:{PLACEHOLDER}")));
+        let swapped = basic_with(&sent, &secret).unwrap();
+        assert_eq!(engine.decode(swapped.strip_prefix("Basic ").unwrap()).unwrap(), format!("me@example.com:{REAL}").into_bytes());
+        assert_eq!(basic_with(&format!("Basic {}", engine.encode("me:other")), &secret), None);
+        assert_eq!(basic_with("Bearer abc", &secret), None);
     }
 
     #[tokio::test]

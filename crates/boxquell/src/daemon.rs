@@ -197,6 +197,13 @@ pub struct Settings {
     /// Stop a sandbox after this many minutes without work in it; 0 for never.
     /// A sandbox can have its own value.
     pub idle_stop_minutes: u64,
+    /// What assistants connected through `boxquell mcp` may do beyond the
+    /// usual: nothing that changes anything; change network rules; delete
+    /// sandboxes; take a sandbox's changes in review mode into the project.
+    pub mcp_read_only: bool,
+    pub mcp_network_rules: bool,
+    pub mcp_delete: bool,
+    pub mcp_review_apply: bool,
 }
 
 impl Default for Settings {
@@ -211,6 +218,10 @@ impl Default for Settings {
             update_repos: true,
             check_updates: true,
             idle_stop_minutes: 0,
+            mcp_read_only: false,
+            mcp_network_rules: false,
+            mcp_delete: false,
+            mcp_review_apply: false,
         }
     }
 }
@@ -2404,6 +2415,11 @@ fn net_socket(sandbox_dir: &Path) -> PathBuf {
 /// This binary's path, read at startup: after an upgrade replaces the file,
 /// `current_exe` would point at the deleted old one.
 static EXE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Where the `boxquell` program is, for those who start it themselves.
+pub fn program() -> Option<PathBuf> {
+    EXE.get().cloned()
+}
 
 pub async fn serve(home: Home) -> Result<()> {
     EXE.get_or_init(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("boxquell")));
