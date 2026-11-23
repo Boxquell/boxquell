@@ -4,6 +4,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-23
+
 ### Changed
 - A new interface. A sandbox's page has five areas (Overview, Work, Software, Network, Settings) with their parts below, instead of eleven tabs; its head shows the system, the state and the facts, with a Terminal button always at hand. The start page shows the sandboxes as cards with their state and quick actions, and greets a first start with the three steps to a working sandbox. The sidebar is one line per entry, with Settings and the emergency stop at the bottom. Colours, type and controls follow one system, in light and dark.
 - Speed and data limits are set with sliders.
@@ -94,3 +96,4 @@ First public version, for testing. Built and tested on Linux; the macOS and Wind
 - Shell completion for bash, zsh, fish and PowerShell.
 
 [0.0.1]: https://github.com/Boxquell/boxquell/releases/tag/v0.0.1
+[0.1.0]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.0
