@@ -42,7 +42,7 @@ function Meter(props: { label: string; used: number; total: number; figure: stri
   return (
     <div className="meter-row">
       <span>{props.label}</span>
-      <div className={`meter ${level}`} role="meter" aria-label={props.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}>
+      <div className={`meter ${level === "critical" ? "level-full" : level === "warning" ? "level-high" : ""}`} role="meter" aria-label={props.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}>
         <div style={{ width: `${share * 100}%` }} />
       </div>
       <span className="figure">

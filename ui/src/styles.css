@@ -229,8 +229,8 @@ summary { cursor: pointer; font-weight: 500; }
 .meter-row .figure { grid-column: 2; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
 .meter { height: 6px; border-radius: 999px; background: var(--fill-strong); overflow: hidden; }
 .meter > div { height: 100%; border-radius: 999px; background: var(--series); transition: width 0.4s var(--ease); }
-.meter.warning > div { background: var(--status-warning); }
-.meter.critical > div { background: var(--status-critical); }
+.meter.level-high > div { background: var(--status-warning, var(--warn)); }
+.meter.level-full > div { background: var(--status-critical, var(--bad)); }
 
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; height: auto; }
