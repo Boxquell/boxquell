@@ -45,6 +45,10 @@ pub struct Recipe {
     /// Host secrets this software can use; those that are set get attached.
     #[serde(default)]
     pub secrets: Vec<String>,
+    /// Ports the software listens on in the sandbox. Each is forwarded from the
+    /// same port on 127.0.0.1 of the host when the recipe is installed.
+    #[serde(default)]
+    pub ports: Vec<u16>,
     /// For agents: the command that starts it.
     #[serde(default)]
     pub command: Option<String>,

@@ -27,6 +27,9 @@ impl Backend {
 pub struct PortForward {
     pub host: u16,
     pub guest: u16,
+    /// Address of this computer to listen on; 127.0.0.1 when unset, so only this computer can connect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<std::net::IpAddr>,
 }
 
 /// A directory of this computer mounted in the guest.

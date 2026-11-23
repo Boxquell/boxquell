@@ -30,7 +30,7 @@ export interface Sandbox {
   recipes: string[];
   local_secrets: Secret[];
   claude_settings: boolean;
-  ports: { host: number; guest: number }[];
+  ports: { host: number; guest: number; bind?: string }[];
   shares: { host: string; guest: string; read_only: boolean }[];
   /** Where shells and agents start; null means /workspace */
   workdir: string | null;

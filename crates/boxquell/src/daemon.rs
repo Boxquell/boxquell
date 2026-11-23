@@ -969,7 +969,8 @@ impl Daemon {
 }
 
 async fn open_forward(running: &Running, port: PortForward) -> Result<()> {
-    let listener = TcpListener::bind(("127.0.0.1", port.host)).await.with_context(|| format!("cannot listen on 127.0.0.1:{}", port.host))?;
+    let address = port.bind.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+    let listener = TcpListener::bind((address, port.host)).await.with_context(|| format!("cannot listen on {address}:{}", port.host))?;
     let task = tokio::spawn(forward_port(listener, running.gateway.clone(), port.guest));
     if let Some(old) = running.forwards.lock().unwrap().insert(port.host, task) {
         old.abort();

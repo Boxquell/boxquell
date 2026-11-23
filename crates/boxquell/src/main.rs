@@ -265,6 +265,9 @@ enum PortCmd {
     Add {
         name: String,
         ports: String,
+        /// Address of this computer to listen on, for other devices (default: 127.0.0.1, this computer only)
+        #[arg(long)]
+        bind: Option<std::net::IpAddr>,
     },
     /// Remove the forward from this computer's port
     Rm {
@@ -669,16 +672,16 @@ fn main() -> Result<()> {
         Cmd::Port { command } => {
             let client = Client::connect(&home)?;
             let info = match command {
-                PortCmd::Add { name, ports } => {
+                PortCmd::Add { name, ports, bind } => {
                     let (host, guest) = ports.split_once(':').unwrap_or((&ports, &ports));
                     let (host, guest): (u16, u16) = (host.parse().context("invalid port")?, guest.parse().context("invalid port")?);
-                    client.post(&format!("/api/sandboxes/{name}/ports"), json!({ "host": host, "guest": guest }))?
+                    client.post(&format!("/api/sandboxes/{name}/ports"), json!({ "host": host, "guest": guest, "bind": bind }))?
                 }
                 PortCmd::Rm { name, host } => client.delete(&format!("/api/sandboxes/{name}/ports/{host}"), None)?,
                 PortCmd::Ls { name } => client.get(&format!("/api/sandboxes/{name}"))?,
             };
             for port in info["ports"].as_array().into_iter().flatten() {
-                println!("http://127.0.0.1:{}  ->  port {} in the sandbox", port["host"], port["guest"]);
+                println!("http://{}:{}  ->  port {} in the sandbox", port["bind"].as_str().unwrap_or("127.0.0.1"), port["host"], port["guest"]);
             }
         }
         Cmd::ClaudeSettings { name, file, clear } => {

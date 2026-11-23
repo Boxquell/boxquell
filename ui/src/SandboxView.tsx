@@ -373,8 +373,8 @@ function Ports(props: { sandbox: Sandbox; act: Act }) {
       <ul className="rules">
         {sandbox.ports.map((p) => (
           <li key={p.host}>
-            <a href={`http://127.0.0.1:${p.host}`} target="_blank" rel="noreferrer">
-              127.0.0.1:{p.host}
+            <a href={`http://${p.bind ?? "127.0.0.1"}:${p.host}`} target="_blank" rel="noreferrer">
+              {p.bind ?? "127.0.0.1"}:{p.host}
             </a>{" "}
             <span className="muted">→ sandbox port {p.guest}</span>
             <button className="link" onClick={() => act(() => api.removePort(sandbox.name, p.host))}>

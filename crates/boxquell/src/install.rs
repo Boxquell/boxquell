@@ -86,6 +86,14 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
         outcome.with_context(|| format!("installing {} failed; `boxquell logs {sandbox} --blocked` shows refused connections", recipe.id))?;
     }
 
+    // Ports the installed software listens on become reachable from this computer.
+    for port in recipes.iter().flat_map(|r| &r.ports) {
+        match client.post(&format!("{path}/ports"), json!({ "host": port, "guest": port })) {
+            Ok(_) => println!("forwarded http://127.0.0.1:{port} to port {port} in the sandbox"),
+            Err(err) if format!("{err:#}").contains("already leads") => {}
+            Err(err) => println!("note: port {port} is not forwarded ({err:#}); choose another with `boxquell port add {sandbox} <port>:{port}`"),
+        }
+    }
     let installed: Vec<String> = picks.iter().map(Pick::label).collect();
     client.post(&format!("{path}/installed"), json!({ "recipes": installed }))?;
 

@@ -26,6 +26,7 @@ install_allow = ["nodejs.org"]         # destinations open only while the instal
 allow = ["registry.npmjs.org"]         # destinations the software needs afterwards
 secrets = ["anthropic"]                # optional; host secrets this software can use
 command = "node"                       # agents only: the command that starts it
+ports = [3000]                         # optional; forwarded from the same port on 127.0.0.1 of the host
 
 install = '''
 # Runs in the sandbox as user `dev` with passwordless sudo, under `set -euo pipefail`.
