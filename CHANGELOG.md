@@ -4,6 +4,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-24
+
 ### Added
 - The start page shows this computer's swap: as a second line in the memory trend and as a bar of its own.
 - `boxquell doctor` says when libkrun is there but libkrunfw is not.
@@ -109,3 +111,4 @@ First public version, for testing. Built and tested on Linux; the macOS and Wind
 
 [0.0.1]: https://github.com/Boxquell/boxquell/releases/tag/v0.0.1
 [0.1.0]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.0
+[0.1.1]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.1
