@@ -62,6 +62,9 @@ async fn authorize(State(daemon): App, Query(query): Query<TokenQuery>, request:
 #[derive(Deserialize)]
 struct RuleBody {
     rule: Rule,
+    /// The rule ends by itself after this many minutes.
+    #[serde(default)]
+    minutes: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -108,13 +111,12 @@ async fn stop(State(daemon): App, Path(name): Path<String>) -> ApiResult {
     Ok(Json(daemon.info(&name)?))
 }
 
-/// A new rule goes first so it wins over older ones for the same destination.
 async fn add_rule(State(daemon): App, Path(name): Path<String>, Json(body): Json<RuleBody>) -> ApiResult {
-    let rule = body.rule;
-    Ok(Json(daemon.update_rules(&name, |rules| {
-        rules.retain(|r| !(r.host == rule.host && r.port == rule.port));
-        rules.insert(0, rule);
-    })?))
+    Ok(Json(daemon.add_rule(&name, body.rule, body.minutes)?))
+}
+
+async fn continue_after_limit(State(daemon): App, Path(name): Path<String>) -> ApiResult {
+    Ok(Json(daemon.continue_after_limit(&name)?))
 }
 
 #[derive(Deserialize)]
@@ -404,6 +406,9 @@ struct ResizeBody {
     workdir: Option<String>,
     /// Replaces the list of what starts with the sandbox.
     autostart: Option<Vec<String>>,
+    /// Data limits in MiB; 0 takes one away.
+    upload_limit_mib: Option<u64>,
+    download_limit_mib: Option<u64>,
     /// Variables to set; an empty value removes the variable.
     #[serde(default)]
     env: std::collections::BTreeMap<String, String>,
@@ -415,6 +420,7 @@ async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<R
         daemon.set_workdir(&name, workdir)?;
     }
     daemon.set_env(&name, body.env)?;
+    daemon.set_data_limits(&name, body.upload_limit_mib, body.download_limit_mib)?;
     if let Some(autostart) = body.autostart {
         daemon.set_autostart(&name, autostart)?;
     }
@@ -862,6 +868,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/stop", post(stop))
         .route("/api/sandboxes/{name}/rules", post(add_rule).delete(remove_rule))
         .route("/api/sandboxes/{name}/auto-rules", post(set_auto_rule))
+        .route("/api/sandboxes/{name}/traffic/continue", post(continue_after_limit))
         .route("/api/sandboxes/{name}/pause", post(pause))
         .route("/api/sandboxes/{name}/resume", post(resume))
         .route("/api/sandboxes/{name}/mode", post(set_mode))

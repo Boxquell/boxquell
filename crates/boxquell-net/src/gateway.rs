@@ -61,6 +61,8 @@ pub(crate) struct Shared<U> {
     pins: Mutex<HashMap<Ipv4Addr, PinEntry>>,
     pub events: mpsc::UnboundedSender<NetEvent>,
     pub intercept: Option<Intercept>,
+    /// Bytes sent to and received from destinations outside, over all connections.
+    pub traffic: Arc<(std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64)>,
 }
 
 /// Addresses that lead back to the host, its LAN or other special networks.
@@ -138,7 +140,7 @@ impl<U: Upstream> Shared<U> {
         }
         if !is_public(ip) {
             let reason = "private or local address: needs a rule naming the address or its network".to_string();
-            return (claimed.map(str::to_string), Verdict { allowed: false, reason });
+            return (claimed.map(str::to_string), Verdict { allowed: false, reason, read_only: false });
         }
         let names = self.names_for(ip);
         if policy.mode == Mode::Blacklist {
@@ -159,7 +161,7 @@ impl<U: Upstream> Shared<U> {
         if let Some(claimed) = claimed {
             if !names.iter().any(|n| n == claimed) {
                 let reason = format!("{claimed} was not resolved to this address");
-                return (Some(claimed.to_string()), Verdict { allowed: false, reason });
+                return (Some(claimed.to_string()), Verdict { allowed: false, reason, read_only: false });
             }
             return (Some(claimed.to_string()), policy.check(claimed, Some(port)));
         }
@@ -173,7 +175,7 @@ impl<U: Upstream> Shared<U> {
         }
         match denied {
             Some((name, verdict)) => (Some(name), verdict),
-            None => (None, Verdict { allowed: false, reason: "address was not obtained from an allowed DNS name".into() }),
+            None => (None, Verdict { allowed: false, reason: "address was not obtained from an allowed DNS name".into(), read_only: false }),
         }
     }
 }
@@ -210,9 +212,16 @@ impl<U: Upstream> Filter for PolicyFilter<U> {
 #[derive(Clone)]
 pub struct GatewayHandle {
     cmds: mpsc::Sender<Cmd>,
+    traffic: Arc<(std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64)>,
 }
 
 impl GatewayHandle {
+    /// Bytes the sandbox has sent to and received from destinations outside since it started.
+    pub fn traffic(&self) -> (u64, u64) {
+        use std::sync::atomic::Ordering::Relaxed;
+        (self.traffic.0.load(Relaxed), self.traffic.1.load(Relaxed))
+    }
+
     /// Open a TCP connection to a port inside the guest (used for SSH).
     pub async fn connect_guest(&self, port: u16) -> io::Result<GuestStream> {
         let (reply, stream) = oneshot::channel();
@@ -241,7 +250,8 @@ where
     L: AsyncRead + AsyncWrite + Send + 'static,
     U: Upstream,
 {
-    let shared = Arc::new(Shared { upstream, policy, pins: Mutex::new(HashMap::new()), events, intercept });
+    let traffic = Arc::new((std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0)));
+    let shared = Arc::new(Shared { upstream, policy, pins: Mutex::new(HashMap::new()), events, intercept, traffic: traffic.clone() });
     let (mut link_rx, mut link_tx) = tokio::io::split(link);
     let (frames_in_tx, frames_in) = mpsc::channel::<Vec<u8>>(1024);
     let (frames_out, mut frames_out_rx) = mpsc::channel::<Vec<u8>>(1024);
@@ -309,5 +319,5 @@ where
         }
     });
 
-    GatewayHandle { cmds }
+    GatewayHandle { cmds, traffic }
 }

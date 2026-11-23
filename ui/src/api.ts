@@ -49,6 +49,10 @@ export interface Sandbox {
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
+  /** Rules that end by themselves: the rule with the time it ends, in seconds since 1970 */
+  rule_expiry?: Record<string, number>;
+  /** Bytes to and from destinations outside since the start, against the limits */
+  traffic?: { up: number; down: number; upload_limit_mib: number | null; download_limit_mib: number | null; cut: boolean };
   /** Saved states of the disk, oldest first */
   snapshots?: Snapshot[];
   /** Installed software for which there is something newer */
@@ -320,7 +324,7 @@ export const api = {
   resume: (name: string) => call<Sandbox>("POST", `${box(name)}/resume`, {}),
   stop: (name: string) => call<Sandbox>("POST", `${box(name)}/stop`, {}),
   remove: (name: string) => call<unknown>("DELETE", box(name)),
-  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string> }) => call<Sandbox>("PATCH", box(name), change),
+  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string>; upload_limit_mib?: number; download_limit_mib?: number }) => call<Sandbox>("PATCH", box(name), change),
   addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
@@ -379,7 +383,10 @@ export const api = {
   addGlobalRule: (rule: string) => call<string[]>("POST", "/api/rules", { rule }),
   removeGlobalRule: (rule: string) => call<string[]>("DELETE", "/api/rules", { rule }),
   setMode: (name: string, mode: string) => call<Sandbox>("POST", `${box(name)}/mode`, { mode }),
-  addRule: (name: string, rule: string) => call<Sandbox>("POST", `${box(name)}/rules`, { rule }),
+  /** Add a rule; with `minutes` it ends by itself. */
+  addRule: (name: string, rule: string, minutes?: number) => call<Sandbox>("POST", `${box(name)}/rules`, { rule, minutes }),
+  /** Let a sandbox that reached a data limit go on; counting starts anew. */
+  continueAfterLimit: (name: string) => call<Sandbox>("POST", `${box(name)}/traffic/continue`, {}),
   /** Switch a destination that software or the system opens, or all of a source's, on or off. */
   setAutoRule: (name: string, source: string, host: string | null, enabled: boolean) => call<Sandbox>("POST", `${box(name)}/auto-rules`, { source, host, enabled }),
   removeRule: (name: string, rule: string) => call<Sandbox>("DELETE", `${box(name)}/rules`, { rule }),

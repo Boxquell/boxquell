@@ -187,6 +187,56 @@ function Command(props: { text: string }) {
   );
 }
 
+function megabytes(bytes: number): string {
+  return bytes < 1 << 20 ? `${Math.round(bytes / 1024)} KiB` : `${(bytes / (1 << 20)).toFixed(1)} MiB`;
+}
+
+/** How much a sandbox may send and receive per run; beyond it the network is cut off until the user lets it go on. */
+function DataLimits(props: { sandbox: Sandbox; act: Act }) {
+  const { sandbox, act } = props;
+  const traffic = sandbox.traffic;
+  const [up, setUp] = useState<string | null>(null);
+  const [down, setDown] = useState<string | null>(null);
+  if (!traffic) return null;
+  const field = (label: string, used: number, limit: number | null, draft: string | null, set: (value: string | null) => void, key: "upload_limit_mib" | "download_limit_mib") => (
+    <label>
+      {label}
+      <input
+        type="number"
+        min={0}
+        placeholder="no limit"
+        value={draft ?? (limit ? String(limit) : "")}
+        onChange={(e) => set(e.target.value)}
+        onBlur={() => {
+          if (draft !== null && Number(draft || 0) !== (limit ?? 0)) act(() => api.resize(sandbox.name, { [key]: Number(draft || 0) })).then(() => set(null));
+          else set(null);
+        }}
+      />
+      <small className="muted">{sandbox.running ? `${megabytes(used)} so far${limit ? ` of ${limit} MiB` : ""}` : "MiB per run"}</small>
+    </label>
+  );
+  return (
+    <>
+      <h3>Data limit</h3>
+      <p className="muted">
+        Cut the network off once this sandbox has sent or received this much to and from destinations outside. Counting starts when the sandbox starts.
+      </p>
+      {traffic.cut && (
+        <div className="warning">
+          <span>A limit was reached: the network of this sandbox is cut off.</span>
+          <button className="link" onClick={() => act(() => api.continueAfterLimit(sandbox.name))}>
+            Let it continue and count anew
+          </button>
+        </div>
+      )}
+      <div className="row">
+        {field("Sent, limit in MiB", traffic.up, traffic.upload_limit_mib, up, setUp, "upload_limit_mib")}
+        {field("Received, limit in MiB", traffic.down, traffic.download_limit_mib, down, setDown, "download_limit_mib")}
+      </div>
+    </>
+  );
+}
+
 /** Destinations the system's package manager and installed software open by themselves, to switch off one by one. */
 function AutoRules(props: { sandbox: Sandbox; act: Act }) {
   const { sandbox, act } = props;
@@ -360,9 +410,11 @@ function Rules(props: { sandbox: Sandbox; act: Act }) {
   const { sandbox, act } = props;
   const [host, setHost] = useState("");
   const [action, setAction] = useState("allow");
+  const [minutes, setMinutes] = useState("0");
+  const expiry = sandbox.rule_expiry ?? {};
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    act(() => api.addRule(sandbox.name, `${action} ${host.trim()}`)).then(() => setHost(""));
+    act(() => api.addRule(sandbox.name, `${action} ${host.trim()}`, Number(minutes) || undefined)).then(() => setHost(""));
   };
   return (
     <section>
@@ -381,6 +433,8 @@ function Rules(props: { sandbox: Sandbox; act: Act }) {
         {sandbox.rules.map((rule) => (
           <li key={rule} className={rule.startsWith("deny") ? "bad" : ""}>
             <code>{rule}</code>
+            {rule.startsWith("read") && <span className="chip">reading only</span>}
+            {expiry[rule] && <span className="chip paused">until {new Date(expiry[rule] * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
             <button className="link" onClick={() => act(() => api.removeRule(sandbox.name, rule))}>
               remove
             </button>
@@ -390,11 +444,26 @@ function Rules(props: { sandbox: Sandbox; act: Act }) {
       <form className="row" onSubmit={submit}>
         <select value={action} onChange={(e) => setAction(e.target.value)} aria-label="Action">
           <option>allow</option>
+          <option value="read">read only</option>
           <option>deny</option>
         </select>
         <input className="grow" required placeholder="example.com, *.example.com, 192.0.2.7, 10.0.0.0/8, optionally :port" value={host} onChange={(e) => setHost(e.target.value)} aria-label="Destination" />
+        <select value={minutes} onChange={(e) => setMinutes(e.target.value)} aria-label="How long the rule lasts">
+          <option value="0">for good</option>
+          <option value="15">for 15 minutes</option>
+          <option value="60">for 1 hour</option>
+          <option value="480">for 8 hours</option>
+          <option value="1440">for 1 day</option>
+        </select>
         <button>Add rule</button>
       </form>
+      {action === "read" && (
+        <p className="muted">
+          Read only lets web requests that fetch through (GET, HEAD, OPTIONS) and refuses those that send or change something. It works for websites; other
+          kinds of connection to the destination are refused.
+        </p>
+      )}
+      <DataLimits sandbox={sandbox} act={act} />
     </section>
   );
 }

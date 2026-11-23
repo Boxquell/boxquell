@@ -136,6 +136,16 @@ pub struct SandboxSpec {
     /// Recipes installed into this sandbox.
     #[serde(default)]
     pub recipes: Vec<String>,
+    /// Rules that end by themselves: the rule's text with the time it ends, in seconds since 1970.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rule_expiry: BTreeMap<String, u64>,
+    /// How much the sandbox may send to destinations outside per run, in MiB.
+    /// Beyond it the network is cut off until someone lets it continue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_limit_mib: Option<u64>,
+    /// The same for what it may receive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_limit_mib: Option<u64>,
     /// Only when a sandbox is created: the template its disk and software come from.
     #[serde(default, skip_serializing)]
     pub template: Option<String>,

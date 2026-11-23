@@ -82,7 +82,7 @@ export function Notifications(props: {
   open: (sandbox: string) => void;
 }) {
   const { blocked, dismiss, settings, saveSettings, act } = props;
-  const allow = (item: Blocked) => act(() => api.addRule(item.sandbox, `allow ${item.host}`)).then(() => dismiss(item.key));
+  const allow = (item: Blocked, minutes?: number) => act(() => api.addRule(item.sandbox, `allow ${item.host}`, minutes)).then(() => dismiss(item.key));
   const ignore = (item: Blocked) => saveSettings({ ...settings, ignore_blocked: [...settings.ignore_blocked, item.target] });
 
   return (
@@ -112,9 +112,14 @@ export function Notifications(props: {
                   </small>
                 </div>
                 {item.host ? (
-                  <button className="primary" onClick={() => allow(item)} title={`Add the rule "allow ${item.host}" to ${item.sandbox}`}>
-                    <Check size={15} aria-hidden="true" /> Allow
-                  </button>
+                  <>
+                    <button className="primary" onClick={() => allow(item)} title={`Add the rule "allow ${item.host}" to ${item.sandbox}`}>
+                      <Check size={15} aria-hidden="true" /> Allow
+                    </button>
+                    <button onClick={() => allow(item, 60)} title={`Allow ${item.host} in ${item.sandbox} for one hour; the rule ends by itself`}>
+                      for 1 hour
+                    </button>
+                  </>
                 ) : (
                   <button onClick={() => props.open(item.sandbox)} title="An address needs a rule of its own, with a port if you like">
                     Add a rule…

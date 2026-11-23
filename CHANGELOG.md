@@ -5,6 +5,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Rules that end by themselves: `boxquell allow box example.com --for 2h`, a choice of duration in the rule form, and "for 1 hour" next to Allow in the notifications.
+- Read-only rules: `boxquell read box example.com` lets web requests that fetch through and refuses those that send or change something.
+- Data limits per sandbox (`boxquell set box --upload-limit 200 --download-limit 2000`, and under Network): beyond a limit the sandbox's network is cut off until you let it continue.
 - Snapshots: save the state of a sandbox's disk and go back to it (`boxquell snapshot take|ls|restore|rm`, and under a sandbox's Settings).
 - Templates: save a sandbox as a starting point and create new ones from it, with its system and software already there (`boxquell template save|ls|rm`, `boxquell new --template`, and "Start from" when creating a sandbox).
 - Keys for installed software are entered on the Config tab, next to its settings; recipes describe them with `[[credential]]`.

@@ -173,7 +173,21 @@ enum Cmd {
         command: Vec<String>,
     },
     /// Allow a destination
-    Allow { name: String, host: String },
+    Allow {
+        name: String,
+        host: String,
+        /// End the rule by itself after this long, e.g. `30m`, `2h`, `1d`
+        #[arg(long = "for", value_name = "TIME")]
+        duration: Option<String>,
+    },
+    /// Allow reading from a destination only: web requests that fetch go through, those that send or change something do not
+    Read {
+        name: String,
+        host: String,
+        /// End the rule by itself after this long, e.g. `30m`, `2h`, `1d`
+        #[arg(long = "for", value_name = "TIME")]
+        duration: Option<String>,
+    },
     /// Block a destination explicitly
     Deny { name: String, host: String },
     /// Remove a rule, e.g. `boxquell unrule box "allow example.com"`
@@ -215,6 +229,12 @@ enum Cmd {
         /// Directory in the sandbox where shells and agents start, e.g. /workspace/backend (`default` for /workspace)
         #[arg(long)]
         workdir: Option<String>,
+        /// Cut the network off once the sandbox has sent this much to destinations outside, in MiB per run; 0 for no limit
+        #[arg(long, value_name = "MIB")]
+        upload_limit: Option<u64>,
+        /// The same for what it has received
+        #[arg(long, value_name = "MIB")]
+        download_limit: Option<u64>,
         /// Start this with the sandbox: an installed agent's name such as `orca`, or a command (repeatable; `none` clears)
         #[arg(long = "autostart", value_name = "AGENT|COMMAND")]
         autostart: Vec<String>,
@@ -545,6 +565,30 @@ fn repo_contents(repo: &repo::Repo) -> String {
         (0, systems) => count(systems, "system"),
         (recipes, systems) => format!("{}, {}", count(recipes, "recipe"), count(systems, "system")),
     }
+}
+
+/// Add a rule to a sandbox, for good or for a time such as `30m`, `2h` or `1d`.
+fn timed_rule(home: &Home, name: &str, action: &str, host: &str, duration: Option<&str>) -> Result<()> {
+    let minutes = match duration {
+        None => None,
+        Some(text) => {
+            let text = text.trim();
+            let (number, unit) = text.split_at(text.len().saturating_sub(1));
+            let factor = match unit {
+                "m" => 1,
+                "h" => 60,
+                "d" => 24 * 60,
+                _ => anyhow::bail!("{text:?} is not a time: write e.g. 30m, 2h or 1d"),
+            };
+            Some(number.parse::<u64>().ok().filter(|n| *n > 0).with_context(|| format!("{text:?} is not a time: write e.g. 30m, 2h or 1d"))? * factor)
+        }
+    };
+    Client::connect(home)?.post(&format!("/api/sandboxes/{name}/rules"), json!({ "rule": format!("{action} {host}"), "minutes": minutes }))?;
+    match duration {
+        Some(duration) => println!("{name}: {action} {host} for {duration}"),
+        None => println!("{name}: {action} {host}"),
+    }
+    Ok(())
 }
 
 fn rule(action: &str, host: &str) -> Value {
@@ -880,10 +924,8 @@ fn main() -> Result<()> {
             };
             ssh_into(&client, &name, Some(format!("bash -lc {}", shell_quote(&script))))?;
         }
-        Cmd::Allow { name, host } => {
-            Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/rules"), rule("allow", &host))?;
-            println!("{name}: allow {host}");
-        }
+        Cmd::Allow { name, host, duration } => timed_rule(&home, &name, "allow", &host, duration.as_deref())?,
+        Cmd::Read { name, host, duration } => timed_rule(&home, &name, "read", &host, duration.as_deref())?,
         Cmd::Deny { name, host } => {
             Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/rules"), rule("deny", &host))?;
             println!("{name}: deny {host}");
@@ -1020,7 +1062,7 @@ fn main() -> Result<()> {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
         }
-        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart } => {
+        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart, upload_limit, download_limit } => {
             let autostart = (!autostart.is_empty()).then_some(autostart);
             let env: serde_json::Map<String, Value> = env
                 .iter()
@@ -1032,7 +1074,7 @@ fn main() -> Result<()> {
                 .collect::<Result<_>>()?;
             let info = Client::connect(&home)?.patch(
                 &format!("/api/sandboxes/{name}"),
-                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart }),
+                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart, "upload_limit_mib": upload_limit, "download_limit_mib": download_limit }),
             )?;
             let hint = if info["running"] == true { " (from its next start)" } else { "" };
             println!("{name}: {} CPUs, {} MiB memory, {} GiB disk{hint}", info["cpus"], info["ram_mib"], info["disk_gib"]);

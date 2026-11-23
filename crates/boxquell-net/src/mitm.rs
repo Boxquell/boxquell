@@ -93,6 +93,8 @@ struct Session {
     sender: Sender,
     intercept: Intercept,
     events: mpsc::UnboundedSender<NetEvent>,
+    /// Only requests that fetch are passed on; see `Action::Read`.
+    read_only: bool,
 }
 
 fn status(code: StatusCode) -> Response<Body> {
@@ -148,6 +150,17 @@ impl Session {
             return Ok(status(StatusCode::MISDIRECTED_REQUEST));
         }
 
+        // A destination opened for reading only: nothing that sends or changes
+        // data, and no upgrade to a connection that carries data both ways.
+        let fetches = matches!(*request.method(), hyper::Method::GET | hyper::Method::HEAD | hyper::Method::OPTIONS);
+        if self.read_only && (!fetches || request.headers().contains_key(UPGRADE)) {
+            event.allowed = false;
+            event.reason = format!("read-only rule: {} is not let through", if fetches { "an upgrade" } else { request.method().as_str() });
+            event.status = Some(StatusCode::FORBIDDEN.as_u16());
+            let _ = self.events.send(event);
+            return Ok(status(StatusCode::FORBIDDEN));
+        }
+
         event.secret = self.inject(&mut request);
         let guest_upgrade = request.headers().contains_key(UPGRADE).then(|| hyper::upgrade::on(&mut request));
         let sent = match &self.sender {
@@ -188,20 +201,34 @@ impl Session {
 /// `server` is a plain TCP connection to the real destination.
 /// Like [`serve`], for unencrypted HTTP: used for gateways in the local network,
 /// where the secret would otherwise have to live in the sandbox.
-pub(crate) async fn serve_plain<G, S>(guest: G, server: S, host: String, intercept: Intercept, events: mpsc::UnboundedSender<NetEvent>) -> Result<()>
+pub(crate) async fn serve_plain<G, S>(
+    guest: G,
+    server: S,
+    host: String,
+    intercept: Intercept,
+    events: mpsc::UnboundedSender<NetEvent>,
+    read_only: bool,
+) -> Result<()>
 where
     G: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(server)).await?;
     tokio::spawn(connection.with_upgrades());
-    let session = Arc::new(Session { host, sender: Sender::H1(Arc::new(Mutex::new(sender))), intercept, events });
+    let session = Arc::new(Session { host, sender: Sender::H1(Arc::new(Mutex::new(sender))), intercept, events, read_only });
     let service = service_fn(move |request| session.clone().forward(request));
     hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(guest), service).with_upgrades().await?;
     Ok(())
 }
 
-pub(crate) async fn serve<G, S>(guest: G, server: S, host: String, intercept: Intercept, events: mpsc::UnboundedSender<NetEvent>) -> Result<()>
+pub(crate) async fn serve<G, S>(
+    guest: G,
+    server: S,
+    host: String,
+    intercept: Intercept,
+    events: mpsc::UnboundedSender<NetEvent>,
+    read_only: bool,
+) -> Result<()>
 where
     G: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -236,13 +263,13 @@ where
     if h2 {
         let (sender, connection) = hyper::client::conn::http2::handshake(TokioExecutor::new(), server).await?;
         tokio::spawn(connection);
-        let session = Arc::new(Session { host, sender: Sender::H2(sender), intercept, events });
+        let session = Arc::new(Session { host, sender: Sender::H2(sender), intercept, events, read_only });
         let service = service_fn(move |request| session.clone().forward(request));
         hyper::server::conn::http2::Builder::new(TokioExecutor::new()).serve_connection(guest, service).await?;
     } else {
         let (sender, connection) = hyper::client::conn::http1::handshake(server).await?;
         tokio::spawn(connection.with_upgrades());
-        let session = Arc::new(Session { host, sender: Sender::H1(Arc::new(Mutex::new(sender))), intercept, events });
+        let session = Arc::new(Session { host, sender: Sender::H1(Arc::new(Mutex::new(sender))), intercept, events, read_only });
         let service = service_fn(move |request| session.clone().forward(request));
         hyper::server::conn::http1::Builder::new().serve_connection(guest, service).with_upgrades().await?;
     }
@@ -308,6 +335,10 @@ mod tests {
 
     /// Run `serve` between an in-memory guest connection and the test server.
     async fn fixture(alpn: &[&[u8]]) -> Fixture {
+        fixture_with(alpn, false).await
+    }
+
+    async fn fixture_with(alpn: &[&[u8]], read_only: bool) -> Fixture {
         let internet_ca = CertAuthority::generate().unwrap();
         let sandbox_ca = Arc::new(CertAuthority::generate().unwrap());
         let server = TcpStream::connect(real_server(&internet_ca).await).await.unwrap();
@@ -316,7 +347,7 @@ mod tests {
             Intercept { ca: sandbox_ca.clone(), secrets: Arc::new(RwLock::new(vec![secret])), log_all_requests: false, roots: roots(&internet_ca) };
         let (guest_end, proxy_end) = tokio::io::duplex(1 << 16);
         let (events_tx, events) = mpsc::unbounded_channel();
-        tokio::spawn(serve(proxy_end, server, "api.test".into(), intercept, events_tx));
+        tokio::spawn(serve(proxy_end, server, "api.test".into(), intercept, events_tx, read_only));
 
         let mut config = ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
@@ -371,6 +402,23 @@ mod tests {
             .unwrap();
         let response = sender.send_request(request).await.unwrap();
         assert_eq!(text(response).await, format!("HTTP/2.0 key=none auth=Bearer {REAL}"));
+    }
+
+    #[tokio::test]
+    async fn a_read_only_destination_lets_fetching_through_and_nothing_else() {
+        let mut f = fixture_with(&[b"http/1.1"], true).await;
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(f.guest_tls)).await.unwrap();
+        tokio::spawn(connection);
+        let response = sender.send_request(request("api.test")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = text(response).await;
+        assert!(f.events.recv().await.unwrap().allowed);
+
+        let post = Request::builder().method("POST").uri("/upload").header(HOST, "api.test").body(Empty::<Bytes>::new()).unwrap();
+        let response = sender.send_request(post).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let event = f.events.recv().await.unwrap();
+        assert!(!event.allowed && event.reason.contains("POST"));
     }
 
     #[tokio::test]

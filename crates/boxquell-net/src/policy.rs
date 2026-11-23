@@ -11,6 +11,10 @@ use std::str::FromStr;
 pub enum Action {
     Allow,
     Deny,
+    /// Allowed for reading only: web requests that fetch (GET, HEAD, OPTIONS)
+    /// go through, requests that send or change something are refused. Other
+    /// kinds of connection cannot be looked into and are refused as well.
+    Read,
 }
 
 /// Serialized as its text form, e.g. `"allow example.com:443"`.
@@ -60,7 +64,7 @@ impl Rule {
         match (port, self.port) {
             (_, None) => true,
             (Some(p), Some(rp)) => p == rp,
-            (None, Some(_)) => self.action == Action::Allow,
+            (None, Some(_)) => self.action != Action::Deny,
         }
     }
 }
@@ -102,7 +106,11 @@ pub fn host_matches(pattern: &str, host: &str) -> bool {
 
 impl std::fmt::Display for Rule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let action = if self.action == Action::Allow { "allow" } else { "deny" };
+        let action = match self.action {
+            Action::Allow => "allow",
+            Action::Deny => "deny",
+            Action::Read => "read",
+        };
         match self.port {
             Some(p) => write!(f, "{action} {}:{p}", self.host),
             None => write!(f, "{action} {}", self.host),
@@ -130,7 +138,8 @@ impl FromStr for Rule {
         match s.trim().split_once(char::is_whitespace) {
             Some(("allow", spec)) => Rule::new(Action::Allow, spec),
             Some(("deny", spec)) => Rule::new(Action::Deny, spec),
-            _ => Err(format!("expected 'allow <host>' or 'deny <host>', got {s:?}")),
+            Some(("read", spec)) => Rule::new(Action::Read, spec),
+            _ => Err(format!("expected 'allow <host>', 'read <host>' or 'deny <host>', got {s:?}")),
         }
     }
 }
@@ -172,6 +181,8 @@ pub struct Policy {
 pub struct Verdict {
     pub allowed: bool,
     pub reason: String,
+    /// Allowed for reading only; see [`Action::Read`].
+    pub read_only: bool,
 }
 
 impl Policy {
@@ -184,7 +195,7 @@ impl Policy {
         }
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         match self.rules.iter().find(|rule| rule.matches_host(&host) && rule.applies_to_port(port)) {
-            Some(rule) => Verdict { allowed: rule.action == Action::Allow, reason: rule.to_string() },
+            Some(rule) => Verdict { allowed: rule.action != Action::Deny, reason: rule.to_string(), read_only: rule.action == Action::Read },
             None => self.unmatched(),
         }
     }
@@ -198,11 +209,11 @@ impl Policy {
         self.rules
             .iter()
             .find(|rule| rule.net().is_some_and(|(net, len)| u32::from(ip) & mask(len) == u32::from(net)) && rule.applies_to_port(port))
-            .map(|rule| Verdict { allowed: rule.action == Action::Allow, reason: rule.to_string() })
+            .map(|rule| Verdict { allowed: rule.action != Action::Deny, reason: rule.to_string(), read_only: rule.action == Action::Read })
     }
 
     fn locked() -> Verdict {
-        Verdict { allowed: false, reason: "network lockdown".into() }
+        Verdict { allowed: false, reason: "network lockdown".into(), read_only: false }
     }
 
     /// The verdict for a destination no rule mentions.
@@ -211,8 +222,8 @@ impl Policy {
             return Self::locked();
         }
         match self.mode {
-            Mode::Whitelist => Verdict { allowed: false, reason: "no matching rule".into() },
-            Mode::Blacklist => Verdict { allowed: true, reason: "blacklist mode: not blocked".into() },
+            Mode::Whitelist => Verdict { allowed: false, reason: "no matching rule".into(), read_only: false },
+            Mode::Blacklist => Verdict { allowed: true, reason: "blacklist mode: not blocked".into(), read_only: false },
         }
     }
 }
@@ -223,6 +234,19 @@ mod tests {
 
     fn policy(rules: &[&str]) -> Policy {
         Policy { mode: Mode::Whitelist, rules: rules.iter().map(|r| r.parse().unwrap()).collect(), lockdown: false }
+    }
+
+    #[test]
+    fn a_read_rule_allows_with_the_read_only_mark() {
+        let policy = Policy {
+            mode: Mode::Whitelist,
+            rules: vec!["read docs.example.com".parse().unwrap(), "allow api.example.com".parse().unwrap()],
+            lockdown: false,
+        };
+        let verdict = policy.check("docs.example.com", Some(443));
+        assert!(verdict.allowed && verdict.read_only);
+        assert!(!policy.check("api.example.com", Some(443)).read_only);
+        assert_eq!("read docs.example.com".parse::<Rule>().unwrap().to_string(), "read docs.example.com");
     }
 
     #[test]

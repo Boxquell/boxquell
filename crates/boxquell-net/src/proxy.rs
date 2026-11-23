@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 
 const SNIFF_LIMIT: usize = 16 * 1024 + 5;
 const SNIFF_TIMEOUT: Duration = Duration::from_secs(5);
@@ -56,6 +56,8 @@ struct Replay {
     guest: GuestStream,
     up: Arc<AtomicU64>,
     down: Arc<AtomicU64>,
+    /// The sandbox's totals to destinations outside: bytes sent and received.
+    total: Arc<(AtomicU64, AtomicU64)>,
 }
 
 impl AsyncRead for Replay {
@@ -67,7 +69,9 @@ impl AsyncRead for Replay {
             let n = buf.remaining().min(self.head.len());
             buf.put_slice(&self.head.split_to(n));
         }
-        self.up.fetch_add((buf.filled().len() - before) as u64, Ordering::Relaxed);
+        let sent = (buf.filled().len() - before) as u64;
+        self.up.fetch_add(sent, Ordering::Relaxed);
+        self.total.0.fetch_add(sent, Ordering::Relaxed);
         Poll::Ready(Ok(()))
     }
 }
@@ -76,6 +80,7 @@ impl AsyncWrite for Replay {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let n = ready!(Pin::new(&mut self.guest).poll_write(cx, buf))?;
         self.down.fetch_add(n as u64, Ordering::Relaxed);
+        self.total.1.fetch_add(n as u64, Ordering::Relaxed);
         Poll::Ready(Ok(n))
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -118,41 +123,51 @@ pub(crate) async fn handle<U: Upstream>(shared: Arc<Shared<U>>, dst: SocketAddrV
 
     // TLS is terminated here only for hosts whose requests have to be seen or changed.
     let tls = head.first() == Some(&TLS_HANDSHAKE);
+    // A destination opened for reading only is looked into, which works for
+    // web traffic to a named host and for nothing else.
+    if verdict.read_only && (claimed.is_none() || shared.intercept.is_none()) {
+        shared.emit(event(false, format!("{}: only web requests can be checked for reading", verdict.reason)));
+        return;
+    }
     let intercept = match (&shared.intercept, &host) {
-        (Some(intercept), Some(host)) if claimed.is_some() && tls && intercept.wants(host) => Some((intercept.clone(), host.clone())),
+        (Some(intercept), Some(host)) if claimed.is_some() && tls && (verdict.read_only || intercept.wants(host)) => {
+            Some((intercept.clone(), host.clone()))
+        }
         // Without TLS a secret would cross the network readable, so it is put in
         // only on the way to private addresses: this computer or its local network.
-        (Some(intercept), Some(host)) if claimed.is_some() && !tls && !is_public(*dst.ip()) && intercept.has_secret_for(host) => {
+        (Some(intercept), Some(host))
+            if claimed.is_some() && !tls && (verdict.read_only || (!is_public(*dst.ip()) && intercept.has_secret_for(host))) =>
+        {
             Some((intercept.clone(), host.clone()))
         }
         _ => None,
     };
     // The gateway address stands for this computer, like `localhost` on the host.
     let target = if *dst.ip() == GATEWAY_IP { SocketAddrV4::new(Ipv4Addr::LOCALHOST, dst.port()) } else { dst };
-    let (mut reason, mut bytes) = (verdict.reason, (0, 0));
+    let read_only = verdict.read_only;
+    let mut reason = verdict.reason;
+    // Every byte to and from the destination is counted as it passes, so a
+    // limit on the sandbox's traffic holds for connections that stay open too.
+    let (up, down) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+    let mut guest = Replay { head: Bytes::from(std::mem::take(&mut head)), guest, up: up.clone(), down: down.clone(), total: shared.traffic.clone() };
     match tokio::time::timeout(DIAL_TIMEOUT, shared.upstream.dial(target)).await {
         Ok(Ok(upstream)) if intercept.is_some() => {
             let (intercept, host) = intercept.expect("checked by the match guard");
-            let (up, down) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
-            let guest = Replay { head: Bytes::from(std::mem::take(&mut head)), guest, up: up.clone(), down: down.clone() };
             let served = if tls {
-                mitm::serve(guest, upstream, host, intercept, shared.events.clone()).await
+                mitm::serve(guest, upstream, host, intercept, shared.events.clone(), read_only).await
             } else {
-                mitm::serve_plain(guest, upstream, host, intercept, shared.events.clone()).await
+                // Without TLS a secret only ever goes to a private address. A public
+                // host that is looked into for a read-only rule gets no secrets.
+                let intercept = if is_public(*dst.ip()) { mitm::Intercept { secrets: Default::default(), ..intercept } } else { intercept };
+                mitm::serve_plain(guest, upstream, host, intercept, shared.events.clone(), read_only).await
             };
             if let Err(err) = served {
                 reason = format!("intercepted connection ended: {err:#}");
             }
-            bytes = (up.load(Ordering::Relaxed), down.load(Ordering::Relaxed));
         }
         Ok(Ok(mut upstream)) => {
-            let relay = async {
-                upstream.write_all(&head).await?;
-                tokio::io::copy_bidirectional(&mut guest, &mut upstream).await
-            };
-            match relay.await {
-                Ok((up, down)) => bytes = (up + head.len() as u64, down),
-                Err(err) => reason = format!("connection error: {err}"),
+            if let Err(err) = tokio::io::copy_bidirectional(&mut guest, &mut upstream).await {
+                reason = format!("connection error: {err}");
             }
         }
         Ok(Err(err)) => reason = format!("connect failed: {err}"),
@@ -160,7 +175,7 @@ pub(crate) async fn handle<U: Upstream>(shared: Arc<Shared<U>>, dst: SocketAddrV
     }
     let mut close = event(true, reason).phase(Phase::Close);
     close.id = id;
-    (close.bytes_up, close.bytes_down) = bytes;
+    (close.bytes_up, close.bytes_down) = (up.load(Ordering::Relaxed), down.load(Ordering::Relaxed));
     close.duration_ms = started.elapsed().as_millis() as u64;
     shared.emit(close);
 }

@@ -183,6 +183,16 @@ boxquell claude-settings mybox settings.json
 
 The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and model names. The sandbox receives it as its managed settings with the token replaced by a placeholder, the token becomes a secret of that sandbox, and the gateway is added to the allowed destinations. A gateway on your own computer (`localhost`) is reachable from the sandbox as `10.0.2.2`. A key helper in the settings (`apiKeyHelper`, e.g. for a token from a company sign-in) keeps running on your computer: Boxquell calls it, refreshes the key before it runs out and puts it into the requests; the sandbox only has a placeholder. Without a file name, `boxquell claude-settings mybox` takes this computer's managed settings, drop-in files included.
 
+### Finer network rules
+
+```sh
+boxquell allow mybox registry.npmjs.org --for 2h     # the rule ends by itself (30m, 2h, 1d)
+boxquell read mybox docs.example.com                 # reading only: GET, HEAD and OPTIONS go through, POST and the like do not
+boxquell set mybox --upload-limit 200                # cut the network off after 200 MiB sent in one run
+```
+
+A read-only rule works for websites: Boxquell looks into the requests, which for HTTPS means it answers with a certificate of the sandbox's own authority (the sandbox trusts it). Other kinds of connection to a read-only destination are refused, because they cannot be checked. Data limits count what passes to and from destinations outside, not the terminal or the project folder; when one is reached, the sandbox is cut off and the interface offers to let it continue.
+
 ### Snapshots and templates
 
 ```sh

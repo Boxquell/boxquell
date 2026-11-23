@@ -71,6 +71,11 @@ struct Running {
     blocked: std::sync::atomic::AtomicU64,
     /// Port forwards by host port; ended when the sandbox stops.
     forwards: Mutex<HashMap<u16, tokio::task::JoinHandle<()>>>,
+    /// The network is cut off because a data limit was reached.
+    cut: std::sync::atomic::AtomicBool,
+    /// Where counting towards the data limits starts: the totals when the
+    /// sandbox started or was last let continue.
+    traffic_base: Mutex<(u64, u64)>,
     /// Keeps the guest's SSH agent socket connected to this computer's keys.
     key_agent: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The VM process, for pausing.
@@ -406,6 +411,19 @@ impl Daemon {
         let spec = self.spec(name)?;
         let running = self.running(name);
         let system = boxquell_core::os::definitions(&self.home).into_iter().find(|def| def.id == spec.os);
+        // What went out and came in since the sandbox started or was last let continue, against its limits.
+        let traffic = {
+            let (up, down) = running.as_ref().map_or((0, 0), |r| {
+                let (up, down) = r.gateway.traffic();
+                let base = *r.traffic_base.lock().unwrap();
+                (up.saturating_sub(base.0), down.saturating_sub(base.1))
+            });
+            json!({
+                "up": up, "down": down,
+                "upload_limit_mib": spec.upload_limit_mib, "download_limit_mib": spec.download_limit_mib,
+                "cut": running.as_ref().is_some_and(|r| r.cut.load(std::sync::atomic::Ordering::Relaxed)),
+            })
+        };
         Ok(json!({
             "name": spec.name,
             "running": running.is_some(),
@@ -434,6 +452,8 @@ impl Daemon {
             "autostart": spec.autostart,
             "env": spec.env,
             "ssh": spec.ssh,
+            "rule_expiry": spec.rule_expiry,
+            "traffic": traffic,
             "recipe_updates": self.recipe_updates(&spec),
             "snapshots": self.snapshots(name),
             "auto_rules": self.auto_rules(&spec).into_iter().map(|(source, name, hosts)| json!({
@@ -448,13 +468,20 @@ impl Daemon {
         }))
     }
 
-    pub fn list(&self) -> Result<Vec<Value>> {
-        let mut names: Vec<String> = std::fs::read_dir(self.home.sandboxes())?
+    /// The names of all sandboxes, sorted.
+    fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(self.home.sandboxes())
+            .into_iter()
+            .flatten()
             .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
             .filter(|name| self.home.sandbox(name).join("sandbox.toml").exists())
             .collect();
         names.sort();
-        names.iter().map(|name| self.info(name)).collect()
+        names
+    }
+
+    pub fn list(&self) -> Result<Vec<Value>> {
+        self.names().iter().map(|name| self.info(name)).collect()
     }
 
     pub fn create(&self, mut spec: SandboxSpec) -> Result<Value> {
@@ -588,9 +615,91 @@ impl Daemon {
             std::fs::remove_file(&file)?;
         }
         for running in self.running.lock().unwrap().values() {
-            running.policy.write().unwrap().lockdown = on;
+            // A sandbox that reached its data limit stays cut off when the emergency stop is lifted.
+            running.policy.write().unwrap().lockdown = on || running.cut.load(std::sync::atomic::Ordering::Relaxed);
         }
         Ok(())
+    }
+
+    /// Add a rule to a sandbox, first so that it wins over older ones for the
+    /// same destination. With `minutes` it ends by itself.
+    pub fn add_rule(&self, name: &str, rule: Rule, minutes: Option<u64>) -> Result<Value> {
+        let text = rule.to_string();
+        let mut spec = self.spec(name)?;
+        let replaced: Vec<String> = spec.rules.iter().filter(|r| r.host == rule.host && r.port == rule.port).map(Rule::to_string).collect();
+        for old in replaced {
+            spec.rule_expiry.remove(&old);
+        }
+        match minutes.filter(|minutes| *minutes > 0) {
+            Some(minutes) => spec.rule_expiry.insert(text, now_ms() / 1000 + minutes * 60),
+            None => spec.rule_expiry.remove(&text),
+        };
+        spec.save(&self.home.sandbox(name))?;
+        self.update_rules(name, |rules| {
+            rules.retain(|r| !(r.host == rule.host && r.port == rule.port));
+            rules.insert(0, rule);
+        })
+    }
+
+    /// The data limits of a sandbox; 0 takes a limit away.
+    pub fn set_data_limits(&self, name: &str, upload_mib: Option<u64>, download_mib: Option<u64>) -> Result<()> {
+        let mut spec = self.spec(name)?;
+        if let Some(limit) = upload_mib {
+            spec.upload_limit_mib = Some(limit).filter(|limit| *limit > 0);
+        }
+        if let Some(limit) = download_mib {
+            spec.download_limit_mib = Some(limit).filter(|limit| *limit > 0);
+        }
+        spec.save(&self.home.sandbox(name))
+    }
+
+    /// Let a sandbox that reached a data limit go on: counting starts anew.
+    pub fn continue_after_limit(&self, name: &str) -> Result<Value> {
+        if let Some(running) = self.running(name) {
+            *running.traffic_base.lock().unwrap() = running.gateway.traffic();
+            running.cut.store(false, std::sync::atomic::Ordering::Relaxed);
+            running.policy.write().unwrap().lockdown = self.lockdown();
+        }
+        self.info(name)
+    }
+
+    /// Every few seconds: end rules whose time is up, and cut off sandboxes that reached a data limit.
+    pub async fn keep_rules(self: Arc<Self>) {
+        use std::sync::atomic::Ordering::Relaxed;
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let now = now_ms() / 1000;
+            for name in self.names() {
+                let Ok(mut spec) = self.spec(&name) else { continue };
+                let due: Vec<String> = spec.rule_expiry.iter().filter(|(_, until)| **until <= now).map(|(rule, _)| rule.clone()).collect();
+                if !due.is_empty() {
+                    spec.rule_expiry.retain(|rule, _| !due.contains(rule));
+                    if spec.save(&self.home.sandbox(&name)).is_ok() {
+                        let _ = self.update_rules(&name, |rules| rules.retain(|rule| !due.contains(&rule.to_string())));
+                    }
+                }
+                let Some(running) = self.running(&name) else { continue };
+                if running.cut.load(Relaxed) {
+                    continue;
+                }
+                let (up, down) = running.gateway.traffic();
+                let base = *running.traffic_base.lock().unwrap();
+                let over = |used: u64, limit: Option<u64>| limit.is_some_and(|limit| used >= limit << 20);
+                let which = if over(up.saturating_sub(base.0), spec.upload_limit_mib) {
+                    "upload"
+                } else if over(down.saturating_sub(base.1), spec.download_limit_mib) {
+                    "download"
+                } else {
+                    continue;
+                };
+                running.cut.store(true, Relaxed);
+                running.policy.write().unwrap().lockdown = true;
+                crate::notify::show(
+                    &format!("{name} reached its {which} limit"),
+                    "Its network is cut off. Open the sandbox's Network tab to let it continue.",
+                );
+            }
+        }
     }
 
     /// User preferences of the daemon and the UI.
@@ -669,6 +778,9 @@ impl Daemon {
     /// What keeps the installed agents from working: missing credentials.
     fn warnings(&self, spec: &SandboxSpec) -> Vec<String> {
         let mut warnings = crate::keyagent::problems(&self.global_ssh_keys().with(&spec.ssh));
+        if self.running(&spec.name).is_some_and(|running| running.cut.load(std::sync::atomic::Ordering::Relaxed)) {
+            warnings.push("A data limit was reached: the network of this sandbox is cut off until you let it continue under Network.".to_string());
+        }
         let prefix = format!("{}/", spec.name);
         for (key, (_, problem)) in self.helper_runs.lock().unwrap().iter() {
             if let (Some(secret), Some(problem)) = (key.strip_prefix(&prefix), problem) {
@@ -1663,6 +1775,8 @@ impl Daemon {
             forwards: Mutex::default(),
             samples: Mutex::default(),
             key_agent: Mutex::default(),
+            cut: false.into(),
+            traffic_base: Mutex::default(),
             allowed: 0.into(),
             blocked: 0.into(),
             pid: child.id(),
@@ -1919,10 +2033,12 @@ pub async fn serve(home: Home) -> Result<()> {
     let upkeep = tokio::spawn(daemon.clone().keep_current());
     let helpers = tokio::spawn(daemon.clone().keep_helpers());
     let host = tokio::spawn(daemon.clone().sample_host());
+    let rules = tokio::spawn(daemon.clone().keep_rules());
     shutdown.await;
     upkeep.abort();
     helpers.abort();
     host.abort();
+    rules.abort();
     daemon.stop_all().await;
     let _ = std::fs::remove_file(&path);
     server.abort();
