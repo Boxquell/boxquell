@@ -146,6 +146,10 @@ pub struct SandboxSpec {
     /// The same for what it may receive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download_limit_mib: Option<u64>,
+    /// Stop the sandbox after this many minutes without work in it; 0 never
+    /// stops it. Left out, the setting for all sandboxes applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_stop_minutes: Option<u64>,
     /// Only when a sandbox is created: the template its disk and software come from.
     #[serde(default, skip_serializing)]
     pub template: Option<String>,

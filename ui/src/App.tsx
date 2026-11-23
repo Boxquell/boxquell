@@ -43,7 +43,7 @@ export function App() {
   const [lockdown, setLockdown] = useState(false);
   const [outdated, setOutdated] = useState(false);
   const [release, setRelease] = useState<UpdateInfo | null>(null);
-  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878, update_repos: true, check_updates: true });
+  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878, update_repos: true, check_updates: true, idle_stop_minutes: 0 });
   const { blocked, dismiss } = useBlocked(settings);
   const saveSettings = useCallback((next: Settings) => {
     setSettings(next);

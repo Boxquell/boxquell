@@ -206,7 +206,7 @@ enum Cmd {
     /// Preferences, e.g. `boxquell config notify-blocked off`
     Config {
         /// `notify-blocked`, `toast-blocked`, `browser-ui` (on|off), `listen` (addresses separated by commas, or `off`), `listen-port`
-        #[arg(value_parser = ["notify-blocked", "toast-blocked", "browser-ui", "listen", "listen-port"])]
+        #[arg(value_parser = ["notify-blocked", "toast-blocked", "browser-ui", "listen", "listen-port", "update-repos", "check-updates", "idle-stop-minutes"])]
         key: Option<String>,
         value: Option<String>,
     },
@@ -229,6 +229,9 @@ enum Cmd {
         /// Directory in the sandbox where shells and agents start, e.g. /workspace/backend (`default` for /workspace)
         #[arg(long)]
         workdir: Option<String>,
+        /// Stop the sandbox after this many minutes without work in it; 0 for never, -1 for the setting of all sandboxes
+        #[arg(long, value_name = "MINUTES", allow_hyphen_values = true)]
+        idle_stop: Option<i64>,
         /// Cut the network off once the sandbox has sent this much to destinations outside, in MiB per run; 0 for no limit
         #[arg(long, value_name = "MIB")]
         upload_limit: Option<u64>,
@@ -1035,6 +1038,7 @@ fn main() -> Result<()> {
                         .context("invalid address")?
                         .into(),
                     "listen-port" => value.parse::<u16>().context("invalid port")?.into(),
+                    "idle-stop-minutes" => value.parse::<u64>().context("write the minutes, or 0 for never")?.into(),
                     _ if value == "on" || value == "off" => (value == "on").into(),
                     _ => bail!("{key} is either on or off"),
                 };
@@ -1043,12 +1047,16 @@ fn main() -> Result<()> {
                     println!("note: applies after the daemon restarts (`boxquell daemon --stop`); traffic on these addresses is not encrypted");
                 }
             }
-            for key in ["notify_blocked", "toast_blocked", "browser_ui"] {
+            for key in ["notify_blocked", "toast_blocked", "browser_ui", "update_repos", "check_updates"] {
                 println!("{:<16} {}", key.replace('_', "-"), if settings[key] == true { "on" } else { "off" });
             }
             let listen: Vec<&str> = settings["listen"].as_array().into_iter().flatten().filter_map(|a| a.as_str()).collect();
             println!("{:<16} {}", "listen", if listen.is_empty() { "off (this computer only)".to_string() } else { listen.join(", ") });
             println!("{:<16} {}", "listen-port", settings["listen_port"]);
+            match settings["idle_stop_minutes"].as_u64().unwrap_or(0) {
+                0 => println!("{:<16} never", "idle-stop-minutes"),
+                minutes => println!("{:<16} {minutes}", "idle-stop-minutes"),
+            }
         }
         Cmd::Global { command } => {
             let client = Client::connect(&home)?;
@@ -1062,7 +1070,7 @@ fn main() -> Result<()> {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
         }
-        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart, upload_limit, download_limit } => {
+        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart, upload_limit, download_limit, idle_stop } => {
             let autostart = (!autostart.is_empty()).then_some(autostart);
             let env: serde_json::Map<String, Value> = env
                 .iter()
@@ -1074,7 +1082,7 @@ fn main() -> Result<()> {
                 .collect::<Result<_>>()?;
             let info = Client::connect(&home)?.patch(
                 &format!("/api/sandboxes/{name}"),
-                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart, "upload_limit_mib": upload_limit, "download_limit_mib": download_limit }),
+                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart, "upload_limit_mib": upload_limit, "download_limit_mib": download_limit, "idle_stop_minutes": idle_stop }),
             )?;
             let hint = if info["running"] == true { " (from its next start)" } else { "" };
             println!("{name}: {} CPUs, {} MiB memory, {} GiB disk{hint}", info["cpus"], info["ram_mib"], info["disk_gib"]);

@@ -49,6 +49,8 @@ export interface Sandbox {
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
+  /** Minutes without work after which it is stopped; 0 never, absent: as set for all sandboxes */
+  idle_stop_minutes?: number | null;
   /** Rules that end by themselves: the rule with the time it ends, in seconds since 1970 */
   rule_expiry?: Record<string, number>;
   /** Bytes to and from destinations outside since the start, against the limits */
@@ -247,6 +249,8 @@ export interface Settings {
   update_repos: boolean;
   /** Look for a newer Boxquell once a day */
   check_updates: boolean;
+  /** Stop a sandbox after this many minutes without work; 0 for never */
+  idle_stop_minutes: number;
 }
 
 export interface Secret {
@@ -324,7 +328,7 @@ export const api = {
   resume: (name: string) => call<Sandbox>("POST", `${box(name)}/resume`, {}),
   stop: (name: string) => call<Sandbox>("POST", `${box(name)}/stop`, {}),
   remove: (name: string) => call<unknown>("DELETE", box(name)),
-  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string>; upload_limit_mib?: number; download_limit_mib?: number }) => call<Sandbox>("PATCH", box(name), change),
+  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string>; upload_limit_mib?: number; download_limit_mib?: number; idle_stop_minutes?: number }) => call<Sandbox>("PATCH", box(name), change),
   addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
@@ -365,7 +369,7 @@ export const api = {
   sshKeys: (sandbox: string | null) => call<SshKeyChoice>("GET", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys"),
   setSshKeys: (sandbox: string | null, keys: { agent: boolean; files: string[] }) =>
     call<SshKeyChoice>("PUT", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys", keys),
-  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878, update_repos: s.update_repos ?? true, check_updates: s.check_updates ?? true })),
+  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878, update_repos: s.update_repos ?? true, check_updates: s.check_updates ?? true, idle_stop_minutes: s.idle_stop_minutes ?? 0 })),
   addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
   /** The most recent blocked connections of every sandbox. */

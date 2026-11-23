@@ -48,6 +48,23 @@ export function Preferences(props: {
           <small className="muted block">Asks GitHub once a day for the latest release and tells you when there is one. Nothing is installed by itself.</small>
         </span>
       </label>
+      <h3>Idle sandboxes</h3>
+      <label className="setting field">
+        <select value={settings.idle_stop_minutes} onChange={(e) => props.onChange({ ...settings, idle_stop_minutes: Number(e.target.value) })}>
+          <option value={0}>never</option>
+          <option value={15}>after 15 minutes</option>
+          <option value={30}>after 30 minutes</option>
+          <option value={60}>after 1 hour</option>
+          <option value={240}>after 4 hours</option>
+        </select>
+        <span>
+          Stop a sandbox when nothing happens in it
+          <small className="muted block">
+            Idle means: no terminal open, hardly any CPU use and no data to or from outside. Its disk and settings stay. A sandbox that starts servers by
+            itself is left running, and each sandbox can have its own value under its Settings.
+          </small>
+        </span>
+      </label>
       <h3>When a connection is blocked</h3>
       <label className="check setting">
         <input

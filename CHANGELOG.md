@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Idle stop: a sandbox with no terminal open, hardly any CPU use and no data to or from outside is stopped after a time you set, for all sandboxes (`boxquell config idle-stop-minutes 30`, Settings › General) or for one (`boxquell set box --idle-stop 60`, its Settings).
 - Rules that end by themselves: `boxquell allow box example.com --for 2h`, a choice of duration in the rule form, and "for 1 hour" next to Allow in the notifications.
 - Read-only rules: `boxquell read box example.com` lets web requests that fetch through and refuses those that send or change something.
 - Data limits per sandbox (`boxquell set box --upload-limit 200 --download-limit 2000`, and under Network): beyond a limit the sandbox's network is cut off until you let it continue.

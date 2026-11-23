@@ -406,6 +406,8 @@ struct ResizeBody {
     workdir: Option<String>,
     /// Replaces the list of what starts with the sandbox.
     autostart: Option<Vec<String>>,
+    /// When to stop the idle sandbox: minutes, 0 for never, -1 for the setting of all sandboxes.
+    idle_stop_minutes: Option<i64>,
     /// Data limits in MiB; 0 takes one away.
     upload_limit_mib: Option<u64>,
     download_limit_mib: Option<u64>,
@@ -421,6 +423,9 @@ async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<R
     }
     daemon.set_env(&name, body.env)?;
     daemon.set_data_limits(&name, body.upload_limit_mib, body.download_limit_mib)?;
+    if let Some(minutes) = body.idle_stop_minutes {
+        daemon.set_idle_stop(&name, u64::try_from(minutes).ok())?;
+    }
     if let Some(autostart) = body.autostart {
         daemon.set_autostart(&name, autostart)?;
     }

@@ -71,6 +71,8 @@ struct Running {
     blocked: std::sync::atomic::AtomicU64,
     /// Port forwards by host port; ended when the sandbox stops.
     forwards: Mutex<HashMap<u16, tokio::task::JoinHandle<()>>>,
+    /// When work was last seen in the sandbox; see the idle stop.
+    busy_at: Mutex<std::time::Instant>,
     /// The network is cut off because a data limit was reached.
     cut: std::sync::atomic::AtomicBool,
     /// Where counting towards the data limits starts: the totals when the
@@ -105,8 +107,9 @@ const SAMPLE_EVERY: u64 = 2;
 const SAMPLES_KEPT: usize = 90;
 
 /// Prints one line of counters every few seconds: CPU ticks (total, idle),
-/// memory (total, available, kB), root disk (total, used, kB), network bytes (received, sent).
-const SAMPLER: &str = r#"while :; do read -r _ u n s i w q sq st _ < /proc/stat; mt=0; ma=0; while read -r k v _; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; set -- $(df -k / | tail -n1); rx=0; tx=0; for d in /sys/class/net/e*; do [ -r "$d/statistics/rx_bytes" ] && rx=$(cat "$d/statistics/rx_bytes") && tx=$(cat "$d/statistics/tx_bytes"); done; echo "$((u+n+s+i+w+q+sq+st)) $((i+w)) $mt $ma $2 $3 $rx $tx"; sleep 2; done"#;
+/// memory (total, available, kB), root disk (total, used, kB), network bytes (received, sent),
+/// and how many terminals are open in the guest.
+const SAMPLER: &str = r#"while :; do read -r _ u n s i w q sq st _ < /proc/stat; mt=0; ma=0; while read -r k v _; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; set -- $(df -k / | tail -n1); rx=0; tx=0; for d in /sys/class/net/e*; do [ -r "$d/statistics/rx_bytes" ] && rx=$(cat "$d/statistics/rx_bytes") && tx=$(cat "$d/statistics/tx_bytes"); done; p=0; for t in /dev/pts/[0-9]*; do [ -e "$t" ] && p=$((p+1)); done; echo "$((u+n+s+i+w+q+sq+st)) $((i+w)) $mt $ma $2 $3 $rx $tx $p"; sleep 2; done"#;
 
 /// Keep a measuring loop running in the guest over ssh and record what it prints.
 /// It is restarted when it ends, e.g. while the guest still boots.
@@ -122,12 +125,13 @@ async fn sample_load(running: Arc<Running>, key: PathBuf) {
             .kill_on_drop(true)
             .spawn();
         if let Ok(mut child) = child {
-            let mut previous: Option<[u64; 8]> = None;
+            let mut previous: Option<[u64; 9]> = None;
+            let mut outside = running.gateway.traffic();
             if let Some(stdout) = child.stdout.take() {
                 let mut lines = tokio::io::BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let numbers: Vec<u64> = line.split_whitespace().filter_map(|n| n.parse().ok()).collect();
-                    let Ok(now) = <[u64; 8]>::try_from(numbers) else { continue };
+                    let Ok(now) = <[u64; 9]>::try_from(numbers) else { continue };
                     if let Some(before) = previous {
                         let ticks = now[0].saturating_sub(before[0]).max(1);
                         let idle = now[1].saturating_sub(before[1]).min(ticks);
@@ -141,6 +145,12 @@ async fn sample_load(running: Arc<Running>, key: PathBuf) {
                             rx_rate: now[6].saturating_sub(before[6]) / SAMPLE_EVERY,
                             tx_rate: now[7].saturating_sub(before[7]) / SAMPLE_EVERY,
                         };
+                        // Work in the sandbox: something computes, a terminal is open, or data moves to or from outside.
+                        let traffic = running.gateway.traffic();
+                        if sample.cpu >= 5.0 || now[8] > 0 || traffic != outside {
+                            *running.busy_at.lock().unwrap() = std::time::Instant::now();
+                        }
+                        outside = traffic;
                         let mut samples = running.samples.lock().unwrap();
                         if samples.len() == SAMPLES_KEPT {
                             samples.pop_front();
@@ -182,6 +192,9 @@ pub struct Settings {
     pub update_repos: bool,
     /// Ask GitHub once a day whether a newer Boxquell has been released.
     pub check_updates: bool,
+    /// Stop a sandbox after this many minutes without work in it; 0 for never.
+    /// A sandbox can have its own value.
+    pub idle_stop_minutes: u64,
 }
 
 impl Default for Settings {
@@ -195,6 +208,7 @@ impl Default for Settings {
             listen_port: 7878,
             update_repos: true,
             check_updates: true,
+            idle_stop_minutes: 0,
         }
     }
 }
@@ -453,6 +467,7 @@ impl Daemon {
             "env": spec.env,
             "ssh": spec.ssh,
             "rule_expiry": spec.rule_expiry,
+            "idle_stop_minutes": spec.idle_stop_minutes,
             "traffic": traffic,
             "recipe_updates": self.recipe_updates(&spec),
             "snapshots": self.snapshots(name),
@@ -641,6 +656,13 @@ impl Daemon {
         })
     }
 
+    /// When an idle sandbox is stopped: minutes, 0 for never, `None` for the setting of all sandboxes.
+    pub fn set_idle_stop(&self, name: &str, minutes: Option<u64>) -> Result<()> {
+        let mut spec = self.spec(name)?;
+        spec.idle_stop_minutes = minutes;
+        spec.save(&self.home.sandbox(name))
+    }
+
     /// The data limits of a sandbox; 0 takes a limit away.
     pub fn set_data_limits(&self, name: &str, upload_mib: Option<u64>, download_mib: Option<u64>) -> Result<()> {
         let mut spec = self.spec(name)?;
@@ -679,6 +701,27 @@ impl Daemon {
                     }
                 }
                 let Some(running) = self.running(&name) else { continue };
+                // The idle stop: nothing computed, no terminal open and no data moved for long enough.
+                // A sandbox that starts servers by itself is left alone unless it has a value of its own.
+                let minutes = match spec.idle_stop_minutes {
+                    Some(minutes) => minutes,
+                    None if spec.autostart.is_empty() => self.settings().idle_stop_minutes,
+                    None => 0,
+                };
+                let working = running.paused.load(Relaxed) || self.jobs.lock().unwrap().get(&name).is_some_and(|job| job.state == "running");
+                if minutes > 0 && !working && running.busy_at.lock().unwrap().elapsed() >= Duration::from_secs(minutes * 60) {
+                    // Counting starts over, so the stop is asked for once.
+                    *running.busy_at.lock().unwrap() = std::time::Instant::now();
+                    crate::notify::show(
+                        &format!("{name} was stopped"),
+                        &format!("Nothing happened in it for {minutes} minutes. Its disk and settings stay."),
+                    );
+                    let (daemon, sandbox) = (self.clone(), name.clone());
+                    tokio::spawn(async move {
+                        let _ = daemon.stop(&sandbox).await;
+                    });
+                    continue;
+                }
                 if running.cut.load(Relaxed) {
                     continue;
                 }
@@ -1775,6 +1818,7 @@ impl Daemon {
             forwards: Mutex::default(),
             samples: Mutex::default(),
             key_agent: Mutex::default(),
+            busy_at: Mutex::new(std::time::Instant::now()),
             cut: false.into(),
             traffic_base: Mutex::default(),
             allowed: 0.into(),

@@ -163,6 +163,29 @@ export function SandboxView(props: ViewProps) {
         </>
       )}
       {tab === "settings" && <Snapshots sandbox={sandbox} act={act} />}
+      {tab === "settings" && (
+        <section>
+          <h3>When idle</h3>
+          <label className="setting field">
+            <select
+              value={sandbox.idle_stop_minutes ?? -1}
+              onChange={(e) => act(() => api.resize(sandbox.name, { idle_stop_minutes: Number(e.target.value) }))}
+              aria-label="Stop this sandbox when idle"
+            >
+              <option value={-1}>as set for all sandboxes</option>
+              <option value={0}>never stop it</option>
+              <option value={15}>stop after 15 minutes</option>
+              <option value={30}>stop after 30 minutes</option>
+              <option value={60}>stop after 1 hour</option>
+              <option value={240}>stop after 4 hours</option>
+            </select>
+            <span>
+              Stop this sandbox when nothing happens in it
+              <small className="muted block">No terminal open, hardly any CPU use and no data to or from outside for that long.</small>
+            </span>
+          </label>
+        </section>
+      )}
       {tab === "settings" && <Resources sandbox={sandbox} recipes={recipes} act={act} remove={() => run("deleting…", () => api.remove(sandbox.name))} />}
     </>
   );
