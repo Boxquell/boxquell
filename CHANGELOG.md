@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Project file: a `boxquell.toml` in a project folder describes its sandbox (system, software, rules, ports, variables). `boxquell up` in the folder creates and starts it, `boxquell init` writes the file from a sandbox, and the form for a new sandbox offers to use the file of the chosen folder.
 - Idle stop: a sandbox with no terminal open, hardly any CPU use and no data to or from outside is stopped after a time you set, for all sandboxes (`boxquell config idle-stop-minutes 30`, Settings › General) or for one (`boxquell set box --idle-stop 60`, its Settings).
 - Rules that end by themselves: `boxquell allow box example.com --for 2h`, a choice of duration in the rule form, and "for 1 hour" next to Allow in the notifications.
 - Read-only rules: `boxquell read box example.com` lets web requests that fetch through and refuses those that send or change something.

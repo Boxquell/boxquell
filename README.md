@@ -183,6 +183,26 @@ boxquell claude-settings mybox settings.json
 
 The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and model names. The sandbox receives it as its managed settings with the token replaced by a placeholder, the token becomes a secret of that sandbox, and the gateway is added to the allowed destinations. A gateway on your own computer (`localhost`) is reachable from the sandbox as `10.0.2.2`. A key helper in the settings (`apiKeyHelper`, e.g. for a token from a company sign-in) keeps running on your computer: Boxquell calls it, refreshes the key before it runs out and puts it into the requests; the sandbox only has a placeholder. Without a file name, `boxquell claude-settings mybox` takes this computer's managed settings, drop-in files included.
 
+### Project file
+
+```toml
+# boxquell.toml, in the project folder
+software = ["claude", "node@24", "git"]
+allow = ["registry.npmjs.org", "github.com"]
+read = ["docs.example.com"]
+ports = ["3000"]
+
+[env]
+NODE_ENV = "development"
+```
+
+```sh
+boxquell up            # in the project folder: creates the sandbox from the file (after asking) and starts it
+boxquell init          # writes boxquell.toml from the sandbox that has this folder as its project folder
+```
+
+The file can also set `name`, `os`, `cpus`, `memory`, `disk`, `mode`, `deny`, `workdir`, `autostart`, `secrets` (names only, values stay on your computer), `idle_stop`, `upload_limit` and `download_limit`. Before a sandbox is created from a file, `boxquell up` shows what it asks for, because the file may come with a project someone else wrote. A sandbox that exists gets what the file names and it lacks; nothing is taken away. In the app, choosing a project folder with a `boxquell.toml` offers to use it.
+
 ### Finer network rules
 
 ```sh

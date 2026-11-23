@@ -79,6 +79,23 @@ export interface ConfigOption {
   on?: string;
 }
 
+/** A project's sandbox as its `boxquell.toml` describes it. */
+export interface ProjectFile {
+  name?: string;
+  os?: string;
+  software?: string[];
+  cpus?: number;
+  memory?: number;
+  disk?: number;
+  mode?: string;
+  allow?: string[];
+  read?: string[];
+  deny?: string[];
+  ports?: string[];
+  secrets?: string[];
+  env?: Record<string, string>;
+}
+
 /** A saved state of a sandbox's disk. */
 export interface Snapshot {
   id: string;
@@ -399,6 +416,12 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  /** The `boxquell.toml` of a folder, or `null` when it has none. */
+  projectFile: (dir: string) => call<{ file: string; name: string; project: ProjectFile } | null>("GET", `/api/project?dir=${encodeURIComponent(dir)}`),
+  /** Give a sandbox what the project file of `dir` names beyond what creating it covers. */
+  applyProject: (name: string, dir: string) => call<Sandbox>("POST", `${box(name)}/project`, { dir }),
+  /** Write the sandbox's description as `boxquell.toml` into its project folder. */
+  writeProjectFile: (name: string, force: boolean) => call<{ file: string }>("POST", `${box(name)}/project`, { force }),
   saveTemplate: (name: string, template: string, description: string) => call<Template>("POST", `${box(name)}/template`, { name: template, description }),
   deleteTemplate: (template: string) => call<Template[]>("DELETE", `/api/templates/${encodeURIComponent(template)}`),
   /** Take software out of a sandbox again; like an install, it runs in the background. */

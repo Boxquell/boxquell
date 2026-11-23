@@ -1170,6 +1170,55 @@ impl Daemon {
         }
     }
 
+    /// Give a sandbox what its project file names beyond what creating it
+    /// covers: rules, variables, start commands, limits, ports and secrets
+    /// that are stored here. Nothing is taken away from the sandbox.
+    pub async fn apply_project(&self, name: &str, project: &boxquell_core::project::Project) -> Result<Value> {
+        let spec = self.spec(name)?;
+        for rule in project.rules() {
+            let rule: Rule = rule.parse().map_err(anyhow::Error::msg)?;
+            if !spec.rules.contains(&rule) {
+                self.add_rule(name, rule, None)?;
+            }
+        }
+        self.set_env(name, project.env.clone())?;
+        if project.workdir.is_some() {
+            self.set_workdir(name, project.workdir.clone())?;
+        }
+        if !project.autostart.is_empty() {
+            self.set_autostart(name, project.autostart.clone())?;
+        }
+        self.set_data_limits(name, project.upload_limit, project.download_limit)?;
+        if project.idle_stop.is_some() {
+            self.set_idle_stop(name, project.idle_stop)?;
+        }
+        for secret in &project.secrets {
+            if matches!(self.secrets.get(secret), Ok(Some(_))) {
+                self.attach_secret(name, secret)?;
+            }
+        }
+        for port in &project.ports {
+            let (host, guest) = port.split_once(':').unwrap_or((port, port));
+            let forward: PortForward = serde_json::from_value(
+                json!({ "host": host.parse::<u16>().context("invalid port")?, "guest": guest.parse::<u16>().context("invalid port")? }),
+            )?;
+            if !self.spec(name)?.ports.iter().any(|have| have.host == forward.host) {
+                self.add_port(name, forward).await?;
+            }
+        }
+        self.info(name)
+    }
+
+    /// Write the sandbox's description as a `boxquell.toml` into its project folder.
+    pub fn write_project_file(&self, name: &str, force: bool) -> Result<PathBuf> {
+        let spec = self.spec(name)?;
+        let folder = spec.workspace.clone().with_context(|| format!("{name} has no project folder to put the file into"))?;
+        let file = folder.join(boxquell_core::project::FILE);
+        ensure!(force || !file.exists(), "{} exists already", file.display());
+        std::fs::write(&file, boxquell_core::project::Project::of(&spec).to_toml()?)?;
+        Ok(file)
+    }
+
     fn templates_dir(&self) -> PathBuf {
         self.home.root().join("templates")
     }

@@ -376,6 +376,40 @@ async fn delete_template(State(daemon): App, Path(name): Path<String>) -> ApiRes
     Ok(Json(daemon.templates().into()))
 }
 
+#[derive(Deserialize)]
+struct ProjectQuery {
+    dir: std::path::PathBuf,
+}
+
+/// The project file of a folder, if it has one, read for the form that creates a sandbox.
+async fn project_file(Query(query): Query<ProjectQuery>) -> ApiResult {
+    let file = query.dir.join(boxquell_core::project::FILE);
+    if !file.is_file() {
+        return Ok(Json(Value::Null));
+    }
+    let project = boxquell_core::project::load(&file)?;
+    Ok(Json(json!({ "file": file, "name": project.sandbox_name(&query.dir), "project": project })))
+}
+
+#[derive(Deserialize)]
+struct ProjectBody {
+    /// Apply the project file of this folder to the sandbox.
+    dir: Option<std::path::PathBuf>,
+    /// Write the sandbox's description into its project folder, replacing a file that is there.
+    #[serde(default)]
+    force: bool,
+}
+
+async fn apply_project(State(daemon): App, Path(name): Path<String>, Json(body): Json<ProjectBody>) -> ApiResult {
+    match body.dir {
+        Some(dir) => {
+            let project = boxquell_core::project::load(&dir.join(boxquell_core::project::FILE))?;
+            Ok(Json(daemon.apply_project(&name, &project).await?))
+        }
+        None => Ok(Json(json!({ "file": daemon.write_project_file(&name, body.force)? }))),
+    }
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -885,6 +919,8 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
         .route("/api/sandboxes/{name}/template", post(save_template))
         .route("/api/templates", get(templates))
+        .route("/api/project", get(project_file))
+        .route("/api/sandboxes/{name}/project", post(apply_project))
         .route("/api/templates/{name}", delete(delete_template))
         .route("/api/sandboxes/{name}/installed", post(record_recipes))
         .route("/api/recipes", get(recipes))

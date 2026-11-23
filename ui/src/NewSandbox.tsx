@@ -1,7 +1,7 @@
-import { CircleCheck, LayoutTemplate, Sparkles } from "lucide-react";
+import { CircleCheck, FileCode2, LayoutTemplate, Sparkles } from "lucide-react";
 import { BrandIcon, brandColors } from "./BrandIcon";
 import { useEffect, useState, type FormEvent } from "react";
-import { api, type Recipe, type System, type Template } from "./api";
+import { api, type ProjectFile, type Recipe, type System, type Template } from "./api";
 import { FolderField } from "./FolderPicker";
 import { BackendChoice, MachineControls } from "./Machine";
 import { RecipeCards } from "./RecipeCards";
@@ -26,6 +26,37 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
   const [backend, setBackend] = useState("krun");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // A `boxquell.toml` in the chosen project folder, and whether its content was taken over.
+  const [found, setFound] = useState<{ file: string; name: string; project: ProjectFile } | null>(null);
+  const [fromFile, setFromFile] = useState(false);
+  useEffect(() => {
+    setFound(null);
+    setFromFile(false);
+    const dir = workspace.trim();
+    if (!dir.startsWith("/") && !/^[A-Za-z]:/.test(dir)) return;
+    const timer = setTimeout(() => api.projectFile(dir).then(setFound, () => {}), 300);
+    return () => clearTimeout(timer);
+  }, [workspace]);
+  const useFile = () => {
+    if (!found) return;
+    const project = found.project;
+    if (!name) setName(found.name);
+    if (project.os) setOs(project.os);
+    // Software in the file is named as on the command line: `claude`, `node@24`.
+    const entries = (project.software ?? []).flatMap((entry) => {
+      const [id, version] = entry.split("@");
+      const recipe = props.recipes.find((r) => r.id === id) ?? props.recipes.find((r) => r.id.endsWith(`:${id}`));
+      return recipe ? [version ? `${recipe.id}@${version}` : recipe.id] : [];
+    });
+    setPicked(entries);
+    setHosts(project.allow ?? []);
+    if (project.mode === "blacklist" || project.mode === "whitelist") setMode(project.mode);
+    if (project.cpus) setCpus(project.cpus);
+    if (project.memory) setRam(project.memory);
+    if (project.disk) setDisk(project.disk);
+    setFromFile(true);
+  };
 
   const [templates, setTemplates] = useState<Template[]>([]);
   // A template brings its system and software; nothing is built or installed for it.
@@ -76,6 +107,8 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
         network: mode,
         rules: hosts.map((entry) => `allow ${entry}`),
       });
+      // What the project file names beyond this form: read-only and deny rules, ports, variables, limits.
+      if (fromFile && found) await api.applyProject(name, workspace.trim());
       if (chosen.length > 0) await api.install(name, chosen);
       props.onCreated(name);
     } catch (err) {
@@ -116,6 +149,30 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             <input autoFocus required pattern="[a-z0-9][a-z0-9-]{0,31}" title="Lowercase letters, digits and dashes" placeholder="my-project" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <FolderField label="Project folder on this computer" placeholder="/home/me/project" value={workspace} onChange={setWorkspace} />
+          {found && (
+            <div className="notice">
+              <FileCode2 size={18} aria-hidden />
+              <span className="grow">
+                <strong>This folder describes its sandbox in a boxquell.toml.</strong>
+                <small className="muted block">
+                  {fromFile
+                    ? "Its software, rules and machine are filled in below and on the next steps. Look them over before you create the sandbox."
+                    : [
+                        found.project.software?.length ? `software: ${found.project.software.join(", ")}` : "",
+                        found.project.allow?.length ? `allows ${found.project.allow.join(", ")}` : "",
+                        found.project.ports?.length ? `forwards port ${found.project.ports.join(", ")}` : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "It sets a few things for the sandbox."}
+                </small>
+              </span>
+              {!fromFile && (
+                <button type="button" className="primary" onClick={useFile}>
+                  Use it
+                </button>
+              )}
+            </div>
+          )}
           <p className="muted">The folder appears in the sandbox as /workspace; nothing else of your files is visible there. Leave it empty for a sandbox without your files.</p>
           {templates.length > 0 && (
             <div className="shelf">

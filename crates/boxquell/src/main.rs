@@ -104,7 +104,20 @@ enum Cmd {
         command: TemplateCmd,
     },
     /// Start a sandbox
-    Up { name: String },
+    Up {
+        /// Without a name: the sandbox of the project in this folder, as its `boxquell.toml` describes it; it is created when it does not exist
+        name: Option<String>,
+        /// Do not ask before creating a sandbox from a `boxquell.toml`
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Write a `boxquell.toml` for the project in this folder, from the sandbox that has this folder as its project folder (or the one named)
+    Init {
+        name: Option<String>,
+        /// Replace a `boxquell.toml` that is already there
+        #[arg(long)]
+        force: bool,
+    },
     /// Stop a sandbox
     Down { name: String },
     /// Freeze a running sandbox: it keeps its memory and programs but uses no CPU
@@ -570,6 +583,137 @@ fn repo_contents(repo: &repo::Repo) -> String {
     }
 }
 
+/// Bring the sandbox of the project in this folder into being, as its
+/// `boxquell.toml` describes it, and return its name. A sandbox that exists
+/// gets what the file names and it lacks; nothing is taken away from it.
+fn project_up(home: &Home, yes: bool) -> Result<String> {
+    use boxquell_core::project;
+    let here = std::env::current_dir()?;
+    let file = project::find(&here).with_context(|| format!("name a sandbox, or run this in a project folder with a {}", project::FILE))?;
+    let folder = file.parent().context("the project file has no folder")?.to_path_buf();
+    let project = project::load(&file)?;
+    let name = project.sandbox_name(&folder);
+    boxquell_core::spec::validate_name(&name)?;
+    let rules = project.rules();
+    for rule in &rules {
+        rule.parse::<boxquell_net::Rule>().map_err(|err| anyhow::anyhow!("{}: {err}", file.display()))?;
+    }
+    let catalog = catalog(home)?;
+    catalog.resolve(&project.software).with_context(|| format!("{} names software that is not in the catalogue", file.display()))?;
+    let client = Client::connect(home)?;
+    let path = format!("/api/sandboxes/{name}");
+    let existing = client.get(&path).ok();
+
+    if existing.is_none() {
+        // The file may come with a project someone else wrote: show what it asks for.
+        println!("{} describes the sandbox {name}:", file.display());
+        println!("  project folder  {}", folder.display());
+        println!("  system          {}", project.os.as_deref().unwrap_or(boxquell_core::os::DEFAULT));
+        if !project.software.is_empty() {
+            println!("  software        {}", project.software.join(", "));
+        }
+        println!(
+            "  network         {}",
+            if project.mode.as_deref() == Some("blacklist") { "open except for what is denied" } else { "closed except for what is allowed" }
+        );
+        for rule in &rules {
+            println!("                  {rule}");
+        }
+        if !project.secrets.is_empty() {
+            println!("  secrets         {} (from this computer; values stay here)", project.secrets.join(", "));
+        }
+        if !project.autostart.is_empty() {
+            println!("  starts          {}", project.autostart.join(", "));
+        }
+        if !yes {
+            use std::io::Write;
+            print!("Create it? [y/N] ");
+            std::io::stdout().flush()?;
+            let mut answer = String::new();
+            std::io::stdin().read_line(&mut answer)?;
+            anyhow::ensure!(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes" | "j" | "ja"), "nothing was created");
+        }
+        let os = project.os.clone().unwrap_or_else(|| boxquell_core::os::DEFAULT.to_string());
+        build_system_if_missing(home, &os)?;
+        let stored: Vec<String> =
+            client.get("/api/secrets")?.as_array().into_iter().flatten().filter_map(|s| s["name"].as_str().map(str::to_string)).collect();
+        for secret in project.secrets.iter().filter(|secret| !stored.contains(secret)) {
+            println!("note: the secret {secret} is not stored on this computer; add it under Config or with `boxquell secret set {secret}`");
+        }
+        let secrets: Vec<&String> = project.secrets.iter().filter(|secret| stored.contains(secret)).collect();
+        client.post(
+            "/api/sandboxes",
+            json!({
+                "name": name, "workspace": folder, "os": os, "backend": Backend::default_for_host(),
+                "cpus": project.cpus.unwrap_or(2), "ram_mib": project.memory.unwrap_or(4096), "disk_gib": project.disk.unwrap_or(20),
+                "network": project.mode.as_deref().unwrap_or("whitelist"), "rules": rules, "secrets": secrets,
+            }),
+        )?;
+        refresh_ssh_config(home, &client);
+    } else {
+        for rule in &rules {
+            if !existing.as_ref().is_some_and(|info| info["rules"].as_array().is_some_and(|have| have.iter().any(|r| r == rule.as_str()))) {
+                client.post(&format!("{path}/rules"), json!({ "rule": rule }))?;
+                println!("{name}: {rule}");
+            }
+        }
+    }
+    let info = client.get(&path)?;
+    // Variables, start commands, limits: what the file says, where it says something.
+    let mut change = serde_json::Map::new();
+    let env: serde_json::Map<String, Value> = project
+        .env
+        .iter()
+        .filter(|(key, value)| info["env"][key.as_str()] != value.as_str())
+        .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
+        .collect();
+    if !env.is_empty() {
+        change.insert("env".into(), env.into());
+    }
+    if existing.is_none() {
+        for (key, value) in [
+            ("workdir", json!(project.workdir)),
+            ("upload_limit_mib", json!(project.upload_limit)),
+            ("download_limit_mib", json!(project.download_limit)),
+        ] {
+            if !value.is_null() {
+                change.insert(key.into(), value);
+            }
+        }
+        if let Some(minutes) = project.idle_stop {
+            change.insert("idle_stop_minutes".into(), json!(minutes));
+        }
+        if !project.autostart.is_empty() {
+            change.insert("autostart".into(), json!(project.autostart));
+        }
+    }
+    if !change.is_empty() {
+        client.patch(&path, change.into())?;
+    }
+    let installed: Vec<String> =
+        info["recipes"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).map(|r| r.split('@').next().unwrap_or(r).to_string()).collect();
+    let missing: Vec<String> = project
+        .software
+        .iter()
+        .filter(|entry| catalog.find(entry.split('@').next().unwrap_or(entry)).is_ok_and(|recipe| !installed.contains(&recipe.id)))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        install::install(&client, &name, &catalog, &missing, false)?;
+    }
+    for port in &project.ports {
+        let (host, guest) = port.split_once(':').unwrap_or((port, port));
+        let (host, guest): (u16, u16) = (host.parse().context("invalid port")?, guest.parse().context("invalid port")?);
+        if !info["ports"].as_array().is_some_and(|have| have.iter().any(|p| p["host"] == host)) {
+            match client.post(&format!("{path}/ports"), json!({ "host": host, "guest": guest })) {
+                Ok(_) => println!("{name}: forwarded http://127.0.0.1:{host} to port {guest} in the sandbox"),
+                Err(err) => println!("note: port {host} is not forwarded ({err:#})"),
+            }
+        }
+    }
+    Ok(name)
+}
+
 /// Add a rule to a sandbox, for good or for a time such as `30m`, `2h` or `1d`.
 fn timed_rule(home: &Home, name: &str, action: &str, host: &str, duration: Option<&str>) -> Result<()> {
     let minutes = match duration {
@@ -780,9 +924,28 @@ fn main() -> Result<()> {
                 println!("{:<16} {:<10} {}", template["name"].as_str().unwrap_or(""), template["os"].as_str().unwrap_or(""), software.join(", "));
             }
         }
-        Cmd::Up { name } => {
+        Cmd::Up { name, yes } => {
+            let name = match name {
+                Some(name) => name,
+                None => project_up(&home, yes)?,
+            };
             let info = Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/start"), json!({}))?;
             println!("{name} is running (ssh port {})", info["ssh_port"]);
+        }
+        Cmd::Init { name, force } => {
+            let client = Client::connect(&home)?;
+            let folder = std::env::current_dir()?;
+            let sandboxes = client.get("/api/sandboxes")?;
+            let found = sandboxes.as_array().into_iter().flatten().find(|sandbox| match &name {
+                Some(name) => sandbox["name"] == name.as_str(),
+                None => sandbox["workspace"].as_str().is_some_and(|workspace| std::path::Path::new(workspace) == folder),
+            });
+            let sandbox = found.context("no sandbox has this folder as its project folder; name one: `boxquell init <sandbox>`")?;
+            let spec = boxquell_core::SandboxSpec::load(&home.sandbox(sandbox["name"].as_str().unwrap_or_default()))?;
+            let file = folder.join(boxquell_core::project::FILE);
+            anyhow::ensure!(force || !file.exists(), "{} exists already; --force replaces it", file.display());
+            std::fs::write(&file, boxquell_core::project::Project::of(&spec).to_toml()?)?;
+            println!("wrote {}; `boxquell up` in this folder creates the sandbox from it", file.display());
         }
         Cmd::Down { name } => {
             Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/stop"), json!({}))?;

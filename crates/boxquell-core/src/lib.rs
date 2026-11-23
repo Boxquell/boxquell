@@ -6,6 +6,7 @@ pub mod claude;
 pub mod drive;
 pub mod home;
 pub mod os;
+pub mod project;
 pub mod recipe;
 pub mod repo;
 pub mod secrets;
