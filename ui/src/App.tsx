@@ -13,7 +13,7 @@ import { LogViewer } from "./LogViewer";
 import { NewSandbox } from "./NewSandbox";
 import { Notifications, useBlocked } from "./Notifications";
 import { Overview } from "./Overview";
-import { GlobalRules, SandboxView, type Tab } from "./SandboxView";
+import { AREAS, GlobalRules, SandboxView, type Tab } from "./SandboxView";
 import { Plugins } from "./Plugins";
 import { Secrets } from "./Secrets";
 import { Terminal, type Session } from "./Terminal";
@@ -183,8 +183,10 @@ export function App() {
       s.running
         ? { id: `stop-${s.name}`, title: "Stop", hint: s.name, icon: Square, run: () => void act(() => api.stop(s.name)) }
         : { id: `start-${s.name}`, title: "Start", hint: s.name, icon: Play, run: () => void act(() => api.start(s.name)) },
-      ...(["tasks", "review", "software", "config", "network", "log", "settings"] as Tab[]).map(
-        (tab): Command => ({ id: `${tab}-${s.name}`, title: tab[0].toUpperCase() + tab.slice(1), hint: s.name, icon: Search, run: () => openTab(s.name, tab) }),
+      ...AREAS.flatMap((area) =>
+        area.parts
+          .filter(([tab]) => tab !== "overview" && tab !== "terminal")
+          .map(([tab, label]): Command => ({ id: `${tab}-${s.name}`, title: label === area.label ? label : `${area.label}: ${label}`, hint: s.name, icon: area.icon, keywords: tab, run: () => openTab(s.name, tab) })),
       ),
     ]),
     { id: "lockdown", title: lockdown ? "Lift network lockdown" : "Emergency stop: cut every sandbox off", icon: ShieldAlert, keywords: "lockdown block network", run: () => void act(() => api.setLockdown(!lockdown)) },

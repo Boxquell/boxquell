@@ -24,7 +24,7 @@ type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 export type Tab = "overview" | "terminal" | "tasks" | "review" | "software" | "config" | "agent" | "secrets" | "network" | "log" | "traffic" | "ports" | "settings";
 
 /** A sandbox's page in five areas; each area has one or more parts. */
-const AREAS: { id: string; label: string; icon: LucideIcon; parts: [Tab, string][] }[] = [
+export const AREAS: { id: string; label: string; icon: LucideIcon; parts: [Tab, string][] }[] = [
   { id: "overview", label: "Overview", icon: Activity, parts: [["overview", "Overview"]] },
   {
     id: "work",

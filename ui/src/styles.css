@@ -289,7 +289,7 @@ summary { cursor: pointer; font-weight: 500; }
 .lockdown-banner { align-items: center; }
 
 /* ---------- Monitoring ---------- */
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
 .tile { background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 0; align-items: flex-start; }
 .tile-label { color: var(--muted); font-size: 12.5px; font-weight: 500; }
 .tile-value { font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }

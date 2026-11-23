@@ -1,37 +1,87 @@
 <p align="center">
-  <img src="assets/icon.svg" width="120" alt="Boxquell icon: a drop rising out of an open box">
+  <img src="assets/icon.svg" width="112" alt="Boxquell icon: a drop rising out of an open box">
 </p>
 
 <h1 align="center">Boxquell</h1>
 
 <p align="center">
-  <b>Run coding agents in microVMs where every network connection has to be allowed, and every attempt is logged.</b><br>
-  No account, no cloud service. Your API keys never enter the sandbox.
+  <b>Give every coding agent its own microVM.</b><br>
+  The network is closed until you open it, every attempt is logged, and your API keys never enter the sandbox.<br>
+  No account, no cloud service.
 </p>
 
 <p align="center">
+  <a href="https://github.com/Boxquell/boxquell/releases/latest"><img src="https://img.shields.io/github/v/release/Boxquell/boxquell?label=release&color=2563eb" alt="Latest release"></a>
   <a href="https://github.com/Boxquell/boxquell/actions/workflows/ci.yml"><img src="https://github.com/Boxquell/boxquell/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License: MIT or Apache-2.0">
   <img src="https://img.shields.io/badge/status-early%20development-orange" alt="Status: early development">
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" width="880" alt="The Boxquell web UI: a list of sandboxes and one sandbox with its tabs Terminal, Software, Network, Secrets and Settings">
+  <a href="#install"><b>Install</b></a> ·
+  <a href="#a-look-around"><b>A look around</b></a> ·
+  <a href="#what-you-can-do"><b>Commands</b></a> ·
+  <a href="#how-it-works"><b>How it works</b></a> ·
+  <a href="https://github.com/Boxquell/boxquell/wiki"><b>Wiki</b></a>
 </p>
 
 <p align="center">
-  <img src="docs/screenshot-terminals.png" width="880" alt="The Terminals page: a shell running inside a sandbox, in the browser">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
+    <img src="docs/screenshots/home-light.png" width="920" alt="The start page of Boxquell: three sandboxes as cards with their state, agents and load, and the load of the computer below">
+  </picture>
 </p>
 
 ## Why
 
-Coding agents such as Claude Code, Codex, opencode or pi run commands on your machine, read your files and talk to the internet. Boxquell gives each of them its own small virtual machine:
+Coding agents such as Claude Code, Codex, Gemini CLI or opencode run commands on your machine, read your files and talk to the internet. Boxquell gives each of them its own small virtual machine:
 
-- **A real VM boundary.** Each sandbox is a microVM (libkrun or QEMU) with its own kernel, not a container sharing yours.
-- **Network closed by default.** A sandbox reaches only what you allow: names, wildcards, IP addresses or networks. Or flip it to a blacklist.
-- **A log of everything.** Each DNS lookup and connection attempt is recorded with destination, verdict, rule, bytes and duration.
-- **Keys stay on the host.** The sandbox sees a placeholder. The real key is put into the request on its way out, and only towards the hosts it belongs to.
-- **One place for all of them.** A CLI, a terminal form and a web UI with a terminal in the browser manage any number of sandboxes.
+<table>
+<tr>
+<td width="33%" valign="top"><b>A real VM boundary</b><br>Each sandbox is a microVM (libkrun or QEMU) with its own kernel, not a container sharing yours. It sees your project folder and nothing else.</td>
+<td width="33%" valign="top"><b>Network closed by default</b><br>A sandbox reaches only what you allow: names, wildcards, addresses or networks; for good, for an hour, or for reading only.</td>
+<td width="33%" valign="top"><b>Keys stay on your computer</b><br>The sandbox sees a placeholder. The real key is put into the request on its way out, and only towards the hosts it belongs to.</td>
+</tr>
+<tr>
+<td valign="top"><b>A log of everything</b><br>Each name lookup and connection attempt is recorded with destination, verdict, rule, bytes and duration. Allow or block from the log with one click.</td>
+<td valign="top"><b>Review before it counts</b><br>In review mode the agent works on a copy of your project. You read the changes file by file and take over what you want.</td>
+<td valign="top"><b>One place for all of them</b><br>A desktop app, a web interface with a terminal, a CLI and an MCP server manage any number of sandboxes.</td>
+</tr>
+</table>
+
+Around that: 13 agents, 14 languages and 60 tools to install with a click, 10 Linux systems, snapshots and templates, background tasks, token usage with a cost estimate, speed and data limits, and a project file that rebuilds a sandbox from the repository.
+
+## A look around
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sandbox-dark.png">
+    <img src="docs/screenshots/sandbox-light.png" width="920" alt="One sandbox: system, connections allowed and blocked, network mode, tokens, load and addresses">
+  </picture>
+</p>
+
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/screenshots/network.png" alt="Network rules of a sandbox: your own rules, one with a time limit and one for reading only, and what the installed software opened by itself"><br><b>Rules that say what they do.</b> Your own rules, time-limited and read-only ones, and what installed software needs, each switchable.</td>
+<td width="50%" valign="top"><img src="docs/screenshots/activity.png" alt="The network log with allowed and blocked connections"><br><b>Every attempt, live.</b> Filter the log, then allow or block a destination right there.</td>
+</tr>
+<tr>
+<td valign="top"><img src="docs/screenshots/review-dark.png" alt="Review mode: four changed files and the changes of one of them, with buttons to take over or discard"><br><b>Review mode.</b> The agent's changes stay in a copy until you take them over, one file or all of them.</td>
+<td valign="top"><img src="docs/screenshots/usage.png" alt="Token usage per day as a chart, with an estimated cost per key and per sandbox"><br><b>Usage and costs.</b> Tokens per day, key and sandbox, read from the answers of the model APIs as they pass.</td>
+</tr>
+<tr>
+<td valign="top"><img src="docs/screenshots/software.png" alt="The software catalogue with coding agents to install"><br><b>A catalogue of agents, languages and tools.</b> What a recipe needs is installed with it.</td>
+<td valign="top"><img src="docs/screenshots/configuration.png" alt="Settings of the installed software, with their credentials"><br><b>Configuration without dotfiles.</b> Settings and credentials of what is installed, on one page.</td>
+</tr>
+<tr>
+<td valign="top"><img src="docs/screenshots/traffic.png" alt="Traffic of a sandbox per hour and sliders for speed and data limits"><br><b>Traffic and limits.</b> What a sandbox sent and received, with sliders for speed and data per run.</td>
+<td valign="top"><img src="docs/screenshots/terminal.png" alt="A shell inside a sandbox, in the app"><br><b>A terminal in the app.</b> A shell or an agent, next to everything else; SSH, VS Code and JetBrains work as well.</td>
+</tr>
+<tr>
+<td valign="top"><img src="docs/screenshots/new-sandbox.png" alt="The new sandbox wizard with tiles for the operating systems"><br><b>A sandbox in five steps.</b> System, software, network, machine, done.</td>
+<td valign="top"><img src="docs/screenshots/find.png" alt="The search over sandboxes, areas and actions"><br><b>Find anything.</b> Ctrl+K (⌘K on a Mac) jumps to a sandbox or an area, or starts and stops one.</td>
+</tr>
+</table>
 
 ## Status
 
@@ -239,7 +289,7 @@ boxquell read mybox docs.example.com                 # reading only: GET, HEAD a
 boxquell set mybox --upload-limit 200                # cut the network off after 200 MiB sent in one run
 ```
 
-`boxquell set mybox --download-speed 2000 --upload-speed 500` limits how fast a sandbox receives and sends, in kbit per second. The Network tab of a sandbox shows its traffic over time and the destinations that carried most of it.
+`boxquell set mybox --download-speed 2000 --upload-speed 500` limits how fast a sandbox receives and sends, in kbit per second. **Network › Traffic and limits** of a sandbox shows its traffic over time and the destinations that carried most of it.
 
 A read-only rule works for websites: Boxquell looks into the requests, which for HTTPS means it answers with a certificate of the sandbox's own authority (the sandbox trusts it). Other kinds of connection to a read-only destination are refused, because they cannot be checked. Data limits count what passes to and from destinations outside, not the terminal or the project folder; when one is reached, the sandbox is cut off and the interface offers to let it continue.
 
