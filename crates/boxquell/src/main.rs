@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! boxquell: run coding agents in microVMs whose network access you control.
 
 mod api;
@@ -9,6 +10,7 @@ mod keyagent;
 mod mcp;
 mod notify;
 mod pull;
+mod review;
 mod ssh;
 mod terminal;
 mod usage;
@@ -90,6 +92,9 @@ enum Cmd {
         /// Recipes to install right away, e.g. `--with claude,python` (see `boxquell recipes`)
         #[arg(long = "with", value_name = "RECIPE", value_delimiter = ',')]
         with: Vec<String>,
+        /// Review mode: the sandbox works on a copy of the project folder; its changes reach the project when you take them over (`boxquell review`)
+        #[arg(long)]
+        review: bool,
         /// Start from a template saved with `boxquell template save`: its disk, system and software
         #[arg(long, value_name = "NAME")]
         template: Option<String>,
@@ -206,6 +211,25 @@ enum Cmd {
         /// Wait for the task to end and print its log
         #[arg(long)]
         wait: bool,
+    },
+    /// Review mode: the sandbox works on a copy of the project folder; look at what it changed and take it over or discard it
+    Review {
+        name: String,
+        /// `on` or `off`; without it, what the sandbox changed is listed
+        #[arg(value_parser = ["on", "off"])]
+        mode: Option<String>,
+        /// Show how this file differs
+        #[arg(long, value_name = "FILE")]
+        diff: Option<String>,
+        /// Take the sandbox's changes into the project: all of them, or the files named after it
+        #[arg(long, num_args = 0.., value_name = "FILE")]
+        apply: Option<Vec<String>>,
+        /// Undo the sandbox's changes in its copy: all of them, or the files named after it
+        #[arg(long, num_args = 0.., value_name = "FILE")]
+        discard: Option<Vec<String>>,
+        /// Bring what changed in the project meanwhile into the sandbox's copy
+        #[arg(long)]
+        bring: bool,
     },
     /// Allow a destination
     Allow {
@@ -668,7 +692,7 @@ fn project_up(home: &Home, yes: bool) -> Result<String> {
             json!({
                 "name": name, "workspace": folder, "os": os, "backend": Backend::default_for_host(),
                 "cpus": project.cpus.unwrap_or(2), "ram_mib": project.memory.unwrap_or(4096), "disk_gib": project.disk.unwrap_or(20),
-                "network": project.mode.as_deref().unwrap_or("whitelist"), "rules": rules, "secrets": secrets,
+                "network": project.mode.as_deref().unwrap_or("whitelist"), "rules": rules, "secrets": secrets, "review": project.review.unwrap_or(false),
             }),
         )?;
         refresh_ssh_config(home, &client);
@@ -876,7 +900,7 @@ fn main() -> Result<()> {
             install::install(&client, &choice.name, &catalog, &choice.recipes, false)?;
             println!("{0} is ready; open it with `boxquell shell {0}`", choice.name);
         }
-        Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode, os, template } => {
+        Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode, os, template, review } => {
             let backend = match backend {
                 Some(BackendArg::Krun) => Backend::Krun,
                 Some(BackendArg::Qemu) => Backend::Qemu,
@@ -884,7 +908,7 @@ fn main() -> Result<()> {
             };
             let workspace = workspace.map(std::path::absolute).transpose()?;
             let rules: Vec<String> = allow.iter().map(|host| format!("allow {host}")).collect();
-            let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "os": os, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets, "template": template });
+            let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "os": os, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets, "template": template, "review": review });
             let catalog = catalog(&home)?;
             catalog.resolve(&with)?;
             let client = Client::connect(&home)?;
@@ -960,6 +984,72 @@ fn main() -> Result<()> {
                         }
                     }
                 }
+            }
+        }
+        Cmd::Review { name, mode, diff, apply, discard, bring } => {
+            let client = Client::connect(&home)?;
+            let path = format!("/api/sandboxes/{name}/review");
+            if let Some(mode) = mode {
+                client.put(&path, json!({ "on": mode == "on" }))?;
+                match mode.as_str() {
+                    "on" => println!("{name}: review mode is on; the sandbox works on a copy of the project folder"),
+                    _ => println!("{name}: review mode is off; the sandbox works in the project folder itself"),
+                }
+                return Ok(());
+            }
+            if let Some(file) = diff {
+                let rows = client.get(&format!(
+                    "{path}/diff?towards_project=false&path={}",
+                    file.replace('%', "%25").replace(' ', "%20").replace('&', "%26").replace('#', "%23")
+                ))?;
+                if rows["binary"] == true {
+                    println!("{file} is not text");
+                }
+                for row in rows["rows"].as_array().into_iter().flatten() {
+                    match row["kind"].as_str() {
+                        Some("add") => println!("+{}", row["text"].as_str().unwrap_or_default()),
+                        Some("del") => println!("-{}", row["text"].as_str().unwrap_or_default()),
+                        Some("gap") => println!("@@"),
+                        _ => println!(" {}", row["text"].as_str().unwrap_or_default()),
+                    }
+                }
+                return Ok(());
+            }
+            let settle = |action: &str, files: Option<Vec<String>>| {
+                client.post(&path, json!({ "action": action, "paths": files.filter(|files| !files.is_empty()) }))
+            };
+            let state = if let Some(files) = apply {
+                let state = settle("apply", Some(files))?;
+                println!("{name}: took {} files into {}", state["done"], state["project"].as_str().unwrap_or("the project"));
+                state
+            } else if let Some(files) = discard {
+                let state = settle("discard", Some(files))?;
+                println!("{name}: discarded the sandbox's changes to {} files", state["done"]);
+                state
+            } else if bring {
+                let state = settle("bring", None)?;
+                println!("{name}: brought {} files from the project into the sandbox", state["done"]);
+                state
+            } else {
+                client.get(&path)?
+            };
+            let changes = state["changes"].as_array().cloned().unwrap_or_default();
+            if changes.is_empty() {
+                println!("{name}: the sandbox's copy and the project are the same");
+            }
+            for change in changes {
+                let who = match change["side"].as_str() {
+                    Some("project") => "  (changed in the project)",
+                    Some("both") => "  (changed on both sides)",
+                    _ => "",
+                };
+                println!(
+                    "{:<9} {}  +{} -{}{who}",
+                    change["kind"].as_str().unwrap_or(""),
+                    change["path"].as_str().unwrap_or(""),
+                    change["added"],
+                    change["removed"]
+                );
             }
         }
         Cmd::Snapshot { command } => {

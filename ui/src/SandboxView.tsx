@@ -1,11 +1,12 @@
 import { BrandIcon } from "./BrandIcon";
 import { Config } from "./Config";
 import { Snapshots } from "./Snapshots";
+import { Review } from "./Review";
 import { Tasks } from "./Tasks";
 import { count, dollars } from "./Usage";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Activity, Bot, ListChecks, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
+import { Activity, Bot, GitCompareArrows, ListChecks, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
 import { api, type Recipe, type Sandbox, type Secret } from "./api";
 import { FolderField } from "./FolderPicker";
 import { LogViewer } from "./LogViewer";
@@ -19,11 +20,12 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "overview" | "terminal" | "tasks" | "software" | "config" | "agent" | "network" | "log" | "secrets" | "settings";
+export type Tab = "overview" | "terminal" | "tasks" | "review" | "software" | "config" | "agent" | "network" | "log" | "secrets" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["terminal", "Terminal"],
   ["tasks", "Tasks"],
+  ["review", "Review"],
   ["software", "Software"],
   ["config", "Config"],
   ["agent", "Agent"],
@@ -37,6 +39,7 @@ const TAB_ICONS: Record<Tab, LucideIcon> = {
   overview: Activity,
   terminal: SquareTerminal,
   tasks: ListChecks,
+  review: GitCompareArrows,
   software: Package,
   config: SlidersHorizontal,
   agent: Bot,
@@ -149,6 +152,7 @@ export function SandboxView(props: ViewProps) {
       )}
       {tab === "software" && <Software {...props} />}
       {tab === "tasks" && <Tasks sandbox={sandbox} recipes={recipes} act={act} openSoftware={() => setTab("software")} openSettings={() => setTab("settings")} />}
+      {tab === "review" && <Review sandbox={sandbox} act={act} />}
       {tab === "config" && <Config sandbox={sandbox} recipes={recipes} secrets={props.secrets} act={act} openSoftware={() => setTab("software")} />}
       {tab === "agent" && <AgentSettings sandbox={sandbox.name} act={act} />}
       {tab === "network" && (

@@ -150,6 +150,10 @@ pub struct SandboxSpec {
     /// stops it. Left out, the setting for all sandboxes applies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_stop_minutes: Option<u64>,
+    /// Review mode: the sandbox works on a copy of the project folder, and its
+    /// changes reach the project only when the user takes them over.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub review: bool,
     /// Only when a sandbox is created: the template its disk and software come from.
     #[serde(default, skip_serializing)]
     pub template: Option<String>,

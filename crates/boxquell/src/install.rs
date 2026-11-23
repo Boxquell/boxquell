@@ -178,6 +178,8 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
             client.delete(&format!("{path}/rules"), Some(json!({ "rule": rule })))?;
         }
         outcome.with_context(|| format!("installing {} failed; `boxquell logs {sandbox} --blocked` shows refused connections", recipe.id))?;
+        // Noted as installed at once: what it opens is then open for the recipes that follow and need it.
+        client.post(&format!("{path}/installed"), json!({ "recipes": [pick.label()] }))?;
     }
 
     // Ports the installed software listens on become reachable from this computer.

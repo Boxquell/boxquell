@@ -55,6 +55,8 @@ export interface Sandbox {
   rule_expiry?: Record<string, number>;
   /** Bytes to and from destinations outside since the start, against the limits */
   traffic?: { up: number; down: number; upload_limit_mib: number | null; download_limit_mib: number | null; cut: boolean };
+  /** Review mode: it works on a copy of the project folder */
+  review?: boolean;
   /** Tasks given to its agents, newest first */
   tasks?: Task[];
   /** Saved states of the disk, oldest first */
@@ -137,6 +139,26 @@ export interface Price {
   output: number;
   cache_read: number;
   cache_write: number;
+}
+
+/** A file that differs between the project and the sandbox's copy of it. */
+export interface Change {
+  path: string;
+  kind: "added" | "deleted" | "modified";
+  /** Who changed it since the copy was made */
+  side: "sandbox" | "project" | "both";
+  binary: boolean;
+  large: boolean;
+  added: number;
+  removed: number;
+}
+
+/** One line of a file's difference. */
+export interface DiffRow {
+  kind: "ctx" | "add" | "del" | "gap";
+  old?: number | null;
+  new?: number | null;
+  text?: string;
 }
 
 /** A task given to an agent to work through in the background. */
@@ -475,6 +497,13 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  setReview: (name: string, on: boolean) => call<Sandbox>("PUT", `${box(name)}/review`, { on }),
+  review: (name: string) => call<{ project: string; changes: Change[] }>("GET", `${box(name)}/review`),
+  reviewDiff: (name: string, path: string, towardsProject: boolean) =>
+    call<{ rows: DiffRow[]; binary?: boolean; large?: boolean; cut?: boolean }>("GET", `${box(name)}/review/diff?towards_project=${towardsProject}&path=${encodeURIComponent(path)}`),
+  /** `apply` takes the sandbox's files into the project, `discard` undoes them in its copy, `bring` takes the project's newer files into the copy. */
+  settleReview: (name: string, action: "apply" | "discard" | "bring", paths?: string[]) =>
+    call<{ done: number; project: string; changes: Change[] }>("POST", `${box(name)}/review`, { action, paths }),
   startTask: (name: string, agent: string, prompt: string, snapshot: boolean) => call<Task>("POST", `${box(name)}/tasks`, { agent, prompt, snapshot }),
   taskLog: (name: string, id: string) => call<{ text: string }>("GET", `${box(name)}/tasks/${encodeURIComponent(id)}`),
   stopTask: (name: string, id: string) => call<unknown>("POST", `${box(name)}/tasks/${encodeURIComponent(id)}/stop`, {}),

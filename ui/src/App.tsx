@@ -57,7 +57,7 @@ export function App() {
     const query = new URLSearchParams(location.search);
     const [box, tab] = [query.get("box"), query.get("tab")];
     // Values from the address bar: accept only what a sandbox name and a tab can be.
-    const known: Tab[] = ["overview", "terminal", "tasks", "software", "config", "agent", "network", "log", "secrets", "settings"];
+    const known: Tab[] = ["overview", "terminal", "tasks", "review", "software", "config", "agent", "network", "log", "secrets", "settings"];
     const valid = box !== null && /^[a-z0-9][a-z0-9-]*$/.test(box) && known.includes(tab as Tab);
     return valid ? { [box]: tab as Tab } : {};
   });

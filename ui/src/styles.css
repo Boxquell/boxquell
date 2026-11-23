@@ -534,3 +534,46 @@ details[open] > summary::before { transform: rotate(90deg); }
 .spin { animation: spin 1s linear infinite; color: var(--accent) !important; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* Review mode: the files the sandbox changed on the left, the lines of one on the right. */
+.review-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.review-bar h3 { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 15px; margin: 0 0 2px; }
+.review-bar p { margin: 0; }
+.faint-icon { color: var(--muted); }
+.readable { max-width: 560px; }
+section.review { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 0; padding: 0; overflow: hidden; }
+.review-files { list-style: none; margin: 0; padding: 8px; border-right: 0.5px solid var(--line); max-height: 640px; overflow: auto; }
+.review-files button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; background: none; padding: 7px 9px; min-height: 0; border-radius: 8px; font-weight: 400; }
+.review-files button:hover:not(:disabled) { background: var(--fill); }
+.review-files button.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.review-files .path { min-width: 0; }
+.review-files .path strong, .review-files .path small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-files .path strong { font-weight: 500; font-size: 13.5px; }
+.review-files .path small { color: var(--muted); font-size: 11.5px; }
+.review-files svg { flex: none; color: var(--muted); }
+.review-files .kind-added { color: var(--good); }
+.review-files .kind-deleted { color: var(--bad); }
+.review-files .kind-both { color: var(--warn); }
+.counts { display: flex; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+.counts .plus { color: var(--good); }
+.counts .minus { color: var(--bad); }
+.counts small { color: var(--muted); }
+.review-diff { min-width: 0; display: flex; flex-direction: column; }
+.review-diff > header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 0.5px solid var(--line); flex-wrap: wrap; }
+.review-diff > header code { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.review-diff > .warning { margin: 12px 16px 0; }
+.review-diff .pad { padding: 16px; margin: 0; }
+.diff { overflow: auto; max-height: 640px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.5; padding: 6px 0; }
+.diff .line { display: grid; grid-template-columns: 44px 44px 18px 1fr; min-width: max-content; }
+.diff .line code { white-space: pre; background: none; padding: 0 16px 0 0; font: inherit; color: var(--text); border-radius: 0; }
+.diff .no { text-align: right; padding-right: 8px; color: var(--muted); user-select: none; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.diff .mark { text-align: center; user-select: none; font-weight: 700; }
+.diff .line.is-add { background: color-mix(in srgb, var(--good) 14%, transparent); }
+.diff .line.is-add .mark { color: var(--good); }
+.diff .line.is-del { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.diff .line.is-del .mark { color: var(--bad); }
+.diff .gap { text-align: center; color: var(--muted); background: var(--fill); margin: 4px 0; user-select: none; font-size: 11px; }
+@media (max-width: 900px) { section.review { grid-template-columns: 1fr; } .review-files { border-right: 0; border-bottom: 0.5px solid var(--line); max-height: 220px; } }
+
+section.review-bar { flex-direction: row; }
+section.notice { flex-direction: row; text-align: left; }

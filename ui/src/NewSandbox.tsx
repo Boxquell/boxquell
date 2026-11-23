@@ -55,9 +55,11 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
     if (project.cpus) setCpus(project.cpus);
     if (project.memory) setRam(project.memory);
     if (project.disk) setDisk(project.disk);
+    if (project.review) setReview(true);
     setFromFile(true);
   };
 
+  const [review, setReview] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   // A template brings its system and software; nothing is built or installed for it.
   const [template, setTemplate] = useState("");
@@ -104,6 +106,7 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
         backend,
         os,
         template: template || undefined,
+        review: review && !!workspace.trim(),
         network: mode,
         rules: hosts.map((entry) => `allow ${entry}`),
       });
@@ -174,6 +177,17 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             </div>
           )}
           <p className="muted">The folder appears in the sandbox as /workspace; nothing else of your files is visible there. Leave it empty for a sandbox without your files.</p>
+          {workspace.trim() && (
+            <label className="check setting">
+              <input type="checkbox" className="switch" checked={review} onChange={() => setReview(!review)} />
+              <span>
+                Review mode
+                <small className="muted block">
+                  The sandbox works on a copy of the folder. What it changes reaches your files only after you have looked at it and taken it over.
+                </small>
+              </span>
+            </label>
+          )}
           {templates.length > 0 && (
             <div className="shelf">
               <h3>Start from</h3>

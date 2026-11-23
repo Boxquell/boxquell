@@ -54,6 +54,10 @@ pub struct Project {
     /// Names of secrets stored on this computer to attach. Values never go into this file.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub secrets: Vec<String>,
+    /// Review mode: the sandbox works on a copy of the project folder, and its
+    /// changes reach the project only when they are taken over.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<bool>,
     /// Stop the sandbox after this many minutes without work; 0 for never.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle_stop: Option<u64>,
@@ -132,6 +136,7 @@ impl Project {
             workdir: spec.workdir.clone(),
             autostart: spec.autostart.clone(),
             secrets: spec.secrets.clone(),
+            review: spec.review.then_some(true),
             idle_stop: spec.idle_stop_minutes,
             upload_limit: spec.upload_limit_mib,
             download_limit: spec.download_limit_mib,

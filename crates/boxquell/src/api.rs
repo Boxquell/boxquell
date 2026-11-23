@@ -465,6 +465,50 @@ async fn delete_task(State(daemon): App, Path((name, id)): Path<(String, String)
     Ok(Json(daemon.info(&name)?))
 }
 
+#[derive(Deserialize)]
+struct ReviewMode {
+    on: bool,
+}
+
+async fn set_review(State(daemon): App, Path(name): Path<String>, Json(body): Json<ReviewMode>) -> ApiResult {
+    Ok(Json(daemon.set_review(&name, body.on).await?))
+}
+
+async fn review_changes(State(daemon): App, Path(name): Path<String>) -> ApiResult {
+    Ok(Json(tokio::task::spawn_blocking(move || daemon.review_changes(&name)).await??))
+}
+
+#[derive(Deserialize)]
+struct DiffQuery {
+    path: String,
+    /// Show the sandbox's state as the old one and the project's as the new one.
+    #[serde(default)]
+    towards_project: bool,
+}
+
+async fn review_diff(State(daemon): App, Path(name): Path<String>, Query(query): Query<DiffQuery>) -> ApiResult {
+    Ok(Json(tokio::task::spawn_blocking(move || daemon.review_diff(&name, &query.path, query.towards_project)).await??))
+}
+
+#[derive(Deserialize)]
+struct SettleBody {
+    /// The files; left out for all that fit the action.
+    paths: Option<Vec<String>>,
+    /// `apply`: the sandbox's state into the project. `discard`: the project's
+    /// state back into the sandbox's copy. `bring`: what changed in the project into the copy.
+    action: String,
+}
+
+async fn review_settle(State(daemon): App, Path(name): Path<String>, Json(body): Json<SettleBody>) -> ApiResult {
+    let (to_project, from_project_only) = match body.action.as_str() {
+        "apply" => (true, false),
+        "discard" => (false, false),
+        "bring" => (false, true),
+        other => return Err(anyhow::anyhow!("unknown action {other:?}").into()),
+    };
+    Ok(Json(tokio::task::spawn_blocking(move || daemon.review_settle(&name, body.paths, to_project, from_project_only)).await??))
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -974,6 +1018,8 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
         .route("/api/sandboxes/{name}/template", post(save_template))
         .route("/api/templates", get(templates))
+        .route("/api/sandboxes/{name}/review", get(review_changes).put(set_review).post(review_settle))
+        .route("/api/sandboxes/{name}/review/diff", get(review_diff))
         .route("/api/sandboxes/{name}/tasks", post(start_task))
         .route("/api/sandboxes/{name}/tasks/{id}", get(task_log).delete(delete_task))
         .route("/api/sandboxes/{name}/tasks/{id}/stop", post(stop_task))

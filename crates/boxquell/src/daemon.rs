@@ -476,6 +476,7 @@ impl Daemon {
             "idle_stop_minutes": spec.idle_stop_minutes,
             "traffic": traffic,
             "recipe_updates": self.recipe_updates(&spec),
+            "review": spec.review,
             "snapshots": self.snapshots(name),
             "tasks": self.tasks(name),
             "auto_rules": self.auto_rules(&spec).into_iter().map(|(source, name, hosts)| json!({
@@ -543,6 +544,11 @@ impl Daemon {
             spec.disk_gib = spec.disk_gib.max(record["disk_gib"].as_u64().unwrap_or(0) as u32);
         }
         spec.save(&dir)?;
+        if spec.review {
+            let project = spec.workspace.clone().context("review mode needs a project folder")?;
+            let base = crate::review::start(&project, &dir.join("work"))?;
+            std::fs::write(dir.join("review-base.json"), serde_json::to_vec(&base)?)?;
+        }
         if let Some(template) = template {
             std::fs::write(dir.join("template"), template)?;
         }
@@ -1412,6 +1418,83 @@ impl Daemon {
         Ok(())
     }
 
+    /// The project folder, the sandbox's copy of it and the base of a sandbox in review mode.
+    fn review_parts(&self, name: &str) -> Result<(PathBuf, PathBuf, crate::review::Base)> {
+        let spec = self.spec(name)?;
+        ensure!(spec.review, "{name} is not in review mode");
+        let project = spec.workspace.context("the sandbox has no project folder")?;
+        let dir = self.home.sandbox(name);
+        let base = std::fs::read(dir.join("review-base.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        Ok((project, dir.join("work"), base))
+    }
+
+    /// Switch review mode on or off. On: a copy of the project folder is made
+    /// and the sandbox works on that from its next start. Off: the sandbox
+    /// works in the project folder again; the copy is removed. A running
+    /// sandbox is restarted, because what it sees as /workspace changes.
+    pub async fn set_review(self: &Arc<Self>, name: &str, on: bool) -> Result<Value> {
+        let mut spec = self.spec(name)?;
+        if spec.review == on {
+            return self.info(name);
+        }
+        let project =
+            spec.workspace.clone().with_context(|| format!("{name} has no project folder; review mode is for sandboxes that work on one"))?;
+        let dir = self.home.sandbox(name);
+        if !on {
+            let (project, work, base) = self.review_parts(name)?;
+            let open = tokio::task::spawn_blocking(move || crate::review::changes(&project, &work, &base)).await?;
+            let pending = open.iter().filter(|change| change["side"] != "project").count();
+            ensure!(pending == 0, "{pending} changes of the sandbox are not taken over or discarded yet; decide about them first");
+        }
+        let was_running = self.running(name).is_some();
+        self.stop(name).await?;
+        if on {
+            let work = dir.join("work");
+            let base = tokio::task::spawn_blocking(move || crate::review::start(&project, &work)).await??;
+            std::fs::write(dir.join("review-base.json"), serde_json::to_vec(&base)?)?;
+        } else {
+            let _ = std::fs::remove_dir_all(dir.join("work"));
+            let _ = std::fs::remove_file(dir.join("review-base.json"));
+        }
+        spec.review = on;
+        spec.save(&dir)?;
+        if was_running {
+            self.start(name).await?;
+        }
+        self.info(name)
+    }
+
+    /// What differs between the project and the sandbox's copy.
+    pub fn review_changes(&self, name: &str) -> Result<Value> {
+        let (project, work, base) = self.review_parts(name)?;
+        Ok(json!({ "project": project, "changes": crate::review::changes(&project, &work, &base) }))
+    }
+
+    pub fn review_diff(&self, name: &str, path: &str, towards_project: bool) -> Result<Value> {
+        let (project, work, _) = self.review_parts(name)?;
+        crate::review::diff(&project, &work, path, towards_project)
+    }
+
+    /// Take the sandbox's state of these files into the project, or the
+    /// project's state into the sandbox's copy. Without paths: every file the
+    /// sandbox changed (for taking over or discarding) or that changed in the
+    /// project (for bringing in), but never one both sides changed.
+    pub fn review_settle(&self, name: &str, paths: Option<Vec<String>>, to_project: bool, from_project_only: bool) -> Result<Value> {
+        let _guard = self.handled_lock.lock().unwrap();
+        let (project, work, mut base) = self.review_parts(name)?;
+        let paths = match paths {
+            Some(paths) => paths,
+            None => crate::review::changes(&project, &work, &base)
+                .iter()
+                .filter(|change| change["side"] == if from_project_only { "project" } else { "sandbox" })
+                .filter_map(|change| change["path"].as_str().map(str::to_string))
+                .collect(),
+        };
+        let done = crate::review::settle(&project, &work, &mut base, &paths, to_project)?;
+        std::fs::write(self.home.sandbox(name).join("review-base.json"), serde_json::to_vec(&base)?)?;
+        Ok(json!({ "done": done, "project": project, "changes": crate::review::changes(&project, &work, &base) }))
+    }
+
     fn templates_dir(&self) -> PathBuf {
         self.home.root().join("templates")
     }
@@ -1979,7 +2062,10 @@ impl Daemon {
         drive::write(&config_drive, &drive_files)?;
 
         let (listener, net) = LinkListener::bind(&dir).await?;
-        let vm = VmSpec { cpus: spec.cpus, ram_mib: spec.ram_mib, disk, config_drive, net, workspace: spec.workspace.clone(), shares };
+        // In review mode the sandbox gets its copy of the project folder, not the folder itself.
+        let workspace = if spec.review { Some(dir.join("work")).filter(|work| work.is_dir()) } else { spec.workspace.clone() };
+        ensure!(!spec.review || workspace.is_some(), "the copy of the project folder is gone; switch review mode off and on again");
+        let vm = VmSpec { cpus: spec.cpus, ram_mib: spec.ram_mib, disk, config_drive, net, workspace, shares };
         let command = match spec.backend {
             #[cfg(unix)]
             Backend::Krun => {
