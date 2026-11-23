@@ -134,7 +134,7 @@ export function SandboxView(props: ViewProps) {
           <ClaudeSettings sandbox={sandbox} act={act} />
         </>
       )}
-      {tab === "settings" && <Resources sandbox={sandbox} act={act} remove={() => run("deleting…", () => api.remove(sandbox.name))} />}
+      {tab === "settings" && <Resources sandbox={sandbox} recipes={recipes} act={act} remove={() => run("deleting…", () => api.remove(sandbox.name))} />}
     </>
   );
 }
@@ -573,8 +573,8 @@ function ClaudeSettings(props: { sandbox: Sandbox; act: Act }) {
   );
 }
 
-function Resources(props: { sandbox: Sandbox; act: Act; remove: () => void }) {
-  const { sandbox, act } = props;
+function Resources(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act; remove: () => void }) {
+  const { sandbox, recipes, act } = props;
   const [cpus, setCpus] = useState(sandbox.cpus);
   const [ram, setRam] = useState(sandbox.ram_mib);
   const [disk, setDisk] = useState(sandbox.disk_gib);
@@ -612,6 +612,7 @@ function Resources(props: { sandbox: Sandbox; act: Act; remove: () => void }) {
           {sandbox.workspace ? ` · project folder ${sandbox.workspace}` : " · no project folder"}
         </p>
       </section>
+      <Autostart sandbox={sandbox} recipes={recipes} act={act} />
       <Folders sandbox={sandbox} act={act} />
       <section>
         <h3>Delete</h3>
@@ -804,6 +805,65 @@ function Addresses(props: { sandbox: Sandbox }) {
         </tbody>
       </table>
       <p className="muted">The sandbox has no address in your network. Other devices reach it only through port forwards.</p>
+    </section>
+  );
+}
+
+/** What runs inside the sandbox from the moment it boots. */
+function Autostart(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act }) {
+  const { sandbox, recipes, act } = props;
+  const [command, setCommand] = useState("");
+  const current = sandbox.autostart ?? [];
+  const save = (next: string[]) => act(() => api.resize(sandbox.name, { autostart: next.length > 0 ? next : ["none"] }));
+  // Installed software that has a start command, by the short name used on the command line.
+  const agents = sandbox.recipes
+    .map((id) => recipes.find((r) => r.id === recipeName(id)))
+    .filter((r) => r?.command)
+    .map((r) => ({ short: r!.id.split(":").pop()!, name: r!.name }));
+  return (
+    <section>
+      <h3>Start with the sandbox</h3>
+      <p className="muted">
+        Runs inside the sandbox every time it boots, in the project root. Meant for servers such as Orca or code-server; an agent that needs a terminal is
+        better opened from the Terminal tab.
+      </p>
+      {agents.map((agent) => (
+        <label key={agent.short} className="check setting">
+          <input
+            type="checkbox"
+            className="switch"
+            checked={current.includes(agent.short)}
+            onChange={() => save(current.includes(agent.short) ? current.filter((entry) => entry !== agent.short) : [...current, agent.short])}
+          />
+          {agent.name}
+        </label>
+      ))}
+      <ul className="rules">
+        {current
+          .filter((entry) => !agents.some((agent) => agent.short === entry))
+          .map((entry) => (
+            <li key={entry}>
+              <code>{entry}</code>
+              <button className="link" onClick={() => save(current.filter((other) => other !== entry))}>
+                remove
+              </button>
+            </li>
+          ))}
+      </ul>
+      <form
+        className="row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save([...current, command.trim()]).then(() => setCommand(""));
+        }}
+      >
+        <label className="grow">
+          Another command
+          <input required placeholder="npm run dev" value={command} onChange={(e) => setCommand(e.target.value)} />
+        </label>
+        <button>Add</button>
+      </form>
+      {sandbox.running && <p className="muted">Applies the next time the sandbox starts. Output goes to /var/log/boxquell-autostart-*.log in the sandbox.</p>}
     </section>
   );
 }

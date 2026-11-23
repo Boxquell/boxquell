@@ -32,6 +32,8 @@ export interface Sandbox {
   claude_settings: boolean;
   ports: { host: number; guest: number; bind?: string }[];
   shares: { host: string; guest: string; read_only: boolean }[];
+  /** Agents or commands started with the sandbox */
+  autostart?: string[];
   /** Where shells and agents start; null means /workspace */
   workdir: string | null;
   /** Addresses as seen from inside the sandbox: its own, this computer's, and the name server. */
@@ -181,7 +183,7 @@ export const api = {
   resume: (name: string) => call<Sandbox>("POST", `${box(name)}/resume`, {}),
   stop: (name: string) => call<Sandbox>("POST", `${box(name)}/stop`, {}),
   remove: (name: string) => call<unknown>("DELETE", box(name)),
-  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string }) => call<Sandbox>("PATCH", box(name), change),
+  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[] }) => call<Sandbox>("PATCH", box(name), change),
   addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),

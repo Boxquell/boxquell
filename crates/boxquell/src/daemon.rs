@@ -286,6 +286,7 @@ impl Daemon {
             "addresses": json!({ "sandbox": boxquell_net::GUEST_IP, "host": boxquell_net::GATEWAY_IP, "dns": boxquell_net::DNS_IP }),
             "shares": spec.shares,
             "workdir": spec.workdir,
+            "autostart": spec.autostart,
             "env": spec.env,
             "warnings": self.warnings(&spec),
             "disk_gib": spec.disk_gib,
@@ -545,6 +546,16 @@ impl Daemon {
         spec.save(&self.home.sandbox(name))
     }
 
+    /// What starts inside the guest at every boot. Entries are single lines.
+    pub fn set_autostart(&self, name: &str, entries: Vec<String>) -> Result<()> {
+        let mut spec = self.spec(name)?;
+        let entries: Vec<String> =
+            entries.iter().map(|entry| entry.trim().to_string()).filter(|entry| !entry.is_empty() && entry != "none").collect();
+        ensure!(entries.iter().all(|entry| !entry.contains(['\n', '\r'])), "a start command must be a single line");
+        spec.autostart = entries;
+        spec.save(&self.home.sandbox(name))
+    }
+
     /// Where shells and agents start in the guest; `None` goes back to `/workspace`.
     pub fn set_workdir(&self, name: &str, workdir: Option<String>) -> Result<Value> {
         let mut spec = self.spec(name)?;
@@ -797,6 +808,18 @@ impl Daemon {
             .map(|(i, share)| format!("share{i} {} {}\n", share.guest, if share.read_only { "ro" } else { "rw" }))
             .collect();
         let claude_settings = std::fs::read(self.claude_settings_file(name)).ok();
+        // What starts with the sandbox: an agent's name stands for its recipe's start command.
+        let autostart: String = {
+            let catalog = boxquell_core::recipe::Catalog::of(&self.home).ok();
+            let command_of = |entry: &str| {
+                let catalog = catalog.as_ref()?;
+                spec.recipes.iter().find_map(|installed| {
+                    let id = installed.split('@').next()?;
+                    (id.rsplit(':').next()? == entry).then(|| catalog.get(id)?.command.clone()).flatten()
+                })
+            };
+            spec.autostart.iter().map(|entry| format!("{}\n", command_of(entry).unwrap_or_else(|| entry.clone()))).collect()
+        };
         // Instructions, skills and MCP servers for the agents: the global set with this sandbox's on top.
         let agent_files = boxquell_core::agentcfg::guest_files(
             &boxquell_core::agentcfg::dir(&self.home, None),
@@ -810,6 +833,9 @@ impl Daemon {
         ];
         for ((_, contents, executable), path) in agent_files.iter().zip(&agent_paths) {
             drive_files.push(DriveFile { path, contents, mode: if *executable { 0o755 } else { 0o644 } });
+        }
+        if !autostart.is_empty() {
+            drive_files.push(DriveFile { path: "autostart", contents: autostart.as_bytes(), mode: 0o644 });
         }
         if !mounts.is_empty() {
             drive_files.push(DriveFile { path: "mounts", contents: mounts.as_bytes(), mode: 0o644 });
@@ -1058,9 +1084,18 @@ fn sync_guest_scripts(disk: &Path) {
         commands += &format!("rm {path}\nwrite {} {path}\nsif {path} mode 0100755\n", source.display());
     }
     if !commands.is_empty() {
+        // A disk whose last run did not end cleanly still has changes waiting in
+        // its journal. Writing next to them would damage the filesystem, so the
+        // journal is applied first; without the checker the disk is left alone.
+        let checked =
+            std::process::Command::new("e2fsck").arg("-p").arg(disk).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        // 0: clean, 1: problems corrected. Anything else needs a person to look.
+        let safe = checked.is_ok_and(|status| matches!(status.code(), Some(0 | 1)));
         let list = dir.join("commands");
-        if std::fs::write(&list, commands).is_ok() {
+        if safe && std::fs::write(&list, commands).is_ok() {
             let _ = debugfs(&["-w".as_ref(), "-f".as_ref(), list.as_os_str()]);
+        } else if !safe {
+            eprintln!("boxquell: {} was not updated: its filesystem could not be checked (is e2fsck installed?)", disk.display());
         }
     }
     let _ = std::fs::remove_dir_all(&dir);

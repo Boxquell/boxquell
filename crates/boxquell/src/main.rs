@@ -182,6 +182,9 @@ enum Cmd {
         /// Directory in the sandbox where shells and agents start, e.g. /workspace/backend (`default` for /workspace)
         #[arg(long)]
         workdir: Option<String>,
+        /// Start this with the sandbox: an installed agent's name such as `orca`, or a command (repeatable; `none` clears)
+        #[arg(long = "autostart", value_name = "AGENT|COMMAND")]
+        autostart: Vec<String>,
         /// Environment variable for sessions in the sandbox, `KEY=value`; `KEY=` removes it (repeatable)
         #[arg(long = "env", value_name = "KEY=VALUE")]
         env: Vec<String>,
@@ -781,7 +784,8 @@ fn main() -> Result<()> {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
         }
-        Cmd::Set { name, cpus, ram, disk, workdir, env } => {
+        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart } => {
+            let autostart = (!autostart.is_empty()).then_some(autostart);
             let env: serde_json::Map<String, Value> = env
                 .iter()
                 .map(|pair| {
@@ -792,10 +796,13 @@ fn main() -> Result<()> {
                 .collect::<Result<_>>()?;
             let info = Client::connect(&home)?.patch(
                 &format!("/api/sandboxes/{name}"),
-                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env }),
+                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart }),
             )?;
             let hint = if info["running"] == true { " (from its next start)" } else { "" };
             println!("{name}: {} CPUs, {} MiB memory, {} GiB disk{hint}", info["cpus"], info["ram_mib"], info["disk_gib"]);
+            for entry in info["autostart"].as_array().into_iter().flatten() {
+                println!("  starts with the sandbox: {}", entry.as_str().unwrap_or_default());
+            }
             for (key, value) in info["env"].as_object().into_iter().flatten() {
                 println!("  {key}={}", value.as_str().unwrap_or_default());
             }

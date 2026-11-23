@@ -67,6 +67,17 @@ fi
 # Agent configuration from the host, installed as the user the agents run as.
 [ -x /usr/local/sbin/boxquell-agent-config ] && runuser -l dev -c /usr/local/sbin/boxquell-agent-config >/dev/null 2>&1
 
+# What the user wants running in every boot of this sandbox, e.g. an agent's
+# server. Each line runs as `dev` in a login shell, in the project root.
+if [ -f /run/boxquell/autostart ]; then
+  n=0
+  while read -r command; do
+    [ -n "$command" ] || continue
+    n=$((n + 1))
+    runuser -l dev -c "exec $command" > "/var/log/boxquell-autostart-$n.log" 2>&1 &
+  done < /run/boxquell/autostart
+fi
+
 # Services that installed software wants running, e.g. a container daemon:
 # every executable file in /etc/boxquell/boot.d is started in the background.
 for service in /etc/boxquell/boot.d/*; do
@@ -80,8 +91,15 @@ mkdir -p /run/sshd
 # boxquell-shutdown sends TERM. Under libkrun the VM ends when this process exits;
 # under QEMU this is PID 1 and the VM ends on a guest reboot.
 shutdown() {
+  # Programs with open files would keep the disk from being closed cleanly:
+  # end everything but this script, then flush and close the filesystem.
+  trap '' TERM
+  kill -TERM -1 2>/dev/null
+  sleep 0.3
+  kill -KILL -1 2>/dev/null
   sync
   mount -o remount,ro / 2>/dev/null
+  sync
   [ $$ -eq 1 ] && echo b > /proc/sysrq-trigger
   exit 0
 }

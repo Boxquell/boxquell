@@ -95,6 +95,10 @@ pub struct SandboxSpec {
     /// Directory in the guest where shells and agents start; `/workspace` when unset.
     #[serde(default)]
     pub workdir: Option<String>,
+    /// Started inside the guest whenever the sandbox boots: names of installed
+    /// agents (their recipe's start command is used) or shell commands.
+    #[serde(default)]
+    pub autostart: Vec<String>,
     /// Ports of this computer (127.0.0.1) that lead to a port in the guest.
     #[serde(default)]
     pub ports: Vec<PortForward>,

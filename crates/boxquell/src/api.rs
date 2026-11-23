@@ -285,6 +285,8 @@ struct ResizeBody {
     disk_gib: Option<u32>,
     /// `default` or an empty text goes back to /workspace.
     workdir: Option<String>,
+    /// Replaces the list of what starts with the sandbox.
+    autostart: Option<Vec<String>>,
     /// Variables to set; an empty value removes the variable.
     #[serde(default)]
     env: std::collections::BTreeMap<String, String>,
@@ -296,6 +298,9 @@ async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<R
         daemon.set_workdir(&name, workdir)?;
     }
     daemon.set_env(&name, body.env)?;
+    if let Some(autostart) = body.autostart {
+        daemon.set_autostart(&name, autostart)?;
+    }
     Ok(Json(daemon.resize(&name, body.cpus, body.ram_mib, body.disk_gib)?))
 }
 
