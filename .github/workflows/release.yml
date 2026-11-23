@@ -210,8 +210,10 @@ jobs:
     name: Desktop app
     needs: guard
     uses: ./.github/workflows/desktop.yml
+    secrets: inherit
     with:
       version: ${{ needs.guard.outputs.version }}
+      sign: true
 
   sbom:
     name: Software bill of materials

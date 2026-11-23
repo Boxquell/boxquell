@@ -4,6 +4,8 @@
 
 The `release` environment only accepts `v*` tags, so the secrets are never available to pull requests or branch builds.
 
+The same secrets sign both things a release carries: the `boxquell` command (`release.yml`) and the desktop app's packages (`desktop.yml`, called by the release). The desktop app's bundler signs and notarizes the macOS app itself from the Apple values, and signs the Windows program and its installer with `scripts/sign-windows.ps1`.
+
 ## Windows: Certum certificate through SimplySign
 
 The certificate lives in Certum's cloud HSM. The workflow installs SimplySign Desktop (pinned by version and SHA-256), logs in with a TOTP code and signs with `signtool`.

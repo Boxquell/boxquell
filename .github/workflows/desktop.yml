@@ -17,6 +17,10 @@ on:
         description: Version to build; the repository's own when empty
         type: string
         default: ""
+      sign:
+        description: Sign the packages with the secrets of the release environment
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,6 +33,8 @@ jobs:
   package:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    # Signing secrets live in the release environment (docs/release-signing.md).
+    environment: ${{ inputs.sign && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -60,11 +66,109 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: apps/desktop/src-tauri
+      # ---- Windows: Certum certificate through SimplySign Desktop ----
+      - name: Check Windows signing setup
+        id: certum
+        if: runner.os == 'Windows' && inputs.sign
+        shell: bash
+        env:
+          CERTUM_USER: ${{ secrets.CERTUM_USER }}
+          CERTUM_TOTP_SECRET: ${{ secrets.CERTUM_TOTP_SECRET }}
+          CERTUM_CERT_SHA1: ${{ vars.CERTUM_CERT_SHA1 }}
+        run: |
+          for v in CERTUM_USER CERTUM_TOTP_SECRET CERTUM_CERT_SHA1; do
+            if [[ -z "${!v}" ]]; then
+              echo "::warning::$v is not set in the release environment: the desktop app's installer is published unsigned."
+              exit 0
+            fi
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      # Certum's official installer, pinned by version and checksum. A new version
+      # needs a new checksum (docs/release-signing.md).
+      - name: Install SimplySign Desktop
+        if: steps.certum.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          SIMPLYSIGN_VERSION: 9.4.5.95
+          SIMPLYSIGN_SHA256: 6309e8b46f1f4e786288e777aef515a2c30d885165b71a21191e9941badebd6b
+        run: |
+          $version = $env:SIMPLYSIGN_VERSION
+          $msi = "$env:RUNNER_TEMP\SimplySignDesktop.msi"
+          Invoke-WebRequest "https://files.certum.eu/software/SimplySignDesktop/Windows/$version/SimplySignDesktop-$version-64-bit-en.msi" -OutFile $msi
+          $hash = (Get-FileHash $msi -Algorithm SHA256).Hash
+          if ($hash -ne $env:SIMPLYSIGN_SHA256) { throw "SimplySign Desktop installer checksum mismatch: $hash" }
+          $proc = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\simplysign-install.log`"" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "SimplySign Desktop installation failed (msiexec exit code $($proc.ExitCode))." }
+
+      - name: Check the TOTP generator
+        if: steps.certum.outputs.enabled == 'true'
+        shell: pwsh
+        run: ./scripts/ci/totp.test.ps1
+
+      # Types the account and a fresh TOTP code into SimplySign Desktop. Fragile by
+      # nature; when it fails, the release fails and the maintainer signs by hand.
+      - name: Log in to SimplySign
+        if: steps.certum.outputs.enabled == 'true'
+        shell: pwsh
+        timeout-minutes: 10
+        env:
+          CERTUM_USER: ${{ secrets.CERTUM_USER }}
+          CERTUM_TOTP_SECRET: ${{ secrets.CERTUM_TOTP_SECRET }}
+          CERTUM_CERT_SHA1: ${{ vars.CERTUM_CERT_SHA1 }}
+        run: |
+          Write-Host "::add-mask::$env:CERTUM_USER"
+          ./scripts/ci/simplysign-login.ps1
+
+      # ---- macOS: Developer ID and notarization, done by the bundler from these values ----
+      - name: Prepare macOS signing
+        id: apple
+        if: runner.os == 'macOS' && inputs.sign
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
+            if [[ -z "${!v}" ]]; then
+              echo "::warning::Apple secret $v is not set: the desktop app is signed ad hoc only and not notarized."
+              exit 0
+            fi
+          done
+          key_path="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          chmod 600 "$key_path"
+          echo "key_path=$key_path" >> "$GITHUB_OUTPUT"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Build
         working-directory: apps/desktop
+        shell: bash
+        env:
+          # Read by the bundler; empty values leave the package as the configuration says (ad hoc on macOS, unsigned on Windows).
+          APPLE_CERTIFICATE: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_PATH: ${{ steps.apple.outputs.key_path }}
+          CERTUM_CERT_SHA1: ${{ vars.CERTUM_CERT_SHA1 }}
         run: |
           npm ci
-          npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          extra=()
+          if [[ "${{ steps.apple.outputs.enabled }}" == "true" ]]; then
+            # The configuration asks for an ad hoc signature; a release gets the real identity.
+            extra=(--config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}")
+          fi
+          if [[ "${{ steps.certum.outputs.enabled }}" == "true" ]]; then
+            # The bundler signs the program and its installer with the same script as boxquell.exe.
+            script=$(cygpath -m "$GITHUB_WORKSPACE/scripts/sign-windows.ps1")
+            extra=(--config "{\"bundle\":{\"windows\":{\"signCommand\":{\"cmd\":\"pwsh\",\"args\":[\"-NoProfile\",\"-File\",\"$script\",\"%1\"]}}}}")
+          fi
+          npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${extra[@]}"
       # One name scheme for every platform: boxquell-desktop-<version>-<target>.<kind>
       - name: Collect the packages
         shell: bash
@@ -80,7 +184,11 @@ jobs:
               ;;
             macOS)
               test -d "$bundle/macos/Boxquell.app"
-              codesign --verify --deep "$bundle/macos/Boxquell.app"
+              codesign --verify --deep --strict "$bundle/macos/Boxquell.app"
+              if [[ "${{ steps.apple.outputs.enabled }}" == "true" ]]; then
+                # A notarized app carries its ticket, so it opens without asking Apple.
+                xcrun stapler validate "$bundle/macos/Boxquell.app" || echo "::warning::The app has no stapled notarization ticket; it opens only after an online check."
+              fi
               tar -czf "dist/$name.app.tar.gz" -C "$bundle/macos" Boxquell.app
               ;;
             Windows)
