@@ -76,6 +76,8 @@ boxquell run mybox claude
 
 Or pick everything in a form (`boxquell new`), or use the desktop app (below). `boxquell ui` opens the app; to use a web browser instead, switch that on with `boxquell config browser-ui on`.
 
+> **Documentation:** the [wiki](https://github.com/Boxquell/boxquell/wiki) has guides for installation, sandboxes, the network rules, secrets, the software catalogue and writing recipes.
+
 ### Desktop app
 
 The desktop app is a window of its own that shows the same interface as `boxquell ui`. It finds the running daemon or starts one. Closing the window leaves Boxquell in the system tray, with a menu to open it again or quit. The installers above put it into the application menu; releases also carry the packages on their own (AppImage and .deb, a macOS app, a Windows installer).
