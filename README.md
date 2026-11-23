@@ -45,7 +45,7 @@ brew install boxquell/tap/boxquell                                              
 irm https://github.com/Boxquell/boxquell/releases/latest/download/install.ps1 | iex          # Windows (PowerShell)
 ```
 
-The scripts download the latest release, check it against the release's checksums and install the `boxquell` command for your user; they tell you what else your computer needs. Then:
+The scripts download the latest release, check it against the release's checksums and install the `boxquell` command and the desktop app for your user (application menu on Linux, Applications on macOS, Start menu on Windows); they tell you what else your computer needs. `--no-desktop` (`-NoDesktop` on Windows) installs the command alone. Then:
 
 ```sh
 boxquell doctor
@@ -78,14 +78,14 @@ Or pick everything in a form (`boxquell new`), or use the desktop app (below). `
 
 ### Desktop app
 
-`apps/desktop` is a small Tauri app: a window of its own that shows the same interface as `boxquell ui`. It finds the running daemon or starts one. Closing the window leaves Boxquell in the system tray, with a menu to open it again, trigger the emergency stop or quit; sandboxes keep running either way.
+The desktop app is a window of its own that shows the same interface as `boxquell ui`. It finds the running daemon or starts one. Closing the window leaves Boxquell in the system tray, with a menu to open it again or quit. The installers above put it into the application menu; releases also carry the packages on their own (AppImage and .deb, a macOS app, a Windows installer).
+
+To build it from a checkout (`apps/desktop`, a small Tauri app):
 
 ```sh
 (cd apps/desktop && npm install && npx tauri build --no-bundle)
-scripts/install-desktop-entry.sh        # Linux: adds Boxquell to the application menu
+scripts/install-desktop-entry.sh        # Linux: adds this build to the application menu
 ```
-
-`npx tauri build` without `--no-bundle` produces installers (deb, AppImage, dmg, msi) that bring their own menu entry.
 
 Shell completion for bash, zsh, fish and PowerShell:
 

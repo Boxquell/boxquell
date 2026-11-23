@@ -27,14 +27,24 @@ fn running(home: &Home) -> Option<String> {
     Some(format!("http://127.0.0.1:{}/#token={}", file.port, file.token))
 }
 
-/// The `boxquell` program: named by `BOXQUELL_BIN`, next to this app, or on the PATH.
+/// The `boxquell` program: named by `BOXQUELL_BIN`, next to this app, where
+/// the installers and package managers put it, or on the PATH. An app started
+/// from the desktop's menu does not get the PATH of a terminal, hence the list.
 fn boxquell_binary() -> PathBuf {
     let name = if cfg!(windows) { "boxquell.exe" } else { "boxquell" };
     if let Some(path) = std::env::var_os("BOXQUELL_BIN") {
         return PathBuf::from(path);
     }
-    let beside = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join(name)));
-    beside.filter(|path| path.is_file()).unwrap_or_else(|| PathBuf::from(name))
+    let home = std::env::home_dir();
+    let mut places: Vec<PathBuf> = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.to_path_buf())).into_iter().collect();
+    if cfg!(windows) {
+        places.extend(std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join("Programs").join("Boxquell")));
+    } else {
+        places.extend(home.as_ref().map(|home| home.join(".local/bin")));
+        places.extend(["/opt/homebrew/bin", "/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin", "/usr/bin"].map(PathBuf::from));
+        places.extend(home.as_ref().map(|home| home.join(".cargo/bin")));
+    }
+    places.into_iter().map(|dir| dir.join(name)).find(|path| path.is_file()).unwrap_or_else(|| PathBuf::from(name))
 }
 
 /// Find the daemon or start it, and wait until it answers.
@@ -103,7 +113,12 @@ fn open_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         Err(err) => WebviewUrl::App(format!("index.html#{err:#}").into()),
     };
     // The daemon shows its interface to this app; browsers have to be allowed in the settings.
-    WebviewWindowBuilder::new(app, "main", page).user_agent("Boxquell-Desktop").title("Boxquell").inner_size(1360.0, 900.0).min_inner_size(760.0, 520.0).build()?;
+    WebviewWindowBuilder::new(app, "main", page)
+        .user_agent("Boxquell-Desktop")
+        .title("Boxquell")
+        .inner_size(1360.0, 900.0)
+        .min_inner_size(760.0, 520.0)
+        .build()?;
     Ok(())
 }
 
@@ -125,18 +140,20 @@ fn main() {
             let quit = MenuItem::with_id(app, "quit", "Quit (sandboxes keep running)", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &stop, &PredefinedMenuItem::separator(app)?, &quit])?;
             let stop_item = stop.clone();
-            let mut tray = TrayIconBuilder::with_id("boxquell").tooltip("Boxquell").menu(&menu).show_menu_on_left_click(true).on_menu_event(move |app, event| match event.id.as_ref() {
-                "open" => show_window(app),
-                "lockdown" => {
-                    // Read the state fresh: it may have been changed elsewhere.
-                    let now = lockdown(None).unwrap_or(false);
-                    if let Some(on) = lockdown(Some(!now)) {
-                        let _ = stop_item.set_text(if on { LOCKDOWN_OFF } else { LOCKDOWN_ON });
+            let mut tray = TrayIconBuilder::with_id("boxquell").tooltip("Boxquell").menu(&menu).show_menu_on_left_click(true).on_menu_event(
+                move |app, event| match event.id.as_ref() {
+                    "open" => show_window(app),
+                    "lockdown" => {
+                        // Read the state fresh: it may have been changed elsewhere.
+                        let now = lockdown(None).unwrap_or(false);
+                        if let Some(on) = lockdown(Some(!now)) {
+                            let _ = stop_item.set_text(if on { LOCKDOWN_OFF } else { LOCKDOWN_ON });
+                        }
                     }
-                }
-                "quit" => app.exit(0),
-                _ => {}
-            });
+                    "quit" => app.exit(0),
+                    _ => {}
+                },
+            );
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }

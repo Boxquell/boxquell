@@ -205,6 +205,14 @@ jobs:
             boxquell-*.zip
           if-no-files-found: error
 
+  # The desktop app's packages. The installers add it next to the command.
+  desktop:
+    name: Desktop app
+    needs: guard
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: ${{ needs.guard.outputs.version }}
+
   sbom:
     name: Software bill of materials
     needs: guard
@@ -242,7 +250,7 @@ jobs:
 
   release:
     name: Draft release
-    needs: [guard, build, sbom]
+    needs: [guard, build, desktop, sbom]
     runs-on: ubuntu-latest
     environment: release
     permissions:

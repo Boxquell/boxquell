@@ -18,6 +18,14 @@
     "category": "DeveloperTool",
     "shortDescription": "MicroVM sandboxes for coding agents",
     "longDescription": "Run coding agents in microVMs with an explicit network allowlist, a connection log and API keys that stay on the host.",
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
   }
 }

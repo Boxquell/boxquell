@@ -1,0 +1,95 @@
+name: Desktop app
+
+# Builds the desktop app's packages: an AppImage and a .deb for Linux, an .app
+# for macOS and an installer for Windows. Runs for changes to the app, on
+# request, and as part of a release (release.yml), which attaches the files.
+
+on:
+  pull_request:
+    paths: ["apps/desktop/**", ".github/workflows/desktop.yml"]
+  push:
+    branches: [main]
+    paths: ["apps/desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: Version to build; the repository's own when empty
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, bundles: "appimage,deb" }
+          - { os: macos-latest, target: aarch64-apple-darwin, bundles: app }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, bundles: app }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Set the version
+        if: inputs.version != ''
+        shell: bash
+        run: scripts/set-version.sh "${{ inputs.version }}"
+      - name: Install what the Linux build needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Build
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      # One name scheme for every platform: boxquell-desktop-<version>-<target>.<kind>
+      - name: Collect the packages
+        shell: bash
+        run: |
+          version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' apps/desktop/src-tauri/tauri.conf.json)
+          bundle="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          name="boxquell-desktop-$version-${{ matrix.target }}"
+          mkdir dist
+          case "$RUNNER_OS" in
+            Linux)
+              cp "$bundle"/appimage/*.AppImage "dist/$name.AppImage"
+              cp "$bundle"/deb/*.deb "dist/$name.deb"
+              ;;
+            macOS)
+              test -d "$bundle/macos/Boxquell.app"
+              codesign --verify --deep "$bundle/macos/Boxquell.app"
+              tar -czf "dist/$name.app.tar.gz" -C "$bundle/macos" Boxquell.app
+              ;;
+            Windows)
+              cp "$bundle"/nsis/*-setup.exe "dist/$name-setup.exe"
+              ;;
+          esac
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: boxquell-desktop-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error

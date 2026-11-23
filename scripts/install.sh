@@ -4,12 +4,14 @@
 #   curl -fsSL https://github.com/Boxquell/boxquell/releases/latest/download/install.sh | sh
 #
 # It downloads the latest release for this computer, checks it against the
-# release's SHA256SUMS and puts `boxquell` into ~/.local/bin. Nothing needs
-# root. Run it again to update.
+# release's SHA256SUMS and puts `boxquell` into ~/.local/bin. The desktop app
+# comes with it: on Linux as an entry in the application menu, on macOS in
+# Applications. Nothing needs root. Run it again to update.
 #
 # Options:
-#   --dir <path>     install into this directory instead of ~/.local/bin
-#   --uninstall      remove the command again (sandboxes and settings stay)
+#   --dir <path>     install the command into this directory instead of ~/.local/bin
+#   --no-desktop     install the command only, without the desktop app
+#   --uninstall      remove the command and the app again (sandboxes and settings stay)
 #   --help
 # Environment:
 #   BOXQUELL_INSTALL_DIR   same as --dir
@@ -20,6 +22,13 @@ set -eu
 release_url=${BOXQUELL_RELEASE_URL:-https://github.com/Boxquell/boxquell/releases/latest/download}
 install_dir=${BOXQUELL_INSTALL_DIR:-$HOME/.local/bin}
 uninstall=0
+desktop=1
+[ -z "${BOXQUELL_NO_DESKTOP:-}" ] || desktop=0
+# Where the desktop app lives on Linux: unpacked, with a menu entry and an icon.
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+app_dir="$data/boxquell"
+menu_entry="$data/applications/boxquell.desktop"
+menu_icon="$data/icons/hicolor/256x256/apps/boxquell.png"
 
 # Colors only on a terminal that wants them.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
@@ -51,8 +60,9 @@ Install the boxquell command on Linux or macOS.
   curl -fsSL https://github.com/Boxquell/boxquell/releases/latest/download/install.sh | sh
 
 Options:
-  --dir <path>     install into this directory instead of ~/.local/bin
-  --uninstall      remove the command again (sandboxes and settings stay)
+  --dir <path>     install the command into this directory instead of ~/.local/bin
+  --no-desktop     install the command only, without the desktop app
+  --uninstall      remove the command and the app again (sandboxes and settings stay)
   --help
 Environment:
   BOXQUELL_INSTALL_DIR   same as --dir
@@ -65,6 +75,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --dir) [ $# -ge 2 ] || die "--dir needs a path"; install_dir=$2; shift ;;
     --uninstall) uninstall=1 ;;
+    --no-desktop) desktop=0 ;;
     --help | -h) usage; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
@@ -81,6 +92,17 @@ if [ "$uninstall" = 1 ]; then
   else
     note "There is no boxquell in $install_dir."
   fi
+  if [ -e "$menu_entry" ] || [ -d "$app_dir/app" ]; then
+    rm -rf "$app_dir/app" "$menu_entry" "$menu_icon"
+    rmdir "$app_dir" 2>/dev/null || true
+    ok "Removed the desktop app and its menu entry"
+  fi
+  for apps in /Applications "$HOME/Applications"; do
+    if [ -d "$apps/Boxquell.app" ]; then
+      rm -rf "$apps/Boxquell.app"
+      ok "Removed $apps/Boxquell.app"
+    fi
+  done
   exit 0
 fi
 
@@ -160,6 +182,69 @@ else
   ok "Installed boxquell ${bold}$version${reset} to $install_dir"
 fi
 
+# The desktop app, when this release has one for this computer. The command
+# works without it, so nothing here stops the installation.
+app_hint=''
+install_desktop() {
+  case $system in
+    Linux) kind=AppImage ;;
+    macOS) kind=app.tar.gz ;;
+  esac
+  app_line=$(grep -E "  boxquell-desktop-[^ ]*-$target\.$kind\$" "$work/SHA256SUMS" | head -n 1) || true
+  if [ -z "$app_line" ]; then
+    note "This release has no desktop app for $system ($cpu); the command works without it."
+    return 0
+  fi
+  app_sum=${app_line%% *}
+  app_asset=${app_line##* }
+  step "Downloading the desktop app"
+  if ! fetch "$release_url/$app_asset" "$work/$app_asset"; then
+    note "Could not download the desktop app; the command works without it."
+    return 0
+  fi
+  [ "$(sha256 "$work/$app_asset")" = "$app_sum" ] || die "The desktop app does not match its checksum. It was not installed."
+
+  if [ "$system" = Linux ]; then
+    # Unpacked once, so starting it needs no FUSE.
+    chmod +x "$work/$app_asset"
+    if ! (cd "$work" && "./$app_asset" --appimage-extract >/dev/null 2>&1) || [ ! -x "$work/squashfs-root/AppRun" ]; then
+      note "Could not unpack the desktop app; the command works without it."
+      return 0
+    fi
+    mkdir -p "$app_dir" "$(dirname "$menu_entry")" "$(dirname "$menu_icon")"
+    rm -rf "$app_dir/app"
+    mv "$work/squashfs-root" "$app_dir/app"
+    cp "$app_dir/app/Boxquell.png" "$menu_icon" 2>/dev/null || true
+    cat > "$menu_entry" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Boxquell
+Comment=MicroVM sandboxes for coding agents
+Exec=env "BOXQUELL_BIN=$install_dir/boxquell" "$app_dir/app/AppRun"
+Icon=boxquell
+Terminal=false
+Categories=Development;
+StartupWMClass=boxquell-desktop
+DESKTOP
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database "$data/applications" >/dev/null 2>&1 || true
+    fi
+    ok "Installed the desktop app; ${bold}Boxquell${reset} is in your application menu"
+    app_hint="Open ${bold}Boxquell${reset} from your application menu, or use the command:"
+  else
+    apps=/Applications
+    [ -w "$apps" ] || apps="$HOME/Applications"
+    mkdir -p "$apps" "$work/app"
+    tar -xzf "$work/$app_asset" -C "$work/app"
+    [ -d "$work/app/Boxquell.app" ] || { note "The desktop app's archive is not as expected; the command works without it."; return 0; }
+    rm -rf "$apps/Boxquell.app"
+    mv "$work/app/Boxquell.app" "$apps/Boxquell.app"
+    ok "Installed the desktop app to $apps/Boxquell.app"
+    app_hint="Open ${bold}Boxquell${reset} from Applications or Spotlight, or use the command:"
+  fi
+}
+[ "$desktop" = 0 ] || install_desktop
+
 # What boxquell needs around it. Nothing here is installed for you.
 say ""
 say "${bold}What boxquell needs${reset}"
@@ -205,6 +290,7 @@ esac
 if [ "$missing" -gt 0 ]; then
   say "  Install what is marked above, then:"
 fi
+[ -z "$app_hint" ] || say "  $app_hint"
 say "  ${blue}$cmd doctor${reset}                 ${dim}checks that everything is in place${reset}"
 say "  ${blue}$cmd new mybox --workspace .${reset}  ${dim}a sandbox for the project in this folder;${reset}"
 say "                                    ${dim}the system is downloaded on first use${reset}"

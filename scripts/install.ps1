@@ -4,16 +4,19 @@
 #
 # It downloads the latest release, checks it against the release's SHA256SUMS
 # and puts boxquell.exe into %LOCALAPPDATA%\Programs\Boxquell, which it adds to
-# your PATH. Nothing needs administrator rights. Run it again to update.
+# your PATH. The desktop app comes with it, with an entry in the Start menu.
+# Nothing needs administrator rights. Run it again to update.
 #
 # Parameters (when run from a file):
 #   -Dir <path>     install into this folder instead
-#   -Uninstall      remove the command again (sandboxes and settings stay)
+#   -NoDesktop      install the command only, without the desktop app
+#   -Uninstall      remove the command and the app again (sandboxes and settings stay)
 # Environment:
 #   BOXQUELL_INSTALL_DIR   same as -Dir
 #   BOXQUELL_RELEASE_URL   folder to download from; default is the latest release
 param(
     [string]$Dir = $env:BOXQUELL_INSTALL_DIR,
+    [switch]$NoDesktop,
     [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
@@ -44,6 +47,8 @@ function Set-UserPath([string]$folder, [bool]$present) {
 }
 
 $exe = Join-Path $Dir 'boxquell.exe'
+# Where the desktop app's installer puts it, with its own uninstaller.
+$appUninstaller = Join-Path $env:LOCALAPPDATA 'Boxquell\uninstall.exe'
 
 if ($Uninstall) {
     if (Test-Path $exe) {
@@ -53,6 +58,10 @@ if ($Uninstall) {
         Write-Host '  Your sandboxes and settings were left alone.' -ForegroundColor DarkGray
     } else {
         Note "There is no boxquell in $Dir."
+    }
+    if (Test-Path $appUninstaller) {
+        Start-Process -FilePath $appUninstaller -ArgumentList '/S' -Wait
+        Ok 'Removed the desktop app and its Start menu entry'
     }
     exit 0
 }
@@ -100,6 +109,37 @@ try {
 
     if ($previous -and $previous -ne $version) { Ok "Updated boxquell $previous -> $version in $Dir" } else { Ok "Installed boxquell $version to $Dir" }
 
+    # The desktop app, when this release has one. The command works without it.
+    $appInstalled = $false
+    if (-not $NoDesktop -and -not $env:BOXQUELL_NO_DESKTOP) {
+        $appLine = Get-Content $sums | Where-Object { $_ -match "^([0-9a-f]{64})  (boxquell-desktop-[^ ]*-$([regex]::Escape($target))-setup\.exe)$" } | Select-Object -First 1
+        if (-not $appLine) {
+            Note 'This release has no desktop app for Windows; the command works without it.'
+        } else {
+            $null = $appLine -match "^([0-9a-f]{64})  (.+)$"
+            $appSum = $Matches[1]
+            $appAsset = $Matches[2]
+            Step 'Downloading the desktop app'
+            $setup = Join-Path $work $appAsset
+            $downloaded = $true
+            try { Invoke-WebRequest "$releaseUrl/$appAsset" -OutFile $setup -UseBasicParsing } catch { $downloaded = $false }
+            if (-not $downloaded) {
+                Note 'Could not download the desktop app; the command works without it.'
+            } else {
+                $appActual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($appActual -ne $appSum) { Fail 'The desktop app does not match its checksum. It was not installed.' }
+                # Its installer works for this user only and without questions.
+                $run = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
+                if ($run.ExitCode -eq 0) {
+                    Ok 'Installed the desktop app; Boxquell is in your Start menu'
+                    $appInstalled = $true
+                } else {
+                    Note "The desktop app's installer ended with code $($run.ExitCode); the command works without it."
+                }
+            }
+        }
+    }
+
     Write-Host ''
     Write-Host 'What boxquell needs'
     $missing = 0
@@ -114,6 +154,7 @@ try {
     Write-Host 'Next'
     Write-Host '  Open a new terminal so the changed PATH applies, then:' -ForegroundColor DarkGray
     if ($missing -gt 0) { Write-Host '  Install what is marked above first.' }
+    if ($appInstalled) { Write-Host '  Open Boxquell from the Start menu, or use the command:' }
     Write-Host '  boxquell doctor' -ForegroundColor Cyan -NoNewline; Write-Host '              checks that everything is in place' -ForegroundColor DarkGray
     Write-Host '  boxquell new mybox --backend qemu' -ForegroundColor Cyan -NoNewline; Write-Host '   a sandbox; the system is downloaded on first use' -ForegroundColor DarkGray
     Write-Host ''
