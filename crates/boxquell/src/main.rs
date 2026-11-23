@@ -6,6 +6,7 @@ mod daemon;
 mod doctor;
 mod install;
 mod notify;
+mod pull;
 mod ssh;
 mod terminal;
 mod wizard;
@@ -289,7 +290,11 @@ enum AgentCmd {
 enum OsCmd {
     /// List the systems on offer and whether their image is built
     Ls,
-    /// Build the disk image of a system (needs Docker and e2fsprogs); takes a few minutes
+    /// Get a system ready: download its ready-made image, or build it here if there is none
+    Install { id: String },
+    /// Download the ready-made image of an official system
+    Pull { id: String },
+    /// Build the disk image of a system on this computer (needs Docker); takes a few minutes
     Build {
         id: String,
         /// Size of the image in GiB; sandboxes grow their copy to their own disk size
@@ -427,8 +432,8 @@ fn build_system_if_missing(home: &Home, os: &str) -> Result<()> {
     for problem in repo::ensure_official(home) {
         eprintln!("warning: {problem}");
     }
-    println!("the system {os} is not built yet; building it first, this takes a few minutes");
-    boxquell_core::os::build(home, os, 4).map(drop)
+    println!("the system {os} is not on this computer yet; getting it first");
+    pull::install(home, os).map(drop)
 }
 
 fn ssh_config(home: &Home, client: &Client) -> Result<String> {
@@ -812,6 +817,14 @@ fn main() -> Result<()> {
                             def.description
                         );
                     }
+                }
+                OsCmd::Install { id } => {
+                    let image = pull::install(&home, &id)?;
+                    println!("{id} is ready ({}); create a sandbox with `boxquell new <name> --os {id}`", image.display());
+                }
+                OsCmd::Pull { id } => {
+                    let image = pull::pull(&home, &id)?;
+                    println!("downloaded {}; create a sandbox with `boxquell new <name> --os {id}`", image.display());
                 }
                 OsCmd::Build { id, size } => {
                     println!("building {id}; this takes a few minutes");

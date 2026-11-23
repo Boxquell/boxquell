@@ -170,13 +170,6 @@ found_lib() {
   done
   return 1
 }
-found_tool() {
-  have "$1" && return 0
-  for dir in /opt/homebrew/opt/e2fsprogs/sbin /usr/local/opt/e2fsprogs/sbin /usr/sbin /sbin; do
-    [ -x "$dir/$1" ] && return 0
-  done
-  return 1
-}
 missing=0
 check() {
   # check <0 when present> <name> <how to get it>
@@ -193,13 +186,9 @@ has_runner() { found_lib || have qemu-system-x86_64; }
 
 if [ "$system" = macOS ]; then
   check "$(result found_lib)" "libkrun (runs the sandboxes)" "brew tap slp/krun && brew install libkrun"
-  check "$(result found_tool mke2fs)" "e2fsprogs (packs system images)" "brew install e2fsprogs"
-  check "$(result have docker)" "Docker (builds system images)" "Docker Desktop, OrbStack or colima"
 else
   check "$(result has_runner)" "libkrun or QEMU (runs the sandboxes)" "install libkrun and libkrunfw, or qemu-system-x86_64"
   check "$(result has_kvm)" "KVM (/dev/kvm)" "enable virtualization and join the kvm group"
-  check "$(result found_tool mke2fs)" "e2fsprogs (packs system images)" "install e2fsprogs"
-  check "$(result have docker)" "Docker (builds system images)" "install docker"
 fi
 check "$(result have ssh)" "OpenSSH client" "install openssh"
 
@@ -217,8 +206,9 @@ if [ "$missing" -gt 0 ]; then
   say "  Install what is marked above, then:"
 fi
 say "  ${blue}$cmd doctor${reset}                 ${dim}checks that everything is in place${reset}"
-say "  ${blue}$cmd os build debian${reset}        ${dim}builds the default system, once${reset}"
-say "  ${blue}$cmd new mybox --workspace .${reset}  ${dim}a sandbox for the project in this folder${reset}"
+say "  ${blue}$cmd new mybox --workspace .${reset}  ${dim}a sandbox for the project in this folder;${reset}"
+say "                                    ${dim}the system is downloaded on first use${reset}"
+say "  ${blue}$cmd shell mybox${reset}"
 say ""
 say "  ${dim}Docs: https://github.com/Boxquell/boxquell${reset}"
 say ""

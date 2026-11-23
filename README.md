@@ -49,8 +49,8 @@ The scripts download the latest release, check it against the release's checksum
 
 ```sh
 boxquell doctor
-boxquell os build debian
-boxquell new mybox --workspace .
+boxquell new mybox --workspace .     # downloads the Debian system on first use
+boxquell shell mybox
 ```
 
 ## Build from source (Linux)
@@ -63,8 +63,7 @@ git clone https://github.com/Boxquell/boxquell && cd boxquell
 cargo build --release
 export PATH="$PWD/target/release:$PATH"
 
-boxquell os build debian     # the guest system, once; needs Docker and e2fsprogs
-boxquell doctor              # checks KVM, libkrun, QEMU, ssh and the system image
+boxquell doctor              # checks KVM, libkrun, QEMU and ssh
 ```
 
 Create a sandbox for a project and start an agent in it:
@@ -119,11 +118,11 @@ Every sandbox is then an ssh host named `boxquell-<name>`, started on demand. VS
 
 ```sh
 boxquell os ls                 # debian (default), ubuntu, alpine, and what you added
-boxquell os build ubuntu
-boxquell new mybox --os ubuntu
+boxquell new mybox --os ubuntu # downloads the system on first use
+boxquell os build ubuntu       # or build it yourself; needs Docker
 ```
 
-Systems are definitions in a repository, like recipes: a container image plus a setup script, built once into a disk image. The official ones live in [boxquell-os](https://github.com/Boxquell/boxquell-os). Recipes say which systems they support; Debian runs all of them, Ubuntu most, Alpine none yet. Only systems that bring a kernel (Debian) run on the qemu backend.
+Systems are definitions in a repository, like recipes: a container image plus a setup script, built into a disk image. The official ones live in [boxquell-os](https://github.com/Boxquell/boxquell-os), which also publishes them ready-made for x86_64 and ARM64; boxquell downloads those and checks them against their checksums, so no Docker is needed. Recipes say which systems they support; Debian runs all of them, Ubuntu most, Alpine none yet. Only systems that bring a kernel (Debian) run on the qemu backend.
 
 ### Network rules
 

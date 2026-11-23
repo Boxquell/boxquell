@@ -4,6 +4,12 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+- Ready-made system images: a sandbox downloads its system on first use, checked against checksums, so Docker is no longer needed to get started.
+- Building a system image works with Docker alone, on Windows and macOS too.
+- Installers for Linux, macOS and Windows, a Homebrew formula, and a software bill of materials with every release.
+- A tray icon for the desktop app.
+
 ## [0.0.1] - 2026-11-23
 
 First public version, for testing. Built and tested on Linux; the macOS and Windows binaries are untested and not signed yet.

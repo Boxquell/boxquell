@@ -214,37 +214,10 @@ pub fn build(home: &Home, id: &str, size_gib: u32) -> Result<PathBuf> {
 
         let partial = work.join("disk.img");
         let size = format!("{size_gib}G");
-        run(
-            &e2fs_tool("mke2fs").to_string_lossy(),
-            &[
-                "-q".as_ref(),
-                "-t".as_ref(),
-                "ext4".as_ref(),
-                "-L".as_ref(),
-                "boxquell-root".as_ref(),
-                "-d".as_ref(),
-                tarball.as_os_str(),
-                partial.as_os_str(),
-                size.as_ref(),
-            ],
-            true,
-        )
-        .context("packing the disk image failed (mke2fs from e2fsprogs 1.47.1 or newer is needed; on macOS: brew install e2fsprogs)")?;
+        pack_image(&work, &size)?;
 
         // A kernel in the image makes the system usable on the qemu backend.
-        let _ = run(
-            "tar",
-            &[
-                "-xf".as_ref(),
-                tarball.as_os_str(),
-                "-C".as_ref(),
-                work.as_os_str(),
-                "--wildcards".as_ref(),
-                "boot/vmlinuz-*".as_ref(),
-                "boot/initrd.img-*".as_ref(),
-            ],
-            true,
-        );
+        extract_boot_files(&tarball, &work.join("boot"));
         let boot = |prefix: &str| {
             std::fs::read_dir(work.join("boot"))
                 .into_iter()
@@ -269,6 +242,73 @@ pub fn build(home: &Home, id: &str, size_gib: u32) -> Result<PathBuf> {
     })();
     let _ = std::fs::remove_dir_all(&work);
     result
+}
+
+/// Turn `rootfs.tar` in `work` into the ext4 image `disk.img`, keeping file
+/// owners without root rights. That needs mke2fs 1.47.1 or newer. Where the
+/// computer has none (Windows, a Mac without e2fsprogs, older Linux), the same
+/// step runs in a container: Docker is there anyway, it built the files.
+fn pack_image(work: &Path, size: &str) -> Result<()> {
+    let (tarball, image) = (work.join("rootfs.tar"), work.join("disk.img"));
+    let local = run(
+        &e2fs_tool("mke2fs").to_string_lossy(),
+        &[
+            "-q".as_ref(),
+            "-t".as_ref(),
+            "ext4".as_ref(),
+            "-L".as_ref(),
+            "boxquell-root".as_ref(),
+            "-d".as_ref(),
+            tarball.as_os_str(),
+            image.as_os_str(),
+            size.as_ref(),
+        ],
+        true,
+    );
+    if local.is_ok() && image.exists() {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(&image);
+    let mount = format!("{}:/work", work.display());
+    let script = format!(
+        "set -e; apt-get update -qq >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends e2fsprogs >/dev/null; \
+         mke2fs -q -t ext4 -L boxquell-root -d /work/rootfs.tar /work/disk.img {size}; chown --reference=/work /work/disk.img"
+    );
+    run(
+        "docker",
+        &[
+            "run".as_ref(),
+            "--rm".as_ref(),
+            "-v".as_ref(),
+            mount.as_ref(),
+            "debian:stable-slim".as_ref(),
+            "sh".as_ref(),
+            "-c".as_ref(),
+            script.as_ref(),
+        ],
+        false,
+    )
+    .context("packing the disk image failed, with the computer's own mke2fs and in a container")?;
+    ensure!(image.exists(), "packing the disk image produced no file");
+    Ok(())
+}
+
+/// Copy the kernel and initrd out of a root filesystem archive into `target`.
+fn extract_boot_files(tarball: &Path, target: &Path) {
+    let Ok(file) = std::fs::File::open(tarball) else { return };
+    let mut archive = tar::Archive::new(file);
+    let Ok(entries) = archive.entries() else { return };
+    let _ = std::fs::create_dir_all(target);
+    for mut entry in entries.flatten() {
+        let Ok(path) = entry.path().map(|p| p.into_owned()) else { continue };
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        let in_boot = path.parent().is_some_and(|dir| dir.ends_with("boot"));
+        if in_boot && entry.header().entry_type().is_file() && (name.starts_with("vmlinuz-") || name.starts_with("initrd.img-")) {
+            if let Ok(mut out) = std::fs::File::create(target.join(&name)) {
+                let _ = std::io::copy(&mut entry, &mut out);
+            }
+        }
+    }
 }
 
 /// Whether a system brings the kernel the qemu backend needs.

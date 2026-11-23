@@ -323,7 +323,7 @@ impl Daemon {
         ensure!(!dir.exists(), "sandbox {:?} already exists", spec.name);
         ensure!(spec.cpus >= 1 && spec.ram_mib >= 256, "a sandbox needs at least 1 CPU and 256 MiB of memory");
         let image = boxquell_core::os::image(&self.home, &spec.os);
-        ensure!(image.exists(), "the system {:?} is not built yet; run `boxquell os build {}`", spec.os, spec.os);
+        ensure!(image.exists(), "the system {:?} is not on this computer yet; run `boxquell os install {}`", spec.os, spec.os);
         ensure!(
             spec.backend != Backend::Qemu || boxquell_core::os::has_kernel(&image),
             "the system {:?} brings no kernel, so it runs on the krun backend only",
@@ -382,7 +382,7 @@ impl Daemon {
             jobs.insert(id.to_string(), Job { state: "running", recipes: Vec::new(), log: String::new() });
         }
         let mut child = tokio::process::Command::new(EXE.get().context("daemon executable path is unknown")?)
-            .args(["os", "build", id])
+            .args(["os", "install", id])
             .env("BOXQUELL_HOME", self.home.root())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -820,7 +820,7 @@ impl Daemon {
 
         let disk = dir.join("disk.img");
         if !disk.exists() {
-            ensure!(base.exists(), "the system {:?} is not built yet; run `boxquell os build {}`", spec.os, spec.os);
+            ensure!(base.exists(), "the system {:?} is not on this computer yet; run `boxquell os install {}`", spec.os, spec.os);
             let (from, to, tmp) = (base.clone(), disk.clone(), dir.join("disk.img.partial"));
             tokio::task::spawn_blocking(move || sparse_copy(&from, &tmp).and_then(|()| std::fs::rename(&tmp, &to)))
                 .await?

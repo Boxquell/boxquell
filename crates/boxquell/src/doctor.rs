@@ -51,7 +51,7 @@ pub fn run(home: &Home) -> bool {
 
     let systems: Vec<_> = boxquell_core::os::definitions(home).into_iter().filter(|def| def.built).collect();
     let image = if systems.is_empty() {
-        line(false, "system image", "none built yet: run `boxquell os build debian`")
+        line(false, "system image", "none yet: run `boxquell os install debian`")
     } else {
         line(true, "system image", &systems.iter().map(|def| def.id.as_str()).collect::<Vec<_>>().join(", "))
     };

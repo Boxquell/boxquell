@@ -108,7 +108,6 @@ try {
     }
     Check ([bool](Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue)) 'QEMU (runs the sandboxes)' 'winget install SoftwareFreedomConservancy.QEMU, and add it to PATH'
     Check ([bool](Get-Command ssh -ErrorAction SilentlyContinue)) 'OpenSSH client' 'Settings > Optional features > OpenSSH Client'
-    Check ([bool](Get-Command docker -ErrorAction SilentlyContinue)) 'Docker (builds system images)' 'Docker Desktop'
     Note 'Boxquell on Windows has not been tested yet. It uses QEMU with the Windows Hypervisor Platform, which has to be enabled under "Turn Windows features on or off".'
 
     Write-Host ''
@@ -116,7 +115,7 @@ try {
     Write-Host '  Open a new terminal so the changed PATH applies, then:' -ForegroundColor DarkGray
     if ($missing -gt 0) { Write-Host '  Install what is marked above first.' }
     Write-Host '  boxquell doctor' -ForegroundColor Cyan -NoNewline; Write-Host '              checks that everything is in place' -ForegroundColor DarkGray
-    Write-Host '  Building a system image needs mke2fs, which Windows does not have. Until ready-made images are published, build one under WSL or on another computer.' -ForegroundColor DarkGray
+    Write-Host '  boxquell new mybox --backend qemu' -ForegroundColor Cyan -NoNewline; Write-Host '   a sandbox; the system is downloaded on first use' -ForegroundColor DarkGray
     Write-Host ''
     Write-Host '  Docs: https://github.com/Boxquell/boxquell' -ForegroundColor DarkGray
     Write-Host ''
