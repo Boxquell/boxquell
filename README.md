@@ -65,6 +65,17 @@ Or pick everything in a form (`boxquell new`), or use the browser:
 boxquell ui
 ```
 
+### Desktop app
+
+`apps/desktop` is a small Tauri app: a window of its own that shows the same interface as `boxquell ui`. It finds the running daemon or starts one, and sandboxes keep running when you close it.
+
+```sh
+(cd apps/desktop && npm install && npx tauri build --no-bundle)
+scripts/install-desktop-entry.sh        # Linux: adds Boxquell to the application menu
+```
+
+`npx tauri build` without `--no-bundle` produces installers (deb, AppImage, dmg, msi) that bring their own menu entry.
+
 Shell completion for bash, zsh, fish and PowerShell:
 
 ```sh
@@ -215,7 +226,7 @@ cargo test --workspace
 scripts/third-party-notices.sh
 ```
 
-The workspace: `boxquell-net` (gateway, policy, interception), `boxquell-vm` (libkrun and QEMU), `boxquell-core` (configuration, secrets, recipes, log), `boxquell` (CLI, daemon, API), `ui` (React), `image` (guest image).
+The workspace: `apps/desktop` (Tauri window, built separately), `boxquell-net` (gateway, policy, interception), `boxquell-vm` (libkrun and QEMU), `boxquell-core` (configuration, secrets, recipes, log), `boxquell` (CLI, daemon, API), `ui` (React), `image` (guest image).
 
 ## License
 

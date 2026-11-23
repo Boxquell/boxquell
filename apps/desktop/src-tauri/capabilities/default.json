@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The window shows the daemon's web UI. That page gets no access to the app's commands.",
+  "windows": ["main"],
+  "permissions": []
+}
