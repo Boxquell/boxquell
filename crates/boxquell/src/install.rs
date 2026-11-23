@@ -40,6 +40,23 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
     let recipes: Vec<_> = picks.iter().map(|pick| pick.recipe).collect();
     let path = format!("/api/sandboxes/{sandbox}");
 
+    // Install scripts are written for one kind of system; say so before anything runs.
+    let system = client.get(&path)?;
+    let family = system["family"].as_str().unwrap_or(boxquell_core::os::DEFAULT_FAMILY).to_string();
+    // `@packages` in a recipe stands for the hosts of this system's package manager.
+    let package_hosts: Vec<String> =
+        system["package_hosts"].as_array().into_iter().flatten().filter_map(|host| host.as_str().map(str::to_string)).collect();
+    let expand = |hosts: &[String]| -> Vec<String> {
+        hosts.iter().flat_map(|host| if host == "@packages" { package_hosts.clone() } else { vec![host.clone()] }).collect()
+    };
+    for recipe in &recipes {
+        let supported: Vec<&str> =
+            if recipe.os.is_empty() { vec![boxquell_core::os::DEFAULT_FAMILY] } else { recipe.os.iter().map(String::as_str).collect() };
+        if !supported.contains(&family.as_str()) {
+            bail!("{} is written for {} systems; {sandbox} runs {family}", recipe.name, supported.join(" and "));
+        }
+    }
+
     // Secrets first: a sandbox that is not running yet starts with their placeholders.
     let stored: Vec<String> =
         client.get("/api/secrets")?.as_array().into_iter().flatten().filter_map(|s| s["name"].as_str().map(str::to_string)).collect();
@@ -62,20 +79,21 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
         let recipe = pick.recipe;
         println!("==> {} ({})", recipe.name, pick.label());
         if !recipe.official && !(recipe.allow.is_empty() && recipe.install_allow.is_empty()) {
-            let hosts: Vec<&str> = recipe.allow.iter().chain(&recipe.install_allow).map(String::as_str).collect();
+            let hosts: Vec<String> = expand(&recipe.allow).into_iter().chain(expand(&recipe.install_allow)).collect();
             println!("    from {}: opens {}", recipe.source, hosts.join(", "));
         }
         let existing = rules_of(&client.get(&path)?);
         let add = |host: &String| client.post(&format!("{path}/rules"), json!({ "rule": format!("allow {host}") })).map(drop);
         let mut temporary = Vec::new();
-        for host in &recipe.install_allow {
+        let (install_allow, allow) = (expand(&recipe.install_allow), expand(&recipe.allow));
+        for host in &install_allow {
             let rule = format!("allow {host}");
-            if !existing.contains(&rule) && !recipe.allow.contains(host) {
+            if !existing.contains(&rule) && !allow.contains(host) {
                 add(host)?;
                 temporary.push(rule);
             }
         }
-        for host in &recipe.allow {
+        for host in &allow {
             add(host)?;
         }
 

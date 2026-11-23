@@ -47,8 +47,8 @@ git clone https://github.com/ToBee94/boxquell && cd boxquell
 cargo build --release
 export PATH="$PWD/target/release:$PATH"
 
-image/build.sh ~/.local/share/boxquell/images/base.img   # Debian guest image, once
-boxquell doctor                                           # checks KVM, libkrun, QEMU, ssh, image
+boxquell os build debian     # the guest system, once; needs Docker and e2fsprogs
+boxquell doctor              # checks KVM, libkrun, QEMU, ssh and the system image
 ```
 
 Create a sandbox for a project and start an agent in it:
@@ -59,11 +59,7 @@ boxquell new mybox --workspace . --with claude,python@3.13
 boxquell run mybox claude
 ```
 
-Or pick everything in a form (`boxquell new`), or use the browser:
-
-```sh
-boxquell ui
-```
+Or pick everything in a form (`boxquell new`), or use the desktop app (below). `boxquell ui` opens the app; to use a web browser instead, switch that on with `boxquell config browser-ui on`.
 
 ### Desktop app
 
@@ -87,7 +83,7 @@ boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 
 | | |
 |---|---|
-| **Sandboxes** | `new`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir` |
+| **Sandboxes** | `new --os`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir --autostart`, `os ls\|build` |
 | **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
 | **Agents** | `run <sandbox> claude`, `agent set\|show\|skill-add\|skill-rm`, `set --env KEY=value` |
@@ -102,6 +98,16 @@ ssh boxquell-mybox
 ```
 
 Every sandbox is then an ssh host named `boxquell-<name>`, started on demand. VS Code (Remote-SSH), VSCodium (Open Remote - SSH) and JetBrains Gateway connect to that host; `scp` and `rsync` work too. Each sandbox has its own key, and the connection never leaves your computer.
+
+### Operating systems
+
+```sh
+boxquell os ls                 # debian (default), ubuntu, alpine, and what you added
+boxquell os build ubuntu
+boxquell new mybox --os ubuntu
+```
+
+Systems are definitions in a repository, like recipes: a container image plus a setup script, built once into a disk image. The official ones live in [boxquell-os](https://github.com/ToBee94/boxquell-os). Recipes say which systems they support; Debian runs all of them, Ubuntu most, Alpine none yet. Only systems that bring a kernel (Debian) run on the qemu backend.
 
 ### Network rules
 
@@ -159,13 +165,14 @@ The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, 
 
 ### Plugins
 
-Agents, languages and tools are **recipes**: a small TOML file with an install script and the network destinations it needs. Boxquell ships none itself. Recipes live in git repositories, and on first use boxquell adds the three official ones:
+Agents, languages and tools are **recipes**: a small TOML file with an install script and the network destinations it needs. Boxquell ships none itself. Recipes live in git repositories, and on first use boxquell adds the official ones:
 
 | Repository | Recipes |
 |---|---|
-| [boxquell-agents](https://github.com/ToBee94/boxquell-agents) | Claude Code, Codex, opencode, pi |
-| [boxquell-languages](https://github.com/ToBee94/boxquell-languages) | Node.js, Python, Go, Rust, with selectable versions (`node@22`) |
-| [boxquell-tools](https://github.com/ToBee94/boxquell-tools) | C/C++ build tools, GitHub CLI, jq, ripgrep |
+| [boxquell-agents](https://github.com/ToBee94/boxquell-agents) | Claude Code, Codex, opencode, pi, Orca server |
+| [boxquell-languages](https://github.com/ToBee94/boxquell-languages) | Node.js, Python, Go, Rust, PHP, with selectable versions (`node@22`) |
+| [boxquell-tools](https://github.com/ToBee94/boxquell-tools) | C/C++ build tools, Git, GitHub CLI, jq, ripgrep, Composer, Docker, code-server, network access for VS Code Remote and JetBrains Gateway |
+| [boxquell-os](https://github.com/ToBee94/boxquell-os) | Debian, Ubuntu, Alpine |
 
 Add your own or other people's repositories next to them:
 
@@ -211,7 +218,8 @@ flowchart LR
 - The web UI can be opened on other network addresses (Settings), but that connection is not encrypted. Use it only in networks you trust.
 - Secrets are stored in a file with owner-only permissions, not in the system keychain yet.
 - The guest is IPv4-only, and UDP other than DNS is refused (so no QUIC; clients fall back to TCP).
-- Recipes target the Debian guest image.
+- Most recipes target Debian; Ubuntu runs those marked for it, Alpine has none yet.
+- Docker in a sandbox runs without its own network bridge: containers need `--network host`.
 
 ## Releases
 
@@ -226,7 +234,7 @@ cargo test --workspace
 scripts/third-party-notices.sh
 ```
 
-The workspace: `apps/desktop` (Tauri window, built separately), `boxquell-net` (gateway, policy, interception), `boxquell-vm` (libkrun and QEMU), `boxquell-core` (configuration, secrets, recipes, log), `boxquell` (CLI, daemon, API), `ui` (React), `image` (guest image).
+The workspace: `apps/desktop` (Tauri window, built separately), `boxquell-net` (gateway, policy, interception), `boxquell-vm` (libkrun and QEMU), `boxquell-core` (configuration, secrets, recipes, log), `boxquell` (CLI, daemon, API), `ui` (React), `image` (the scripts every guest runs).
 
 ## License
 

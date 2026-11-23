@@ -5,6 +5,7 @@ pub mod agentcfg;
 pub mod claude;
 pub mod drive;
 pub mod home;
+pub mod os;
 pub mod recipe;
 pub mod repo;
 pub mod secrets;

@@ -10,10 +10,11 @@ use std::path::Path;
 use std::process::Command;
 
 /// The repositories boxquell adds by itself: name and URL.
-pub const OFFICIAL: [(&str, &str); 3] = [
+pub const OFFICIAL: [(&str, &str); 4] = [
     ("agents", "https://github.com/ToBee94/boxquell-agents"),
     ("languages", "https://github.com/ToBee94/boxquell-languages"),
     ("tools", "https://github.com/ToBee94/boxquell-tools"),
+    ("os", "https://github.com/ToBee94/boxquell-os"),
 ];
 
 pub fn is_official(name: &str) -> bool {
@@ -24,7 +25,7 @@ pub fn is_official(name: &str) -> bool {
 /// removed stays away; `boxquell repo add <url>` brings it back.
 /// Returns what could not be fetched, e.g. without a network connection.
 pub fn ensure_official(home: &Home) -> Vec<String> {
-    let marker = home.repos().join(".official-added");
+    let marker = home.repos().join(".official-added-2");
     if marker.exists() {
         return Vec::new();
     }
@@ -50,6 +51,8 @@ pub struct Repo {
     /// Short commit id of the checkout.
     pub revision: String,
     pub recipes: usize,
+    /// Operating system definitions in its `os` directory.
+    pub systems: usize,
 }
 
 fn valid_name(name: &str) -> bool {
@@ -86,6 +89,12 @@ fn describe(checkout: &Path) -> Option<Repo> {
         url: git(Some(checkout), &["config", "--get", "remote.origin.url"]).unwrap_or_default(),
         revision: git(Some(checkout), &["rev-parse", "--short", "HEAD"]).unwrap_or_default(),
         recipes: count,
+        systems: std::fs::read_dir(checkout.join("os"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "toml"))
+            .count(),
         name,
     })
 }
@@ -121,10 +130,10 @@ pub fn add(home: &Home, url: &str, name: Option<&str>) -> Result<Repo> {
         let _ = std::fs::remove_dir_all(&partial);
         return Err(err);
     }
-    let repo = describe(&partial).filter(|repo| repo.recipes > 0);
+    let repo = describe(&partial).filter(|repo| repo.recipes + repo.systems > 0);
     if repo.is_none() {
         let _ = std::fs::remove_dir_all(&partial);
-        bail!("{url} has no recipes: expected *.toml files in a `recipes` directory or at the top level");
+        bail!("{url} has nothing to offer: expected recipes (*.toml in a `recipes` directory or at the top level) or systems (*.toml in an `os` directory)");
     }
     std::fs::rename(&partial, &dir)?;
     describe(&dir).context("the new checkout cannot be read")

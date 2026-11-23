@@ -49,18 +49,14 @@ pub fn run(home: &Home) -> bool {
 
     let ssh = line(on_path("ssh"), "ssh", if on_path("ssh") { "found" } else { "not on PATH: install an OpenSSH client" });
 
-    let base = home.base_image();
-    let image = if base.exists() {
-        line(true, "base image", &exists(&base))
+    let systems: Vec<_> = boxquell_core::os::definitions(home).into_iter().filter(|def| def.built).collect();
+    let image = if systems.is_empty() {
+        line(false, "system image", "none built yet: run `boxquell os build debian`")
     } else {
-        line(false, "base image", &format!("missing: run `image/build.sh {}`", base.display()))
+        line(true, "system image", &systems.iter().map(|def| def.id.as_str()).collect::<Vec<_>>().join(", "))
     };
-    let kernel = base.with_extension("vmlinuz").exists() && base.with_extension("initrd").exists();
-    line(
-        kernel,
-        "QEMU kernel",
-        if kernel { "base.vmlinuz and base.initrd found" } else { "missing next to the base image (only needed for `--backend qemu`)" },
-    );
+    let kernel = systems.iter().any(|def| boxquell_core::os::has_kernel(&boxquell_core::os::image(home, &def.id)));
+    line(kernel, "QEMU kernel", if kernel { "found" } else { "no built system brings one (only needed for `--backend qemu`)" });
 
     let daemon = home.daemon_file().exists();
     line(true, "daemon", if daemon { "running" } else { "not running (starts on demand)" });

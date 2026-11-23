@@ -24,6 +24,8 @@ export interface Sandbox {
   ram_mib: number;
   disk_gib: number;
   backend: "krun" | "qemu";
+  /** Operating system id, e.g. debian */
+  os?: string;
   mode: "whitelist" | "blacklist";
   rules: string[];
   secrets: string[];
@@ -107,6 +109,14 @@ export interface Suggestions {
   instructions: Found[];
   skills: Found[];
   mcp: Found[];
+}
+
+export interface System {
+  id: string;
+  name: string;
+  description: string;
+  family: string;
+  built: boolean;
 }
 
 export interface Settings {
@@ -202,6 +212,7 @@ export const api = {
   agentSuggestions: (sandbox: string | null) => call<Suggestions>("GET", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`),
   agentImport: (sandbox: string | null, items: { instructions?: string[]; skills?: string[]; mcp?: string[] }) =>
     call<AgentConfig>("POST", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`, items),
+  systems: () => call<System[]>("GET", "/api/os"),
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),

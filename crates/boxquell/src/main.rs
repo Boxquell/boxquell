@@ -68,6 +68,9 @@ enum Cmd {
         ram: u32,
         #[arg(long)]
         backend: Option<BackendArg>,
+        /// Operating system, see `boxquell os ls`
+        #[arg(long, default_value = "debian")]
+        os: String,
         /// Network mode
         #[arg(long, value_enum, default_value = "whitelist")]
         mode: ModeArg,
@@ -120,6 +123,11 @@ enum Cmd {
     },
     /// List what can be installed into a sandbox (agents, languages, tools)
     Recipes,
+    /// Operating systems for sandboxes: list them, or build one's disk image
+    Os {
+        #[command(subcommand)]
+        command: OsCmd,
+    },
     /// Manage recipe repositories: git repositories that add agents, languages and tools
     Repo {
         #[command(subcommand)]
@@ -274,6 +282,19 @@ enum AgentCmd {
         name: String,
         #[arg(long)]
         sandbox: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum OsCmd {
+    /// List the systems on offer and whether their image is built
+    Ls,
+    /// Build the disk image of a system (needs Docker and e2fsprogs); takes a few minutes
+    Build {
+        id: String,
+        /// Size of the image in GiB; sandboxes grow their copy to their own disk size
+        #[arg(long, default_value_t = 4)]
+        size: u32,
     },
 }
 
@@ -514,7 +535,7 @@ fn main() -> Result<()> {
             runtime.shutdown_timeout(std::time::Duration::from_secs(2));
             served?;
         }
-        Cmd::New { name: None, allow, secrets, mode, .. } => {
+        Cmd::New { name: None, allow, secrets, mode, os, .. } => {
             if !std::io::stdin().is_terminal() {
                 bail!("give the sandbox a name: `boxquell new <name>` (the interactive form needs a terminal)");
             }
@@ -522,13 +543,13 @@ fn main() -> Result<()> {
             let Some(choice) = wizard::run(&catalog)? else { return Ok(()) };
             let rules: Vec<String> = allow.iter().map(|host| format!("allow {host}")).collect();
             let spec = json!({ "name": choice.name, "workspace": choice.workspace, "cpus": choice.cpus, "ram_mib": choice.ram_mib,
-                "disk_gib": choice.disk_gib, "backend": choice.backend, "network": mode.name(), "rules": rules, "secrets": secrets });
+                "disk_gib": choice.disk_gib, "backend": choice.backend, "os": os, "network": mode.name(), "rules": rules, "secrets": secrets });
             let client = Client::connect(&home)?;
             client.post("/api/sandboxes", spec)?;
             install::install(&client, &choice.name, &catalog, &choice.recipes)?;
             println!("{0} is ready; open it with `boxquell shell {0}`", choice.name);
         }
-        Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode } => {
+        Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode, os } => {
             let backend = match backend {
                 Some(BackendArg::Krun) => Backend::Krun,
                 Some(BackendArg::Qemu) => Backend::Qemu,
@@ -536,7 +557,7 @@ fn main() -> Result<()> {
             };
             let workspace = workspace.map(std::path::absolute).transpose()?;
             let rules: Vec<String> = allow.iter().map(|host| format!("allow {host}")).collect();
-            let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets });
+            let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "os": os, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets });
             let catalog = catalog(&home)?;
             catalog.resolve(&with)?;
             let client = Client::connect(&home)?;
@@ -747,6 +768,30 @@ fn main() -> Result<()> {
             println!("skills        {}", none(skills.join(", ")));
             println!("stored in     {}", config["path"].as_str().unwrap_or_default());
             println!("A sandbox picks changes up the next time it starts.");
+        }
+        Cmd::Os { command } => {
+            for problem in repo::ensure_official(&home) {
+                eprintln!("warning: {problem}");
+            }
+            match command {
+                OsCmd::Ls => {
+                    for def in boxquell_core::os::definitions(&home) {
+                        println!(
+                            "{:<10} {:<10} {:<9} {:<16} {}",
+                            def.id,
+                            if def.built { "built" } else { "not built" },
+                            def.family,
+                            def.name,
+                            def.description
+                        );
+                    }
+                }
+                OsCmd::Build { id, size } => {
+                    println!("building {id}; this takes a few minutes");
+                    let image = boxquell_core::os::build(&home, &id, size)?;
+                    println!("built {}; create a sandbox with `boxquell new <name> --os {id}`", image.display());
+                }
+            }
         }
         Cmd::Lockdown { state } => {
             let client = Client::connect(&home)?;

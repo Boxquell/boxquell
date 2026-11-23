@@ -22,7 +22,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Changes to the gateway, the VM backends or the guest image need a run in a real sandbox; the tests cannot boot one. Say in the pull request what you tried.
+Changes to the gateway, the VM backends or the guest scripts in `image/` need a run in a real sandbox; the tests cannot boot one. Say in the pull request what you tried.
 
 After changing dependencies, run `scripts/third-party-notices.sh`.
 

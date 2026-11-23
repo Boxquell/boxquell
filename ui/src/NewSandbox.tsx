@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { api, type Recipe } from "./api";
+import { useEffect, useState, type FormEvent } from "react";
+import { api, type Recipe, type System } from "./api";
 import { RecipePicker } from "./RecipePicker";
 
 export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCreated: (name: string) => void }) {
@@ -10,6 +10,12 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
   const [disk, setDisk] = useState(20);
   const [backend, setBackend] = useState("krun");
   const [mode, setMode] = useState("whitelist");
+  const [os, setOs] = useState("debian");
+  const [systems, setSystems] = useState<System[]>([]);
+  useEffect(() => {
+    api.systems().then(setSystems, () => {});
+  }, []);
+  const notBuilt = systems.filter((system) => !system.built);
   const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,7 +24,7 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
     event.preventDefault();
     setBusy(true);
     try {
-      await api.create({ name, workspace: workspace.trim() || null, cpus, ram_mib: ram, disk_gib: disk, backend, network: mode });
+      await api.create({ name, workspace: workspace.trim() || null, cpus, ram_mib: ram, disk_gib: disk, backend, os, network: mode });
       if (picked.length > 0) await api.install(name, picked);
       props.onCreated(name);
     } catch (err) {
@@ -52,6 +58,19 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             <input type="number" min={4} value={disk} onChange={(e) => setDisk(+e.target.value)} />
           </label>
           <label>
+            System
+            <select value={os} onChange={(e) => setOs(e.target.value)}>
+              {systems
+                .filter((system) => system.built)
+                .map((system) => (
+                  <option key={system.id} value={system.id}>
+                    {system.name}
+                  </option>
+                ))}
+              {systems.every((system) => !system.built) && <option value="debian">Debian</option>}
+            </select>
+          </label>
+          <label>
             Network
             <select value={mode} onChange={(e) => setMode(e.target.value)}>
               <option value="whitelist">whitelist</option>
@@ -66,6 +85,12 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             </select>
           </label>
         </div>
+        {notBuilt.length > 0 && (
+          <p className="muted">
+            More systems can be built once, then chosen here: {notBuilt.map((system) => `boxquell os build ${system.id}`).join(", ")}. Recipes are written
+            for Debian-like systems.
+          </p>
+        )}
         {error && <p className="error">{error}</p>}
         <div className="actions">
           <button type="button" onClick={props.onClose}>

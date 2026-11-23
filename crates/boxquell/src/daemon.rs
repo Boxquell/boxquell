@@ -281,6 +281,9 @@ impl Daemon {
             "cpus": spec.cpus,
             "ram_mib": spec.ram_mib,
             "backend": spec.backend,
+            "os": spec.os,
+            "family": boxquell_core::os::family(&self.home, &spec.os),
+            "package_hosts": boxquell_core::os::package_hosts(&self.home, &spec.os),
             "mode": spec.network,
             "rules": spec.rules,
             "secrets": spec.secrets,
@@ -313,6 +316,13 @@ impl Daemon {
         let dir = self.home.sandbox(&spec.name);
         ensure!(!dir.exists(), "sandbox {:?} already exists", spec.name);
         ensure!(spec.cpus >= 1 && spec.ram_mib >= 256, "a sandbox needs at least 1 CPU and 256 MiB of memory");
+        let image = boxquell_core::os::image(&self.home, &spec.os);
+        ensure!(image.exists(), "the system {:?} is not built yet; run `boxquell os build {}`", spec.os, spec.os);
+        ensure!(
+            spec.backend != Backend::Qemu || boxquell_core::os::has_kernel(&image),
+            "the system {:?} brings no kernel, so it runs on the krun backend only",
+            spec.os
+        );
         if let Some(workspace) = &spec.workspace {
             let path = std::fs::canonicalize(workspace).with_context(|| format!("workspace {} not found", workspace.display()))?;
             ensure!(path.is_dir(), "workspace {} is not a directory", path.display());
@@ -749,11 +759,11 @@ impl Daemon {
             return self.info(name);
         }
         let dir = self.home.sandbox(name);
-        let base = self.home.base_image();
+        let base = boxquell_core::os::image(&self.home, &spec.os);
 
         let disk = dir.join("disk.img");
         if !disk.exists() {
-            ensure!(base.exists(), "base image missing: build it with `image/build.sh {}`", base.display());
+            ensure!(base.exists(), "the system {:?} is not built yet; run `boxquell os build {}`", spec.os, spec.os);
             let (from, to, tmp) = (base.clone(), disk.clone(), dir.join("disk.img.partial"));
             tokio::task::spawn_blocking(move || sparse_copy(&from, &tmp).and_then(|()| std::fs::rename(&tmp, &to)))
                 .await?
@@ -1057,12 +1067,7 @@ pub struct DaemonFile {
     pub pid: u32,
 }
 
-/// Scripts every guest needs, as they are in this version.
-const GUEST_SCRIPTS: [(&str, &str); 3] = [
-    ("/usr/local/sbin/boxquell-init", include_str!("../../../image/boxquell-init")),
-    ("/usr/local/sbin/boxquell-shutdown", include_str!("../../../image/boxquell-shutdown")),
-    ("/usr/local/sbin/boxquell-agent-config", include_str!("../../../image/boxquell-agent-config")),
-];
+use boxquell_core::os::GUEST_SCRIPTS;
 
 /// Bring the guest's start and stop scripts on a stopped sandbox disk up to
 /// this version, so sandboxes created by an older version keep booting.

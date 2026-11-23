@@ -33,6 +33,9 @@ pub struct Recipe {
     /// one as `BOXQUELL_VERSION`; select it with `<recipe>@<version>`.
     #[serde(default)]
     pub versions: Vec<String>,
+    /// Operating system families the install script works on; `debian` when empty.
+    #[serde(default)]
+    pub os: Vec<String>,
     /// Recipes that must be installed first.
     #[serde(default)]
     pub requires: Vec<String>,

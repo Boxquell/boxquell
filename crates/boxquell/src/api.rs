@@ -515,6 +515,19 @@ async fn remove_sandbox_skill(State(daemon): App, Path((name, skill)): Path<(Str
     agent_config(&dir)
 }
 
+/// The operating systems on offer, and which of them are built.
+async fn systems(State(daemon): App) -> ApiResult {
+    let home = daemon.home.clone();
+    let list = tokio::task::spawn_blocking(move || {
+        boxquell_core::repo::ensure_official(&home);
+        boxquell_core::os::definitions(&home)
+    })
+    .await?;
+    // The setup scripts are long and of no use to a listing.
+    let list: Vec<Value> = list.iter().map(|def| json!({ "id": def.id, "name": def.name, "description": def.description, "family": def.family, "source": def.source, "built": def.built })).collect();
+    Ok(Json(list.into()))
+}
+
 async fn stats(State(daemon): App) -> ApiResult {
     Ok(Json(daemon.stats()))
 }
@@ -545,6 +558,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/ports", post(add_port))
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
         .route("/api/stats", get(stats))
+        .route("/api/os", get(systems))
         .route("/api/agent-config", get(global_agent_config).put(set_global_agent_config))
         .route("/api/agent-suggestions", get(agent_suggestions).post(agent_import))
         .route("/api/agent-config/skills", post(add_global_skill))

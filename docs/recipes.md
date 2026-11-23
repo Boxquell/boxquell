@@ -21,8 +21,9 @@ category = "language"                  # agent, language, tool or ide
 description = "Node.js with npm"
 
 versions = ["24", "22"]                # optional; first is the default, chosen as node@22
+os = ["debian", "ubuntu"]             # optional; systems the script works on, debian when left out
 requires = ["build-essential"]         # optional; installed first (same repository first, then the others)
-install_allow = ["nodejs.org"]         # destinations open only while the install script runs
+install_allow = ["nodejs.org", "@packages"]   # open only while the install script runs; @packages = the system's package hosts
 allow = ["registry.npmjs.org"]         # destinations the software needs afterwards
 secrets = ["anthropic"]                # optional; host secrets this software can use
 command = "node"                       # agents only: the command that starts it

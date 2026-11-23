@@ -64,6 +64,10 @@ pub fn validate_guest_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+fn default_os() -> String {
+    crate::os::DEFAULT.to_string()
+}
+
 fn default_disk_gib() -> u32 {
     20
 }
@@ -77,6 +81,9 @@ pub struct SandboxSpec {
     pub cpus: u8,
     pub ram_mib: u32,
     pub backend: Backend,
+    /// The operating system the sandbox was created from; see `boxquell os ls`.
+    #[serde(default = "default_os")]
+    pub os: String,
     /// Size the sandbox disk is grown to; the guest enlarges its filesystem at boot.
     #[serde(default = "default_disk_gib")]
     pub disk_gib: u32,
