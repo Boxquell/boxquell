@@ -1,0 +1,6 @@
+#!/bin/sh
+# Run the development build against the repository's own data directory.
+root=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+export BOXQUELL_HOME="${BOXQUELL_HOME:-$root/.boxquell-dev}"
+export BOXQUELL_KRUN_LIB="${BOXQUELL_KRUN_LIB:-$root/.vendor/krun/usr/lib/libkrun.so.1}"
+exec "$root/target/debug/boxquell" "$@"

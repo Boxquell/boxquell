@@ -1,0 +1,77 @@
+#!/bin/sh
+# First process in a boxquell guest. Runs as PID 1 under QEMU and as the payload of
+# libkrun's built-in init, so every step tolerates already being done.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+mountpoint -q /proc || mount -t proc proc /proc
+mountpoint -q /sys || mount -t sysfs sys /sys
+mountpoint -q /dev || mount -t devtmpfs dev /dev
+mkdir -p /dev/pts /dev/shm
+mountpoint -q /dev/pts || mount -t devpts devpts /dev/pts
+mountpoint -q /dev/shm || mount -t tmpfs tmpfs /dev/shm
+mountpoint -q /run || mount -t tmpfs tmpfs /run
+mountpoint -q /tmp || mount -t tmpfs -o mode=1777 tmpfs /tmp
+
+# Every sandbox has its own gateway, so the addresses are the same everywhere.
+# The gateway speaks IPv4 only.
+hostname boxquell
+echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null
+ip link set lo up
+ip link set eth0 up
+ip addr add 10.0.2.15/24 dev eth0 2>/dev/null
+ip route add default via 10.0.2.2 2>/dev/null
+echo 'nameserver 10.0.2.3' > /etc/resolv.conf
+grep -q 'localhost' /etc/hosts || echo '127.0.0.1 localhost' >> /etc/hosts
+grep -q ' boxquell$' /etc/hosts || echo '127.0.1.1 boxquell' >> /etc/hosts
+
+# The host may have grown the disk; make the filesystem fill it.
+resize2fs /dev/vda >/dev/null 2>&1 || true
+
+# Per-boot configuration from the host: a tar archive on the second disk.
+# Disks created before the project was renamed from cbox.
+[ -f /etc/ssl/boxquell-base-ca.crt ] || cp /etc/ssl/cbox-base-ca.crt /etc/ssl/boxquell-base-ca.crt 2>/dev/null \
+  || cp /etc/ssl/certs/ca-certificates.crt /etc/ssl/boxquell-base-ca.crt
+rm -f /etc/profile.d/cbox.sh
+[ -d /var/lib/cbox ] && [ ! -e /var/lib/boxquell ] && mv /var/lib/cbox /var/lib/boxquell
+
+mkdir -p /run/boxquell
+[ -b /dev/vdb ] && tar -xf /dev/vdb -C /run/boxquell 2>/dev/null
+if [ -f /run/boxquell/ca.crt ]; then
+  # Trust the sandbox CA system-wide; the pristine bundle is kept from image build.
+  cat /etc/ssl/boxquell-base-ca.crt /run/boxquell/ca.crt > /etc/ssl/certs/ca-certificates.crt
+fi
+if [ -f /run/boxquell/authorized_keys ]; then
+  install -d -m 700 -o dev -g dev /home/dev/.ssh
+  install -m 600 -o dev -g dev /run/boxquell/authorized_keys /home/dev/.ssh/authorized_keys
+fi
+# Claude Code settings chosen on the host; taken away again when the host stops providing them.
+if [ -f /run/boxquell/claude-managed-settings.json ]; then
+  mkdir -p /etc/claude-code
+  install -m 644 /run/boxquell/claude-managed-settings.json /etc/claude-code/managed-settings.json
+  touch /etc/claude-code/.boxquell
+elif [ -f /etc/claude-code/.boxquell ]; then
+  rm -f /etc/claude-code/managed-settings.json /etc/claude-code/.boxquell
+fi
+[ -f /run/boxquell/env.sh ] && install -m 644 /run/boxquell/env.sh /etc/profile.d/boxquell.sh
+
+mount -t virtiofs workspace /workspace 2>/dev/null \
+  || mount -t 9p -o trans=virtio,version=9p2000.L,msize=1048576 workspace /workspace 2>/dev/null
+
+[ -f /etc/ssh/ssh_host_ed25519_key ] || ssh-keygen -A >/dev/null
+mkdir -p /run/sshd
+/usr/sbin/sshd
+
+# boxquell-shutdown sends TERM. Under libkrun the VM ends when this process exits;
+# under QEMU this is PID 1 and the VM ends on a guest reboot.
+shutdown() {
+  sync
+  mount -o remount,ro / 2>/dev/null
+  [ $$ -eq 1 ] && echo b > /proc/sysrq-trigger
+  exit 0
+}
+trap shutdown TERM
+echo $$ > /run/boxquell/init.pid
+
+echo 'boxquell-init: ready'
+# Keep running; as PID 1 this also reaps orphans.
+while :; do sleep 3600 & wait $!; done

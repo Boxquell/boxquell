@@ -1,0 +1,3 @@
+#!/bin/sh
+# Ask boxquell-init to flush the disk and end the VM.
+kill -TERM "$(cat /run/boxquell/init.pid)"
