@@ -5341,10 +5341,10 @@ SOFTWARE.
 ### MIT License
 
 Used by:
-- boxquell 0.1.0
-- boxquell-core 0.1.0
-- boxquell-net 0.1.0
-- boxquell-vm 0.1.0
+- boxquell 0.0.1
+- boxquell-core 0.0.1
+- boxquell-net 0.0.1
+- boxquell-vm 0.0.1
 - jni-macros 0.22.4 (https://github.com/jni-rs/jni-rs)
 - jni-sys-macros 0.4.1 (https://github.com/jni-rs/jni-sys)
 - jni 0.22.4 (https://github.com/jni-rs/jni-rs)

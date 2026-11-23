@@ -1131,8 +1131,9 @@ use boxquell_core::os::GUEST_SCRIPTS;
 /// Uses `debugfs` from e2fsprogs, which edits an ext4 image without root.
 /// Without it nothing is changed and the disk boots with what it has.
 fn sync_guest_scripts(disk: &Path) {
-    let debugfs =
-        |args: &[&std::ffi::OsStr]| std::process::Command::new("debugfs").args(args).arg(disk).stdin(Stdio::null()).stderr(Stdio::null()).output();
+    let debugfs = |args: &[&std::ffi::OsStr]| {
+        std::process::Command::new(boxquell_core::os::e2fs_tool("debugfs")).args(args).arg(disk).stdin(Stdio::null()).stderr(Stdio::null()).output()
+    };
     let Ok(dir) = tempdir_for(disk) else { return };
     let mut commands = String::new();
     for (index, (path, contents)) in GUEST_SCRIPTS.iter().enumerate() {
@@ -1153,8 +1154,13 @@ fn sync_guest_scripts(disk: &Path) {
         // A disk whose last run did not end cleanly still has changes waiting in
         // its journal. Writing next to them would damage the filesystem, so the
         // journal is applied first; without the checker the disk is left alone.
-        let checked =
-            std::process::Command::new("e2fsck").arg("-p").arg(disk).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let checked = std::process::Command::new(boxquell_core::os::e2fs_tool("e2fsck"))
+            .arg("-p")
+            .arg(disk)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
         // 0: clean, 1: problems corrected. Anything else needs a person to look.
         let safe = checked.is_ok_and(|status| matches!(status.code(), Some(0 | 1)));
         let list = dir.join("commands");

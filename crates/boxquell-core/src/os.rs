@@ -149,6 +149,17 @@ pub fn definitions(home: &Home) -> Vec<OsDef> {
     all
 }
 
+/// A tool of e2fsprogs (`mke2fs`, `e2fsck`, `debugfs`). On macOS Homebrew
+/// installs them outside the PATH, so those places are looked at as well.
+pub fn e2fs_tool(name: &str) -> PathBuf {
+    let places = ["/opt/homebrew/opt/e2fsprogs/sbin", "/usr/local/opt/e2fsprogs/sbin", "/opt/homebrew/sbin", "/usr/local/sbin"];
+    let on_path = std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()));
+    if on_path {
+        return PathBuf::from(name);
+    }
+    places.iter().map(|dir| Path::new(dir).join(name)).find(|path| path.is_file()).unwrap_or_else(|| PathBuf::from(name))
+}
+
 fn run(program: &str, args: &[&std::ffi::OsStr], quiet: bool) -> Result<String> {
     let mut command = Command::new(program);
     command.args(args).stdin(Stdio::null());
@@ -204,7 +215,7 @@ pub fn build(home: &Home, id: &str, size_gib: u32) -> Result<PathBuf> {
         let partial = work.join("disk.img");
         let size = format!("{size_gib}G");
         run(
-            "mke2fs",
+            &e2fs_tool("mke2fs").to_string_lossy(),
             &[
                 "-q".as_ref(),
                 "-t".as_ref(),
@@ -218,7 +229,7 @@ pub fn build(home: &Home, id: &str, size_gib: u32) -> Result<PathBuf> {
             ],
             true,
         )
-        .context("packing the disk image failed (mke2fs from e2fsprogs 1.47.1 or newer is needed)")?;
+        .context("packing the disk image failed (mke2fs from e2fsprogs 1.47.1 or newer is needed; on macOS: brew install e2fsprogs)")?;
 
         // A kernel in the image makes the system usable on the qemu backend.
         let _ = run(

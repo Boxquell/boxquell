@@ -4,7 +4,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
-First public version.
+## 0.0.1 - 2026-11-23
+
+First public version, for testing. Built and tested on Linux; the macOS and Windows binaries are untested and not signed yet.
 
 ### Sandboxes
 - MicroVM sandboxes on libkrun and QEMU: create, start, stop, pause, resize, delete.

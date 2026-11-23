@@ -61,12 +61,12 @@ pub fn find_library(lib_dir: &Path) -> PathBuf {
             _ => path,
         };
     }
-    let bundled = lib_dir.join(LIB_NAME);
-    if bundled.exists() {
-        bundled
-    } else {
-        PathBuf::from(LIB_NAME)
+    // Homebrew's library directories are not on the loader's search path on macOS.
+    let mut places = vec![lib_dir.to_path_buf()];
+    if cfg!(target_os = "macos") {
+        places.extend(["/opt/homebrew/lib", "/usr/local/lib"].map(PathBuf::from));
     }
+    places.iter().map(|dir| dir.join(LIB_NAME)).find(|path| path.exists()).unwrap_or_else(|| PathBuf::from(LIB_NAME))
 }
 
 /// Whether libkrun can be loaded from `library`.
