@@ -123,3 +123,30 @@ a { color: var(--accent); }
 aside { box-shadow: 1px 0 0 var(--line); }
 .item { border-radius: 10px; }
 button.primary { box-shadow: 0 1px 2px rgb(31 111 235 / 0.35); }
+
+/* Software catalogue */
+.software { gap: 18px; }
+.shelf { display: flex; flex-direction: column; gap: 10px; }
+.plain { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.card { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s; }
+.card:hover { border-color: var(--accent); box-shadow: 0 6px 18px -12px rgb(12 35 64 / 0.6); transform: translateY(-1px); }
+.card.picked { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); box-shadow: 0 0 0 1px var(--accent); }
+.card.installed { background: var(--panel); }
+.card-main { display: flex; gap: 12px; align-items: flex-start; text-align: left; border: 0; background: none; padding: 12px 12px 6px; width: 100%; }
+.card-main:disabled { opacity: 1; }
+.card-main strong, .card-main small { display: block; }
+.card-main small { color: var(--muted); margin-top: 2px; }
+.avatar { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px; flex: none; }
+.card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px 62px; min-height: 34px; }
+.install-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(8px); }
+
+/* Warnings, lockdown, toasts */
+.warning { border: 1px solid light-dark(#d9a400, #8a6d00); background: light-dark(#fff8e1, #2e2710); color: light-dark(#6b4e00, #f0d77a); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+button.lockdown { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent); font-weight: 600; }
+button.lockdown.active { background: var(--bad); color: light-dark(#fff, #1a0d0d); border-color: var(--bad); }
+.lockdown-banner { align-items: center; }
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); z-index: 10; }
+.toast { display: flex; gap: 10px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--bad); border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.5); overflow-wrap: anywhere; }
+.toast-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+.toast-actions button:not(.link) { padding: 4px 10px; }

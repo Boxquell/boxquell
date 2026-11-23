@@ -5,6 +5,7 @@ mod client;
 mod daemon;
 mod doctor;
 mod install;
+mod notify;
 mod ssh;
 mod terminal;
 mod wizard;
@@ -130,6 +131,20 @@ enum Cmd {
     Deny { name: String, host: String },
     /// Remove a rule, e.g. `boxquell unrule box "allow example.com"`
     Unrule { name: String, rule: String },
+    /// Emergency stop: block every connection of every sandbox at once, and end open ones
+    Lockdown {
+        /// `on`, `off`, or nothing to show the state
+        #[arg(value_parser = ["on", "off"])]
+        state: Option<String>,
+    },
+    /// Preferences, e.g. `boxquell config notify-blocked off`
+    Config {
+        /// `notify-blocked` (desktop notification) or `toast-blocked` (message in the web UI)
+        #[arg(value_parser = ["notify-blocked", "toast-blocked"])]
+        key: Option<String>,
+        #[arg(value_parser = ["on", "off"])]
+        value: Option<String>,
+    },
     /// Rules for every sandbox: denies no sandbox can undo, allows every sandbox gets
     Global {
         #[command(subcommand)]
@@ -322,6 +337,9 @@ fn print_event(event: &Value) {
 /// Start the sandbox if needed and replace this process with an ssh session into it.
 fn ssh_into(client: &Client, name: &str, remote: Option<String>) -> Result<()> {
     let info = client.post(&format!("/api/sandboxes/{name}/start"), json!({}))?;
+    for warning in info["warnings"].as_array().into_iter().flatten() {
+        eprintln!("warning: {}", warning.as_str().unwrap_or(""));
+    }
     let key = PathBuf::from(info["ssh_key"].as_str().context("daemon reported no ssh key")?);
     let port = info["ssh_port"].as_u64().context("daemon reported no ssh port")? as u16;
     let mut command = Command::new("ssh");
@@ -528,6 +546,29 @@ fn main() -> Result<()> {
         Cmd::Resume { name } => {
             Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/resume"), json!({}))?;
             println!("{name} resumed");
+        }
+        Cmd::Lockdown { state } => {
+            let client = Client::connect(&home)?;
+            let now = match state {
+                Some(state) => client.post("/api/lockdown", json!({ "on": state == "on" }))?,
+                None => client.get("/api/lockdown")?,
+            };
+            if now["on"] == true {
+                println!("LOCKDOWN is on: no sandbox can reach the network. Lift it with `boxquell lockdown off`.");
+            } else {
+                println!("lockdown is off: sandboxes follow their network rules");
+            }
+        }
+        Cmd::Config { key, value } => {
+            let client = Client::connect(&home)?;
+            let mut settings = client.get("/api/settings")?;
+            if let (Some(key), Some(value)) = (&key, &value) {
+                settings[key.replace('-', "_")] = (value == "on").into();
+                settings = client.put("/api/settings", settings)?;
+            }
+            for key in ["notify_blocked", "toast_blocked"] {
+                println!("{:<16} {}", key.replace('_', "-"), if settings[key] == true { "on" } else { "off" });
+            }
         }
         Cmd::Global { command } => {
             let client = Client::connect(&home)?;

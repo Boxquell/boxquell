@@ -106,7 +106,7 @@ async fn world_in(mode: Mode, rules: &[&str]) -> World {
         }
     });
     let names = HashMap::from([("site.test", SITE_IP), ("lan.test", Ipv4Addr::new(192, 168, 1, 1))]);
-    let policy = Policy { mode, rules: rules.iter().map(|r| r.parse().unwrap()).collect() };
+    let policy = Policy { mode, rules: rules.iter().map(|r| r.parse().unwrap()).collect(), lockdown: false };
     let (events_tx, events) = mpsc::unbounded_channel();
     let (host_end, guest_end) = tokio::io::duplex(1 << 20);
     let gateway = boxquell_net::spawn(host_end, FakeInternet { names, server }, Arc::new(RwLock::new(policy)), None, events_tx);

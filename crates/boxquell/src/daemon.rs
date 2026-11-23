@@ -73,6 +73,24 @@ struct Running {
     exited: watch::Receiver<bool>,
 }
 
+const NOTIFY_QUIET: Duration = Duration::from_secs(60);
+
+/// Preferences stored in `settings.json`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// Desktop notification when a sandbox's connection is blocked.
+    pub notify_blocked: bool,
+    /// Message in the web UI when a sandbox's connection is blocked.
+    pub toast_blocked: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { notify_blocked: true, toast_blocked: true }
+    }
+}
+
 /// A recipe install running as `boxquell add` in a child process.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Job {
@@ -90,6 +108,8 @@ pub struct Daemon {
     /// Every stored event, for live views.
     pub live: broadcast::Sender<Value>,
     pub shutdown: Notify,
+    /// When a blocked destination was last announced, to avoid a notification per retry.
+    notified: Mutex<HashMap<(String, String), std::time::Instant>>,
     ca: Arc<CertAuthority>,
     roots: Arc<boxquell_net::mitm::RootCertStore>,
     running: Mutex<HashMap<String, Arc<Running>>>,
@@ -137,6 +157,7 @@ impl Daemon {
         let mut roots = boxquell_net::mitm::RootCertStore::empty();
         roots.add_parsable_certificates(boxquell_net::mitm::native_certs());
         Ok(Arc::new(Self {
+            notified: Mutex::new(HashMap::new()),
             store: EventStore::open(&home.events_db())?,
             secrets: SecretStore::new(&home.secrets_file()),
             ca: Arc::new(CertAuthority::load_or_create(home.root())?),
@@ -181,6 +202,7 @@ impl Daemon {
             "local_secrets": self.local_secrets(name).list()?.iter().map(|s| json!({ "name": s.name, "hosts": s.hosts, "env": s.env })).collect::<Vec<_>>(),
             "claude_settings": self.claude_settings_file(name).exists(),
             "ports": spec.ports,
+            "warnings": self.warnings(&spec),
             "disk_gib": spec.disk_gib,
             "recipes": spec.recipes,
             "job": self.jobs.lock().unwrap().get(name),
@@ -219,6 +241,81 @@ impl Daemon {
         let _guard = self.lifecycle.lock().await;
         std::fs::remove_dir_all(self.home.sandbox(name))?;
         self.store.delete_sandbox(name)
+    }
+
+    /// Whether the emergency stop is on. It survives a restart of the daemon.
+    pub fn lockdown(&self) -> bool {
+        self.home.root().join("lockdown").exists()
+    }
+
+    /// Emergency stop: block every connection of every sandbox at once and
+    /// end those that are open, or lift that again.
+    pub fn set_lockdown(&self, on: bool) -> Result<()> {
+        let file = self.home.root().join("lockdown");
+        if on {
+            std::fs::write(&file, "")?;
+        } else if file.exists() {
+            std::fs::remove_file(&file)?;
+        }
+        for running in self.running.lock().unwrap().values() {
+            running.policy.write().unwrap().lockdown = on;
+        }
+        Ok(())
+    }
+
+    /// User preferences of the daemon and the UI.
+    pub fn settings(&self) -> Settings {
+        std::fs::read(self.home.root().join("settings.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+
+    pub fn set_settings(&self, settings: &Settings) -> Result<()> {
+        Ok(std::fs::write(self.home.root().join("settings.json"), serde_json::to_vec_pretty(settings)?)?)
+    }
+
+    /// Show a desktop notification for a blocked connection, at most once a minute per destination.
+    fn notify_blocked(&self, sandbox: &str, event: &boxquell_net::NetEvent) {
+        if !self.settings().notify_blocked || self.lockdown() {
+            return;
+        }
+        let target = event.host.clone().or_else(|| event.ip.map(|ip| ip.to_string())).unwrap_or_else(|| "unknown".into());
+        {
+            let mut seen = self.notified.lock().unwrap();
+            let now = std::time::Instant::now();
+            seen.retain(|_, at| now.duration_since(*at) < NOTIFY_QUIET);
+            if seen.insert((sandbox.to_string(), target.clone()), now).is_some() {
+                return;
+            }
+        }
+        let port =
+            event.port.filter(|_| event.host.is_none() || event.kind != boxquell_net::EventKind::Dns).map(|p| format!(":{p}")).unwrap_or_default();
+        crate::notify::show(&format!("Boxquell blocked a connection in {sandbox}"), &format!("{target}{port}: {}", event.reason));
+    }
+
+    /// What keeps the installed agents from working: missing credentials.
+    fn warnings(&self, spec: &SandboxSpec) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for name in &spec.secrets {
+            if !matches!(self.secrets.get(name), Ok(Some(_))) {
+                warnings.push(format!("The secret {name} is attached but no longer stored."));
+            }
+        }
+        if spec.recipes.is_empty() {
+            return warnings;
+        }
+        let Ok(catalog) = boxquell_core::recipe::Catalog::of(&self.home) else { return warnings };
+        let local = self.local_secrets(&spec.name).list().unwrap_or_default();
+        for entry in &spec.recipes {
+            let id = entry.split('@').next().unwrap_or(entry);
+            let Some(recipe) = catalog.get(id).filter(|recipe| !recipe.secrets.is_empty()) else { continue };
+            let shared = recipe.secrets.iter().any(|secret| spec.secrets.contains(secret));
+            let own = local.iter().any(|secret| secret.hosts.iter().any(|host| recipe.allow.contains(host)));
+            let settings = id.ends_with(":claude") && self.claude_settings_file(&spec.name).exists();
+            if !(shared || own || settings) {
+                let hint = if id.ends_with(":claude") { ", or give the sandbox Claude settings" } else { "" };
+                warnings.push(format!("{} has no credential: store and attach one of [{}]{hint}.", recipe.name, recipe.secrets.join(", ")));
+            }
+        }
+        warnings
     }
 
     /// Rules that apply to every sandbox.
@@ -584,7 +681,7 @@ impl Daemon {
             status = child.wait() => return Err(failed(&format!("the VM exited during start ({})", status?))),
         };
 
-        let policy = Arc::new(RwLock::new(Policy { mode: spec.network, rules: self.effective_rules(&spec) }));
+        let policy = Arc::new(RwLock::new(Policy { mode: spec.network, rules: self.effective_rules(&spec), lockdown: self.lockdown() }));
         let live_secrets = Arc::new(RwLock::new(secrets.iter().map(net_secret).collect::<Vec<_>>()));
         let intercept = Intercept { ca: self.ca.clone(), secrets: live_secrets.clone(), log_all_requests: false, roots: self.roots.clone() };
         let (events_tx, mut events) = mpsc::unbounded_channel();
@@ -592,6 +689,9 @@ impl Daemon {
         let (daemon, sandbox) = (self.clone(), name.to_string());
         tokio::spawn(async move {
             while let Some(event) = events.recv().await {
+                if !event.allowed {
+                    daemon.notify_blocked(&sandbox, &event);
+                }
                 match daemon.store.insert(&sandbox, &event) {
                     Ok(stored) => drop(daemon.live.send(stored)),
                     Err(err) => eprintln!("boxquell: cannot store event: {err:#}"),
@@ -637,6 +737,7 @@ impl Daemon {
                 task.abort();
             }
             daemon.running.lock().unwrap().remove(&sandbox);
+            #[cfg(unix)]
             let _ = std::fs::remove_file(net_socket(&daemon.home.sandbox(&sandbox)));
             let _ = exited_tx.send(true);
         });

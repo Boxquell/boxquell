@@ -65,6 +65,9 @@ pub(crate) struct Shared<U> {
 
 /// Addresses that lead back to the host, its LAN or other special networks.
 /// They are reachable only through a rule naming the exact address.
+/// How quickly open connections notice an emergency stop.
+const LOCKDOWN_POLL: Duration = Duration::from_millis(200);
+
 pub(crate) fn is_public(ip: Ipv4Addr) -> bool {
     let o = ip.octets();
     !(ip.is_private()
@@ -280,7 +283,19 @@ where
             let shared = shared.clone();
             match event {
                 Inbound::Tcp { dst, stream } => {
-                    tokio::spawn(proxy::handle(shared, dst, stream));
+                    // An emergency stop also ends connections that are already open.
+                    let watcher = shared.clone();
+                    let lockdown = async move {
+                        while !watcher.policy.read().unwrap().lockdown {
+                            tokio::time::sleep(LOCKDOWN_POLL).await;
+                        }
+                    };
+                    tokio::spawn(async move {
+                        tokio::select! {
+                            _ = proxy::handle(shared, dst, stream) => {}
+                            _ = lockdown => {}
+                        }
+                    });
                 }
                 Inbound::Dns { query, peer } => {
                     let replies = replies.clone();

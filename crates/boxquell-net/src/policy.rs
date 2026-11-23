@@ -162,6 +162,9 @@ pub struct Policy {
     #[serde(default)]
     pub mode: Mode,
     pub rules: Vec<Rule>,
+    /// Emergency stop: nothing gets out, whatever the rules say.
+    #[serde(default)]
+    pub lockdown: bool,
 }
 
 /// Outcome of a policy lookup, with the text that goes into the log.
@@ -176,6 +179,9 @@ impl Policy {
     /// resolution, where a name is usable as soon as any port of it is allowed
     /// and port-specific denies do not apply.
     pub fn check(&self, host: &str, port: Option<u16>) -> Verdict {
+        if self.lockdown {
+            return Self::locked();
+        }
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         match self.rules.iter().find(|rule| rule.matches_host(&host) && rule.applies_to_port(port)) {
             Some(rule) => Verdict { allowed: rule.action == Action::Allow, reason: rule.to_string() },
@@ -186,14 +192,24 @@ impl Policy {
     /// The first address rule covering `ip`, if any. Name rules, including `*`, never
     /// cover an address: private and local networks have to be named explicitly.
     pub fn check_ip(&self, ip: Ipv4Addr, port: Option<u16>) -> Option<Verdict> {
+        if self.lockdown {
+            return Some(Self::locked());
+        }
         self.rules
             .iter()
             .find(|rule| rule.net().is_some_and(|(net, len)| u32::from(ip) & mask(len) == u32::from(net)) && rule.applies_to_port(port))
             .map(|rule| Verdict { allowed: rule.action == Action::Allow, reason: rule.to_string() })
     }
 
+    fn locked() -> Verdict {
+        Verdict { allowed: false, reason: "network lockdown".into() }
+    }
+
     /// The verdict for a destination no rule mentions.
     pub fn unmatched(&self) -> Verdict {
+        if self.lockdown {
+            return Self::locked();
+        }
         match self.mode {
             Mode::Whitelist => Verdict { allowed: false, reason: "no matching rule".into() },
             Mode::Blacklist => Verdict { allowed: true, reason: "blacklist mode: not blocked".into() },
@@ -206,7 +222,7 @@ mod tests {
     use super::*;
 
     fn policy(rules: &[&str]) -> Policy {
-        Policy { mode: Mode::Whitelist, rules: rules.iter().map(|r| r.parse().unwrap()).collect() }
+        Policy { mode: Mode::Whitelist, rules: rules.iter().map(|r| r.parse().unwrap()).collect(), lockdown: false }
     }
 
     #[test]
@@ -271,6 +287,16 @@ mod tests {
         assert!(policy(&["allow *"]).check_ip(ip("192.168.0.1"), None).is_none());
         assert!("allow 10.0.0.0/33".parse::<Rule>().is_err());
         assert!("allow 300.1.1.1".parse::<Rule>().is_err());
+    }
+
+    #[test]
+    fn lockdown_blocks_everything() {
+        let mut p = policy(&["allow *", "allow 10.0.0.0/8"]);
+        p.mode = Mode::Blacklist;
+        p.lockdown = true;
+        assert!(!p.check("example.com", Some(443)).allowed);
+        assert!(!p.check_ip("10.1.1.1".parse().unwrap(), None).unwrap().allowed);
+        assert!(!p.unmatched().allowed);
     }
 
     #[test]

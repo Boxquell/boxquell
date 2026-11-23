@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, token, type Recipe, type Sandbox, type Secret } from "./api";
+import { api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
+import { Preferences } from "./Preferences";
+import { Toasts } from "./Toasts";
 import { NewSandbox } from "./NewSandbox";
 import { SandboxView, type Tab } from "./SandboxView";
 import { Plugins } from "./Plugins";
@@ -11,8 +13,10 @@ export function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [secrets, setSecrets] = useState<Secret[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<"new" | "secrets" | "plugins" | null>(null);
+  const [dialog, setDialog] = useState<"new" | "secrets" | "plugins" | "settings" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lockdown, setLockdown] = useState(false);
+  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true });
   // Terminals live here so they stay connected while another sandbox is shown.
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Record<string, number>>({});
@@ -28,8 +32,9 @@ export function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [list, stored] = await Promise.all([api.sandboxes(), api.secrets()]);
+      const [list, stored, locked] = await Promise.all([api.sandboxes(), api.secrets(), api.lockdown().catch(() => ({ on: false }))]);
       setSandboxes(list);
+      setLockdown(locked.on);
       setSecrets(stored);
       setError(null);
     } catch (err) {
@@ -40,6 +45,7 @@ export function App() {
   useEffect(() => {
     if (!token) return;
     api.recipes().then(setRecipes, () => {});
+    api.settings().then(setSettings, () => {});
     refresh();
     const timer = setInterval(refresh, 2000);
     return () => clearInterval(timer);
@@ -104,10 +110,26 @@ export function App() {
         <button className="primary" onClick={() => setDialog("new")}>
           New sandbox
         </button>
+        <button
+          className={lockdown ? "lockdown active" : "lockdown"}
+          title="Blocks every connection of every sandbox at once and stops open ones"
+          onClick={() => act(() => api.setLockdown(!lockdown))}
+        >
+          {lockdown ? "Lift network lockdown" : "Emergency stop: block all network"}
+        </button>
         <button onClick={() => setDialog("plugins")}>Plugins</button>
         <button onClick={() => setDialog("secrets")}>Secrets ({secrets.length})</button>
+        <button onClick={() => setDialog("settings")}>Settings</button>
       </aside>
       <main>
+        {lockdown && (
+          <div className="error lockdown-banner" role="alert">
+            <span>
+              <strong>Network lockdown is on.</strong> No sandbox can reach the network, whatever its rules say.
+            </span>
+            <button onClick={() => act(() => api.setLockdown(false))}>Lift lockdown</button>
+          </div>
+        )}
         {error && (
           <div className="error" role="alert">
             {error}
@@ -171,6 +193,24 @@ export function App() {
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === "settings" && (
+        <Preferences
+          settings={settings}
+          onChange={(next) => {
+            setSettings(next);
+            api.setSettings(next).then(setSettings, () => {});
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      <Toasts
+        enabled={settings.toast_blocked}
+        onChange={refresh}
+        onOpen={(sandbox) => {
+          setSelected(sandbox);
+          setTabs((all) => ({ ...all, [sandbox]: "network" }));
+        }}
+      />
       {dialog === "secrets" && <Secrets secrets={secrets} act={act} onClose={() => setDialog(null)} />}
     </div>
   );

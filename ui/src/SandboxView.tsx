@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type NetEvent, type Recipe, type Sandbox, type Secret } from "./api";
-import { RecipePicker, recipeName } from "./RecipePicker";
+import { RecipeCards } from "./RecipeCards";
+import { recipeName } from "./RecipePicker";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
@@ -68,6 +69,17 @@ export function SandboxView(props: ViewProps) {
           </button>
         )}
       </header>
+
+      {sandbox.warnings.length > 0 && (
+        <div className="warning" role="status">
+          {sandbox.warnings.map((warning) => (
+            <div key={warning}>{warning}</div>
+          ))}
+          <button className="link" onClick={() => setTab("secrets")}>
+            Open secrets
+          </button>
+        </div>
+      )}
 
       <div className="tabbar" role="tablist">
         {TABS.map(([id, label]) => (
@@ -152,22 +164,28 @@ function Software(props: ViewProps) {
     .filter((r) => r && r.secrets.length > 0 && !r.secrets.some((s) => sandbox.secrets.includes(s)));
 
   return (
-    <section>
-      <h3>Software</h3>
-      <RecipePicker recipes={recipes} installed={sandbox.recipes} picked={picked} onChange={setPicked} />
-      <div className="actions left">
-        <button
-          className="primary"
-          disabled={picked.length === 0 || job?.state === "running"}
-          onClick={() => act(() => api.install(sandbox.name, picked)).then(() => setPicked([]))}
-        >
-          {job?.state === "running" ? "Installing…" : `Install ${picked.length || ""}`}
-        </button>
+    <section className="software">
+      <RecipeCards recipes={recipes} installed={sandbox.recipes} picked={picked} busy={job?.state === "running"} onChange={setPicked} />
+      <div className="install-bar">
+        <span className="grow muted">
+          {job?.state === "running"
+            ? `Installing ${job.recipes.join(", ")}…`
+            : picked.length > 0
+              ? `Selected: ${picked.map((p) => p.split(":").pop()).join(", ")}`
+              : "Select what this sandbox should have. What a recipe needs is installed with it."}
+        </span>
         {attachable.map((s) => (
           <button key={s} onClick={() => act(() => api.attachSecret(sandbox.name, s))}>
             Use secret {s}
           </button>
         ))}
+        <button
+          className="primary"
+          disabled={picked.length === 0 || job?.state === "running"}
+          onClick={() => act(() => api.install(sandbox.name, picked)).then(() => setPicked([]))}
+        >
+          {job?.state === "running" ? "Installing…" : picked.length > 0 ? `Install ${picked.length}` : "Install"}
+        </button>
       </div>
       {needsSecret.map((r) => (
         <p key={r!.id} className="muted">

@@ -31,6 +31,8 @@ export interface Sandbox {
   local_secrets: Secret[];
   claude_settings: boolean;
   ports: { host: number; guest: number }[];
+  /** What keeps installed agents from working, e.g. a missing credential. */
+  warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
   job: Job | null;
@@ -59,6 +61,11 @@ export interface Repo {
   url: string;
   revision: string;
   recipes: number;
+}
+
+export interface Settings {
+  notify_blocked: boolean;
+  toast_blocked: boolean;
 }
 
 export interface Secret {
@@ -101,7 +108,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 /** A daemon older than this page leaves newer fields out; fill them so the page still works. */
 function withDefaults(sandbox: Sandbox): Sandbox {
-  return { ...sandbox, mode: sandbox.mode ?? "whitelist", recipes: sandbox.recipes ?? [], local_secrets: sandbox.local_secrets ?? [], ports: sandbox.ports ?? [] };
+  return { ...sandbox, mode: sandbox.mode ?? "whitelist", recipes: sandbox.recipes ?? [], local_secrets: sandbox.local_secrets ?? [], ports: sandbox.ports ?? [], warnings: sandbox.warnings ?? [] };
 }
 
 const box = (name: string) => `/api/sandboxes/${encodeURIComponent(name)}`;
@@ -129,6 +136,16 @@ export const api = {
   removeLocalSecret: (name: string, secret: string) => call<Sandbox>("DELETE", `${box(name)}/secrets/${encodeURIComponent(secret)}`),
   setClaudeSettings: (name: string, settings: string) => call<Sandbox>("PUT", `${box(name)}/claude-settings`, { settings }),
   clearClaudeSettings: (name: string) => call<Sandbox>("DELETE", `${box(name)}/claude-settings`),
+  lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
+  setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
+  settings: () => call<Settings>("GET", "/api/settings"),
+  setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
+  /** Blocked connections of every sandbox, live; returns a function that ends the stream. */
+  followBlocked: (onEvent: (event: NetEvent) => void) => {
+    const source = new EventSource(`/api/events/stream?blocked_only=true&token=${encodeURIComponent(token)}`);
+    source.onmessage = (message) => onEvent(JSON.parse(message.data));
+    return () => source.close();
+  },
   globalRules: () => call<string[]>("GET", "/api/rules"),
   addGlobalRule: (rule: string) => call<string[]>("POST", "/api/rules", { rule }),
   removeGlobalRule: (rule: string) => call<string[]>("DELETE", "/api/rules", { rule }),

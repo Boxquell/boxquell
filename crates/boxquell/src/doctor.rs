@@ -33,11 +33,16 @@ pub fn run(home: &Home) -> bool {
         line(true, "hypervisor", "not checked on this system (HVF on macOS, WHPX on Windows)")
     };
 
-    let library = boxquell_vm::krun::find_library(&home.root().join("lib"));
-    let krun = match boxquell_vm::krun::probe(&library) {
-        Ok(()) => line(true, "libkrun", &exists(&library)),
-        Err(err) => line(false, "libkrun", &format!("{err:#}; install libkrun and libkrunfw or set BOXQUELL_KRUN_LIB")),
+    #[cfg(unix)]
+    let krun = {
+        let library = boxquell_vm::krun::find_library(&home.root().join("lib"));
+        match boxquell_vm::krun::probe(&library) {
+            Ok(()) => line(true, "libkrun", &exists(&library)),
+            Err(err) => line(false, "libkrun", &format!("{err:#}; install libkrun and libkrunfw or set BOXQUELL_KRUN_LIB")),
+        }
     };
+    #[cfg(not(unix))]
+    let krun = line(false, "libkrun", "not available on this system; sandboxes use the qemu backend");
 
     let qemu_bin = on_path("qemu-system-x86_64");
     line(qemu_bin, "QEMU", if qemu_bin { "qemu-system-x86_64 found" } else { "qemu-system-x86_64 not on PATH (only needed for `--backend qemu`)" });
