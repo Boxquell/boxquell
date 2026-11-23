@@ -736,6 +736,71 @@ function Status(props: { sandbox: Sandbox; recipes: Recipe[]; start: () => void;
         <h3>Load</h3>
         <VmLoad sandbox={sandbox} samples={stats?.samples ?? []} />
       </section>
+      <Addresses sandbox={sandbox} />
     </>
+  );
+}
+
+/** Where the sandbox is in its own network, and how this computer reaches it. */
+function Addresses(props: { sandbox: Sandbox }) {
+  const { sandbox } = props;
+  const inside = sandbox.addresses;
+  return (
+    <section>
+      <h3>Addresses</h3>
+      <table>
+        <tbody>
+          {inside && (
+            <>
+              <tr>
+                <td>Sandbox</td>
+                <td>
+                  <code>{inside.sandbox}</code>
+                </td>
+                <td className="muted">its own address, inside its private network</td>
+              </tr>
+              <tr>
+                <td>This computer</td>
+                <td>
+                  <code>{inside.host}</code>
+                </td>
+                <td className="muted">as seen from the sandbox; needs a rule such as allow {inside.host}:8080</td>
+              </tr>
+              <tr>
+                <td>Name server</td>
+                <td>
+                  <code>{inside.dns}</code>
+                </td>
+                <td className="muted">answers only for allowed names</td>
+              </tr>
+            </>
+          )}
+          {sandbox.ssh_port && (
+            <tr>
+              <td>SSH</td>
+              <td>
+                <code>127.0.0.1:{sandbox.ssh_port}</code>
+              </td>
+              <td className="muted">
+                from this computer. Run <code>boxquell ssh-config --install</code> once, then <code>ssh boxquell-{sandbox.name}</code> works in a terminal, VS
+                Code Remote-SSH and JetBrains Gateway.
+              </td>
+            </tr>
+          )}
+          {sandbox.ports.map((p) => (
+            <tr key={p.host}>
+              <td>Port {p.guest}</td>
+              <td>
+                <a href={`http://${p.bind ?? "127.0.0.1"}:${p.host}`} target="_blank" rel="noreferrer">
+                  {p.bind ?? "127.0.0.1"}:{p.host}
+                </a>
+              </td>
+              <td className="muted">forwarded from this computer</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted">The sandbox has no address in your network. Other devices reach it only through port forwards.</p>
+    </section>
   );
 }

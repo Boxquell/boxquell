@@ -34,6 +34,8 @@ export interface Sandbox {
   shares: { host: string; guest: string; read_only: boolean }[];
   /** Where shells and agents start; null means /workspace */
   workdir: string | null;
+  /** Addresses as seen from inside the sandbox: its own, this computer's, and the name server. */
+  addresses?: { sandbox: string; host: string; dns: string };
   /** What keeps installed agents from working, e.g. a missing credential. */
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */

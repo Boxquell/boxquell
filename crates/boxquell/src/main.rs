@@ -96,6 +96,15 @@ enum Cmd {
     Rm { name: String },
     /// List sandboxes
     Ls,
+    /// Let `ssh`, VS Code and JetBrains reach sandboxes as `ssh boxquell-<name>`
+    SshConfig {
+        /// Write ~/.ssh/boxquell_config and include it from ~/.ssh/config, instead of printing
+        #[arg(long)]
+        install: bool,
+    },
+    /// Internal: carry an ssh connection into a sandbox
+    #[command(hide = true)]
+    SshProxy { name: String },
     /// Check that this host can run sandboxes
     Doctor,
     /// Print a completion script for your shell, e.g. `boxquell completions fish > ~/.config/fish/completions/boxquell.fish`
@@ -334,6 +343,21 @@ fn catalog(home: &Home) -> Result<Catalog> {
     Catalog::of(home)
 }
 
+fn ssh_config(home: &Home, client: &Client) -> Result<String> {
+    let names: Vec<String> =
+        client.get("/api/sandboxes")?.as_array().into_iter().flatten().filter_map(|s| s["name"].as_str().map(str::to_string)).collect();
+    Ok(ssh::client_config(home, &std::env::current_exe()?, &names))
+}
+
+/// Keep an installed ssh configuration in step with the sandboxes that exist.
+fn refresh_ssh_config(home: &Home, client: &Client) {
+    if ssh::config_file().is_some_and(|file| file.exists()) {
+        if let Ok(text) = ssh_config(home, client) {
+            let _ = ssh::install_config(&text);
+        }
+    }
+}
+
 fn rule(action: &str, host: &str) -> Value {
     json!({ "rule": format!("{action} {host}") })
 }
@@ -462,6 +486,7 @@ fn main() -> Result<()> {
             catalog.resolve(&with)?;
             let client = Client::connect(&home)?;
             client.post("/api/sandboxes", spec)?;
+            refresh_ssh_config(&home, &client);
             if with.is_empty() {
                 println!("created {name}; start it with `boxquell up {name}` or `boxquell shell {name}`");
             } else {
@@ -478,8 +503,24 @@ fn main() -> Result<()> {
             println!("{name} stopped");
         }
         Cmd::Rm { name } => {
-            Client::connect(&home)?.delete(&format!("/api/sandboxes/{name}"), None)?;
+            let client = Client::connect(&home)?;
+            client.delete(&format!("/api/sandboxes/{name}"), None)?;
             println!("{name} deleted");
+            refresh_ssh_config(&home, &client);
+        }
+        Cmd::SshConfig { install } => {
+            let client = Client::connect(&home)?;
+            let text = ssh_config(&home, &client)?;
+            if install {
+                let file = ssh::install_config(&text)?;
+                println!("wrote {}; connect with `ssh boxquell-<name>`", file.display());
+            } else {
+                print!("{text}");
+            }
+        }
+        Cmd::SshProxy { name } => {
+            let info = Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/start"), json!({}))?;
+            ssh::proxy(info["ssh_port"].as_u64().context("daemon reported no ssh port")? as u16)?;
         }
         Cmd::Recipes => {
             for recipe in catalog(&home)?.all() {

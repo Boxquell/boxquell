@@ -64,6 +64,12 @@ if [ -f /run/boxquell/mounts ]; then
   done < /run/boxquell/mounts
 fi
 
+# Services that installed software wants running, e.g. a container daemon:
+# every executable file in /etc/boxquell/boot.d is started in the background.
+for service in /etc/boxquell/boot.d/*; do
+  [ -x "$service" ] && "$service" >/dev/null 2>&1 &
+done
+
 [ -f /etc/ssh/ssh_host_ed25519_key ] || ssh-keygen -A >/dev/null
 mkdir -p /run/sshd
 /usr/sbin/sshd

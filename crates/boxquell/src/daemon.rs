@@ -283,6 +283,7 @@ impl Daemon {
             "local_secrets": self.local_secrets(name).list()?.iter().map(|s| json!({ "name": s.name, "hosts": s.hosts, "env": s.env })).collect::<Vec<_>>(),
             "claude_settings": self.claude_settings_file(name).exists(),
             "ports": spec.ports,
+            "addresses": json!({ "sandbox": boxquell_net::GUEST_IP, "host": boxquell_net::GATEWAY_IP, "dns": boxquell_net::DNS_IP }),
             "shares": spec.shares,
             "workdir": spec.workdir,
             "warnings": self.warnings(&spec),

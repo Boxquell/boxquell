@@ -80,7 +80,16 @@ boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 | **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
 | **Software** | `recipes`, `add <sandbox> claude node@22 …`, `repo add\|ls\|update\|rm` |
-| **Access** | `port add <sandbox> 8080:3000`, `share add <sandbox> ~/data /mnt/data`, `ui`, `claude-settings`, `config` |
+| **Access** | `ssh-config --install`, `port add <sandbox> 8080:3000`, `share add <sandbox> ~/data /mnt/data`, `ui`, `claude-settings`, `config` |
+
+### SSH, VS Code and JetBrains
+
+```sh
+boxquell ssh-config --install      # once: writes ~/.ssh/boxquell_config and includes it
+ssh boxquell-mybox
+```
+
+Every sandbox is then an ssh host named `boxquell-<name>`, started on demand. VS Code (Remote-SSH), VSCodium (Open Remote - SSH) and JetBrains Gateway connect to that host; `scp` and `rsync` work too. Each sandbox has its own key, and the connection never leaves your computer.
 
 ### Network rules
 
