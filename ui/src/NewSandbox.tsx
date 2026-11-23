@@ -1,3 +1,4 @@
+import { CircleCheck } from "lucide-react";
 import { BrandIcon } from "./BrandIcon";
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Recipe, type System } from "./api";
@@ -113,19 +114,28 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
           <p className="muted">The folder appears in the sandbox as /workspace; nothing else of your files is visible there. Leave it empty for a sandbox without your files.</p>
           <div className="shelf">
             <h3>Operating system</h3>
-            <div className="cards" role="radiogroup" aria-label="Operating system">
-              {systems.map((candidate) => (
-                <div key={candidate.id} className={`card ${candidate.id === os ? "picked" : ""}`}>
-                  <button type="button" role="radio" aria-checked={candidate.id === os} className="card-main" onClick={() => setOs(candidate.id)}>
-                    <span className={`avatar ${candidate.icon ? "brand" : ""}`} style={candidate.icon ? undefined : { background: "var(--accent)" }} aria-hidden="true">
-                      <BrandIcon svg={candidate.icon}>{candidate.name.slice(0, 2)}</BrandIcon>
-                    </span>
-                    <span className="grow">
-                      <strong>{candidate.name}</strong>
-                      <small>{candidate.built ? "ready" : "set up when the sandbox is created"}</small>
-                    </span>
-                  </button>
-                </div>
+            <div className="os-tiles" role="radiogroup" aria-label="Operating system">
+              {/* The default system first, then what is ready, then the rest. */}
+              {[...systems]
+                .sort((a, b) => Number(b.id === "debian") - Number(a.id === "debian") || Number(b.built) - Number(a.built))
+                .map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={candidate.id === os}
+                  className={`os-tile ${candidate.id === os ? "picked" : ""}`}
+                  onClick={() => setOs(candidate.id)}
+                >
+                  {candidate.id === os && <CircleCheck className="os-check" size={18} aria-hidden />}
+                  <span className="os-art" aria-hidden="true">
+                    <BrandIcon svg={candidate.icon} size={34}>
+                      {candidate.name.slice(0, 2)}
+                    </BrandIcon>
+                  </span>
+                  <strong>{candidate.name}</strong>
+                  <small>{candidate.built ? "Ready to use" : "Set up on first use"}</small>
+                </button>
               ))}
             </div>
           </div>
