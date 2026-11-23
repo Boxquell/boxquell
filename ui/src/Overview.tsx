@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Cpu } from "lucide-react";
-import { api, type Sandbox, type Sample, type Stats } from "./api";
+import { Cpu, Play, Plus, Square, SquareTerminal } from "lucide-react";
+import { BrandIcon, brandColors } from "./BrandIcon";
+import { api, type Recipe, type Sandbox, type Sample, type Stats } from "./api";
 
 function bytes(n: number): string {
   if (n < 1024) return `${Math.round(n)} B`;
@@ -134,70 +135,147 @@ function HostLoad() {
 
 export { Tile };
 
-export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
+export function Overview(props: {
+  sandboxes: Sandbox[];
+  recipes: Recipe[];
+  open: (name: string) => void;
+  openTerminal: (name: string) => void;
+  create: () => void;
+  act: (action: () => Promise<unknown>) => Promise<void>;
+}) {
   const stats = useStats();
-
   const running = props.sandboxes.filter((s) => s.running);
-  const stopped = props.sandboxes.filter((s) => !s.running);
   const all = Object.values(stats);
   const last = (name: string) => stats[name]?.samples.at(-1);
   const traffic = running.reduce((sum, s) => sum + (last(s.name)?.rx_rate ?? 0) + (last(s.name)?.tx_rate ?? 0), 0);
+  // Running ones first, then by name.
+  const ordered = [...props.sandboxes].sort((a, b) => Number(b.running) - Number(a.running) || a.name.localeCompare(b.name));
+
+  if (props.sandboxes.length === 0) {
+    return (
+      <section className="welcome">
+        <img src="/icon.svg" alt="" width="64" height="64" />
+        <h2>Welcome to Boxquell</h2>
+        <p className="muted readable">
+          A sandbox is a small computer of its own for one project. A coding agent works inside it; what it may reach on the network is up to you, and your
+          API keys stay on this computer.
+        </p>
+        <ol className="steps-list">
+          <li>
+            <strong>Create a sandbox</strong>
+            <span className="muted">Give it a name and, if you like, a project folder.</span>
+          </li>
+          <li>
+            <strong>Add an agent and its key</strong>
+            <span className="muted">Claude Code, Codex and others install with a click.</span>
+          </li>
+          <li>
+            <strong>Open a terminal or give a task</strong>
+            <span className="muted">Work with the agent, or let it work in the background.</span>
+          </li>
+        </ol>
+        <button className="primary large" onClick={props.create}>
+          <Plus size={17} aria-hidden /> Create your first sandbox
+        </button>
+      </section>
+    );
+  }
 
   return (
     <>
       <header className="hero">
         <div className="grow">
-          <h2>Overview</h2>
-          <p className="muted">Load and network activity of your sandboxes.</p>
+          <h2>Home</h2>
+          <p className="muted">
+            {running.length === 0 ? "No sandbox is running." : `${running.length} of ${props.sandboxes.length} sandboxes running`}
+            {running.length > 0 && <> · {bytes(traffic)}/s</>}
+            {all.reduce((n, s) => n + s.blocked, 0) > 0 && <span className="chip blocked">{all.reduce((n, s) => n + s.blocked, 0)} blocked</span>}
+          </p>
         </div>
+        <button className="primary" onClick={props.create}>
+          <Plus size={16} aria-hidden /> New sandbox
+        </button>
       </header>
 
-      <div className="kpis">
-        <Tile label="Running sandboxes" value={`${running.length}`} note={`of ${props.sandboxes.length}`} />
-        <Tile label="Connections allowed" value={`${all.reduce((n, s) => n + s.allowed, 0)}`} note="since each sandbox started" />
-        <Tile label="Connections blocked" value={`${all.reduce((n, s) => n + s.blocked, 0)}`} note="since each sandbox started" />
-        <Tile label="Network traffic now" value={`${bytes(traffic)}/s`} note="all sandboxes, both directions" />
+      <div className="box-grid">
+        {ordered.map((s) => {
+          const now = last(s.name);
+          const software = s.recipes.map((id) => props.recipes.find((r) => r.id === id.split("@")[0])).filter((r): r is Recipe => !!r);
+          const agents = software.filter((r) => r.category === "agent");
+          return (
+            <article key={s.name} className={s.running ? "box-card on" : "box-card"}>
+              <button className="box-open" onClick={() => props.open(s.name)} aria-label={`Open ${s.name}`}>
+                <span className="box-mark" style={s.os_icon ? brandColors(s.os_icon_color) : undefined} aria-hidden="true">
+                  <BrandIcon svg={s.os_icon} size={24}>
+                    {s.name.slice(0, 2)}
+                  </BrandIcon>
+                  <span className={s.paused ? "dot paused" : s.running ? "dot on" : "dot"} />
+                </span>
+                <span className="grow">
+                  <strong>{s.name}</strong>
+                  <small>
+                    {s.job?.state === "running" ? "installing…" : s.paused ? "paused" : s.running ? "running" : "stopped"} · {s.os_name ?? s.os ?? "debian"}
+                  </small>
+                </span>
+              </button>
+              <div className="box-tags">
+                {agents.map((agent) => (
+                  <span key={agent.id} className="chip">
+                    <BrandIcon svg={agent.icon} size={12} /> {agent.name}
+                  </span>
+                ))}
+                {software.length > agents.length && <span className="chip">+{software.length - agents.length} more</span>}
+                {software.length === 0 && <span className="chip">no software yet</span>}
+                {s.warnings.length > 0 && (
+                  <span className="chip paused" title={s.warnings.join("\n")}>
+                    needs attention
+                  </span>
+                )}
+                {(stats[s.name]?.blocked ?? 0) > 0 && <span className="chip blocked">{stats[s.name].blocked} blocked</span>}
+              </div>
+              {s.running && now ? (
+                <div className="box-stats">
+                  <span>
+                    <b>{Math.round(now.cpu)} %</b> CPU
+                  </span>
+                  <span>
+                    <b>{(now.mem_used_mib / 1024).toFixed(1)} GiB</b> memory
+                  </span>
+                  <span>
+                    <b>{bytes(now.rx_rate + now.tx_rate)}/s</b> network
+                  </span>
+                </div>
+              ) : (
+                <div className="box-stats muted">
+                  <span>
+                    {s.cpus} CPUs · {Math.round(s.ram_mib / 102.4) / 10} GiB · {s.disk_gib} GiB disk
+                  </span>
+                </div>
+              )}
+              <div className="box-actions">
+                <button onClick={() => props.openTerminal(s.name)}>
+                  <SquareTerminal size={15} aria-hidden /> Terminal
+                </button>
+                {s.running ? (
+                  <button onClick={() => props.act(() => api.stop(s.name))}>
+                    <Square size={13} aria-hidden /> Stop
+                  </button>
+                ) : (
+                  <button className="primary" onClick={() => props.act(() => api.start(s.name))}>
+                    <Play size={14} aria-hidden /> Start
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+        <button className="box-card new" onClick={props.create}>
+          <Plus size={22} aria-hidden />
+          New sandbox
+        </button>
       </div>
 
       <HostLoad />
-      {running.map((s) => {
-        const samples = stats[s.name]?.samples ?? [];
-        return (
-          <section key={s.name} className="vm">
-            <div className="vm-head">
-              <span className={s.paused ? "dot paused" : "dot on"} />
-              <strong className="grow">{s.name}</strong>
-              <span className="chip on">✓ {stats[s.name]?.allowed ?? 0} allowed</span>
-              <span className={stats[s.name]?.blocked ? "chip blocked" : "chip"}>✕ {stats[s.name]?.blocked ?? 0} blocked</span>
-              <button onClick={() => props.open(s.name)}>Open</button>
-            </div>
-            <VmLoad sandbox={s} samples={samples} />
-          </section>
-        );
-      })}
-
-      {stopped.length > 0 && (
-        <section>
-          <h3>Stopped</h3>
-          <ul className="rules">
-            {stopped.map((s) => (
-              <li key={s.name}>
-                <button className="link" onClick={() => props.open(s.name)}>
-                  {s.name}
-                </button>
-                <button className="link" onClick={() => props.act(() => api.start(s.name))}>
-                  start
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {props.sandboxes.length === 0 && (
-        <div className="empty">
-          <p>Create a sandbox to run a coding agent with an explicit network allowlist.</p>
-        </div>
-      )}
     </>
   );
 }

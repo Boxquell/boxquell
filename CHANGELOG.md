@@ -4,7 +4,12 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Changed
+- A new interface. A sandbox's page has five areas (Overview, Work, Software, Network, Settings) with their parts below, instead of eleven tabs; its head shows the system, the state and the facts, with a Terminal button always at hand. The start page shows the sandboxes as cards with their state and quick actions, and greets a first start with the three steps to a working sandbox. The sidebar is one line per entry, with Settings and the emergency stop at the bottom. Colours, type and controls follow one system, in light and dark.
+- Speed and data limits are set with sliders.
+
 ### Added
+- Find anything with Ctrl+K (⌘K on a Mac): jump to a sandbox, an area or a settings page, or start, stop and open a terminal.
 - Actions: a recipe can offer commands of its software as buttons on the Config tab, with fields for the values they need, for example the Jira CLI's first setup (`[[action]]`).
 - MCP: a Settings › MCP page that connects Claude Code with one button and has the lines to copy for other assistants, switches for what assistants may do (also `boxquell config mcp-…`), and new tools for tasks, snapshots and review mode.
 - Keys in HTTP Basic sign-in (user name plus token, as Jira and Bitbucket use it) are put in on the way out like keys in other headers.

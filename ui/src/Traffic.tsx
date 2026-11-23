@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, Gauge, ShieldOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, type Sandbox } from "./api";
 import { StackedBars, timeline } from "./Usage";
@@ -86,36 +87,122 @@ export function Traffic(props: { sandbox: Sandbox; act: Act }) {
   );
 }
 
-/** How fast the sandbox may send and receive. */
-function SpeedLimits(props: { sandbox: Sandbox; act: Act }) {
-  const { sandbox, act } = props;
-  const [up, setUp] = useState<string | null>(null);
-  const [down, setDown] = useState<string | null>(null);
-  const field = (label: string, limit: number | null | undefined, draft: string | null, set: (value: string | null) => void, key: "upload_kbit" | "download_kbit") => (
-    <label>
-      {label}
+/** Values a limit can take, as megabits per second; 0 stands for no limit and sits at the right end. */
+const SPEEDS = [0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 0];
+/** The same for data per run, in MiB. */
+const AMOUNTS = [50, 100, 250, 500, 1024, 2048, 5120, 10240, 25600, 51200, 0];
+
+function megabits(value: number): string {
+  return value === 0 ? "No limit" : `${value} Mbit/s`;
+}
+
+function amount(mib: number): string {
+  return mib === 0 ? "No limit" : mib >= 1024 ? `${mib / 1024} GiB` : `${mib} MiB`;
+}
+
+/**
+ * A limit chosen on a slider with a few sensible stops. It is saved when the
+ * slider is let go, not while it moves.
+ */
+function LimitSlider(props: { icon: React.ReactNode; label: string; stops: number[]; value: number; format: (value: number) => string; used?: number; save: (value: number) => void }) {
+  // A value set elsewhere that is not one of the stops goes to the nearest one below it.
+  const index = (value: number) => {
+    if (value === 0) return props.stops.length - 1;
+    let at = 0;
+    props.stops.forEach((stop, i) => {
+      if (stop !== 0 && stop <= value) at = i;
+    });
+    return at;
+  };
+  const [draft, setDraft] = useState<number | null>(null);
+  const at = draft ?? index(props.value);
+  const shown = props.stops[at];
+  const share = (at / (props.stops.length - 1)) * 100;
+  const commit = () => {
+    if (draft !== null && props.stops[draft] !== props.stops[index(props.value)]) props.save(props.stops[draft]);
+    setDraft(null);
+  };
+  const full = shown !== 0 && props.used !== undefined ? Math.min(1, props.used / (shown * 1024 * 1024)) : 0;
+  return (
+    <label className="slider limit">
+      <span className="slider-head">
+        {props.icon}
+        <span className="grow">{props.label}</span>
+        <output className={shown === 0 ? "off" : ""}>{props.format(shown)}</output>
+      </span>
       <input
-        type="number"
+        type="range"
         min={0}
-        step="0.5"
-        placeholder="no limit"
-        value={draft ?? (limit ? String(limit / 1000) : "")}
-        onChange={(e) => set(e.target.value)}
-        onBlur={() => {
-          const kbit = Math.round(Number(draft || 0) * 1000);
-          if (draft !== null && kbit !== (limit ?? 0)) act(() => api.resize(sandbox.name, { [key]: kbit })).then(() => set(null));
-          else set(null);
-        }}
+        max={props.stops.length - 1}
+        step={1}
+        value={at}
+        onChange={(e) => setDraft(+e.target.value)}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        style={{ "--share": `${share}%` } as React.CSSProperties}
+        aria-valuetext={props.format(shown)}
       />
+      {props.used !== undefined && (
+        <small className="muted limit-used">
+          <span className={`meter ${full > 0.9 ? "level-full" : full > 0.75 ? "level-high" : ""}`} aria-hidden="true">
+            <span style={{ width: `${full * 100}%` }} />
+          </span>
+          {bytes(props.used)} so far{shown !== 0 ? ` of ${props.format(shown)}` : ""}
+        </small>
+      )}
     </label>
   );
+}
+
+/** How fast the sandbox may send and receive, and how much per run before its network is cut off. */
+function SpeedLimits(props: { sandbox: Sandbox; act: Act }) {
+  const { sandbox, act } = props;
+  const traffic = sandbox.traffic;
+  const set = (change: Parameters<typeof api.resize>[1]) => act(() => api.resize(sandbox.name, change));
   return (
     <>
-      <h3>Speed limit</h3>
-      <p className="muted">How fast this sandbox may send and receive, in megabits per second. It applies at once, also to connections that are open.</p>
-      <div className="row">
-        {field("Sending, Mbit/s", sandbox.upload_kbit, up, setUp, "upload_kbit")}
-        {field("Receiving, Mbit/s", sandbox.download_kbit, down, setDown, "download_kbit")}
+      <h3>
+        <Gauge size={16} aria-hidden /> Speed
+      </h3>
+      <p className="muted">How fast this sandbox may send and receive. A change applies at once, also to connections that are open.</p>
+      <div className="limits">
+        <LimitSlider icon={<ArrowUp size={16} aria-hidden />} label="Sending" stops={SPEEDS} value={(sandbox.upload_kbit ?? 0) / 1000} format={megabits} save={(value) => set({ upload_kbit: Math.round(value * 1000) })} />
+        <LimitSlider icon={<ArrowDown size={16} aria-hidden />} label="Receiving" stops={SPEEDS} value={(sandbox.download_kbit ?? 0) / 1000} format={megabits} save={(value) => set({ download_kbit: Math.round(value * 1000) })} />
+      </div>
+      <h3>
+        <ShieldOff size={16} aria-hidden /> Data per run
+      </h3>
+      <p className="muted">
+        Once this sandbox has sent or received this much, its network is cut off until you let it continue. Counting starts when the sandbox starts.
+      </p>
+      {traffic?.cut && (
+        <div className="warning">
+          <span>A limit was reached: the network of this sandbox is cut off.</span>
+          <button className="link" onClick={() => act(() => api.continueAfterLimit(sandbox.name))}>
+            Let it continue and count anew
+          </button>
+        </div>
+      )}
+      <div className="limits">
+        <LimitSlider
+          icon={<ArrowUp size={16} aria-hidden />}
+          label="Sent"
+          stops={AMOUNTS}
+          value={traffic?.upload_limit_mib ?? 0}
+          format={amount}
+          used={sandbox.running ? (traffic?.up ?? 0) : undefined}
+          save={(value) => set({ upload_limit_mib: value })}
+        />
+        <LimitSlider
+          icon={<ArrowDown size={16} aria-hidden />}
+          label="Received"
+          stops={AMOUNTS}
+          value={traffic?.download_limit_mib ?? 0}
+          format={amount}
+          used={sandbox.running ? (traffic?.down ?? 0) : undefined}
+          save={(value) => set({ download_limit_mib: value })}
+        />
       </div>
     </>
   );

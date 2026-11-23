@@ -1,4 +1,4 @@
-import { BrandIcon } from "./BrandIcon";
+import { BrandIcon, brandColors } from "./BrandIcon";
 import { Config } from "./Config";
 import { Snapshots } from "./Snapshots";
 import { Review } from "./Review";
@@ -7,7 +7,7 @@ import { Traffic } from "./Traffic";
 import { count, dollars } from "./Usage";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Activity, Bot, GitCompareArrows, ListChecks, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
+import { Activity, Cpu, FolderOpen, Monitor, Network, Package, Pause, Play, Settings2, Shield, Square, SquareTerminal, type LucideIcon } from "lucide-react";
 import { api, type Recipe, type Sandbox, type Secret } from "./api";
 import { FolderField } from "./FolderPicker";
 import { LogViewer } from "./LogViewer";
@@ -21,34 +21,45 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "overview" | "terminal" | "tasks" | "review" | "software" | "config" | "agent" | "network" | "log" | "secrets" | "settings";
-const TABS: [Tab, string][] = [
-  ["overview", "Overview"],
-  ["terminal", "Terminal"],
-  ["tasks", "Tasks"],
-  ["review", "Review"],
-  ["software", "Software"],
-  ["config", "Config"],
-  ["agent", "Agent"],
-  ["network", "Network"],
-  ["log", "Log"],
-  ["secrets", "Secrets"],
-  ["settings", "Settings"],
-];
+export type Tab = "overview" | "terminal" | "tasks" | "review" | "software" | "config" | "agent" | "secrets" | "network" | "log" | "traffic" | "ports" | "settings";
 
-const TAB_ICONS: Record<Tab, LucideIcon> = {
-  overview: Activity,
-  terminal: SquareTerminal,
-  tasks: ListChecks,
-  review: GitCompareArrows,
-  software: Package,
-  config: SlidersHorizontal,
-  agent: Bot,
-  network: Network,
-  log: ScrollText,
-  secrets: KeyRound,
-  settings: Settings2,
-};
+/** A sandbox's page in five areas; each area has one or more parts. */
+const AREAS: { id: string; label: string; icon: LucideIcon; parts: [Tab, string][] }[] = [
+  { id: "overview", label: "Overview", icon: Activity, parts: [["overview", "Overview"]] },
+  {
+    id: "work",
+    label: "Work",
+    icon: SquareTerminal,
+    parts: [
+      ["terminal", "Terminal"],
+      ["tasks", "Tasks"],
+      ["review", "Review"],
+    ],
+  },
+  {
+    id: "software",
+    label: "Software",
+    icon: Package,
+    parts: [
+      ["software", "Catalogue"],
+      ["config", "Configuration"],
+      ["agent", "Agent setup"],
+      ["secrets", "Keys"],
+    ],
+  },
+  {
+    id: "network",
+    label: "Network",
+    icon: Network,
+    parts: [
+      ["network", "Rules"],
+      ["log", "Activity"],
+      ["traffic", "Traffic and limits"],
+      ["ports", "Ports"],
+    ],
+  },
+  { id: "settings", label: "Settings", icon: Settings2, parts: [["settings", "Settings"]] },
+];
 
 interface ViewProps {
   sandbox: Sandbox;
@@ -69,30 +80,55 @@ export function SandboxView(props: ViewProps) {
     setBusy(null);
   };
   const agents = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))).filter((r) => r?.command);
+  const area = AREAS.find((candidate) => candidate.parts.some(([id]) => id === tab)) ?? AREAS[0];
+  // Coming back to an area shows the part that was open there last.
+  const lastPart = useRef<Record<string, Tab>>({});
+  lastPart.current[area.id] = tab;
+  const running = (sandbox.tasks ?? []).filter((task) => task.state === "running").length;
 
   return (
     <>
-      <header className="hero">
+      <header className="box-head">
+        <span className="box-mark" style={sandbox.os_icon ? brandColors(sandbox.os_icon_color) : undefined} aria-hidden="true">
+          <BrandIcon svg={sandbox.os_icon} size={28}>
+            {sandbox.name.slice(0, 2)}
+          </BrandIcon>
+          <span className={sandbox.paused ? "dot paused" : sandbox.running ? "dot on" : "dot"} />
+        </span>
         <div className="grow">
           <h2>
-            <span className={sandbox.paused ? "dot paused" : sandbox.running ? "dot on" : "dot"} /> {sandbox.name}
+            {sandbox.name}
+            <span className={`chip ${sandbox.paused ? "paused" : sandbox.running ? "on" : ""}`}>{busy ?? (sandbox.paused ? "paused" : sandbox.running ? "running" : "stopped")}</span>
+            {sandbox.review && <span className="chip">review mode</span>}
           </h2>
-          <p className="muted">
-            <span className={`chip ${sandbox.paused ? "paused" : sandbox.running ? "on" : ""}`}>{busy ?? (sandbox.paused ? "paused" : sandbox.running ? "running" : "stopped")}</span>{" "}
-            <span className="chip">
-              <BrandIcon svg={sandbox.os_icon} size={12} /> {sandbox.os_name ?? sandbox.os ?? "debian"}
-            </span> {sandbox.backend} · {sandbox.cpus} CPUs · {sandbox.ram_mib} MiB · {sandbox.disk_gib} GiB disk
-            {sandbox.workspace && <> · {sandbox.workspace}</>}
+          <p className="box-facts">
+            <span>
+              <Monitor size={13} aria-hidden /> {sandbox.os_name ?? sandbox.os ?? "debian"}
+            </span>
+            <span>
+              <Cpu size={13} aria-hidden /> {sandbox.cpus} CPUs · {Math.round(sandbox.ram_mib / 102.4) / 10} GiB · {sandbox.disk_gib} GiB disk
+            </span>
+            {sandbox.workspace && (
+              <span title={sandbox.workspace}>
+                <FolderOpen size={13} aria-hidden /> {sandbox.workspace.split(/[\\/]/).filter(Boolean).pop()}
+              </span>
+            )}
+            <span>
+              <Shield size={13} aria-hidden /> {sandbox.mode === "blacklist" ? "open except for what is denied" : "closed except for what is allowed"}
+            </span>
           </p>
         </div>
+        <button onClick={() => openTerminal(sandbox.name, "Shell")} title="Open a shell in this sandbox; it starts when needed">
+          <SquareTerminal size={15} aria-hidden="true" /> Terminal
+        </button>
         {sandbox.running &&
           (sandbox.paused ? (
             <button className="primary" disabled={!!busy} onClick={() => run("resuming…", () => api.resume(sandbox.name))}>
-              Resume
+              <Play size={15} aria-hidden="true" /> Resume
             </button>
           ) : (
-            <button disabled={!!busy} title="Freeze the sandbox: it keeps its memory and programs but uses no CPU" onClick={() => run("pausing…", () => api.pause(sandbox.name))}>
-              <Pause size={15} aria-hidden="true" /> Pause
+            <button className="icon" disabled={!!busy} title="Pause: it keeps its memory and programs but uses no CPU" aria-label="Pause" onClick={() => run("pausing…", () => api.pause(sandbox.name))}>
+              <Pause size={16} aria-hidden="true" />
             </button>
           ))}
         {sandbox.running ? (
@@ -112,20 +148,30 @@ export function SandboxView(props: ViewProps) {
             <div key={warning}>{warning}</div>
           ))}
           <button className="link" onClick={() => setTab("config")}>
-            Open Config
+            Open Configuration
           </button>
         </div>
       )}
 
-      <div className="tabbar" role="tablist">
-        {TABS.map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
-            <TabIcon tab={id} />
-            {label}
-            {id === "network" && sandbox.mode === "blacklist" && <small>blacklist</small>}
+      <div className="tabbar" role="tablist" aria-label="Areas of this sandbox">
+        {AREAS.map((candidate) => (
+          <button key={candidate.id} role="tab" aria-selected={candidate === area} className={candidate === area ? "active" : ""} onClick={() => setTab(lastPart.current[candidate.id] ?? candidate.parts[0][0])}>
+            <candidate.icon size={16} aria-hidden />
+            {candidate.label}
+            {candidate.id === "work" && running > 0 && <span className="count">{running}</span>}
+            {candidate.id === "network" && sandbox.mode === "blacklist" && <small>blacklist</small>}
           </button>
         ))}
       </div>
+      {area.parts.length > 1 && (
+        <div className="subtabs" role="tablist" aria-label={`Parts of ${area.label}`}>
+          {area.parts.map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === "overview" && <Status sandbox={sandbox} recipes={recipes} start={() => run("starting…", () => api.start(sandbox.name))} setTab={setTab} />}
       {tab === "terminal" && (
@@ -160,11 +206,11 @@ export function SandboxView(props: ViewProps) {
         <>
           <Rules sandbox={sandbox} act={act} />
           <AutoRules sandbox={sandbox} act={act} />
-          <Traffic sandbox={sandbox} act={act} />
-          <Ports sandbox={sandbox} act={act} />
           <GlobalRules act={act} />
         </>
       )}
+      {tab === "traffic" && <Traffic sandbox={sandbox} act={act} />}
+      {tab === "ports" && <Ports sandbox={sandbox} act={act} />}
       {tab === "log" && <NetworkLog sandbox={sandbox} act={act} />}
       {tab === "secrets" && (
         <>
@@ -202,10 +248,6 @@ export function SandboxView(props: ViewProps) {
   );
 }
 
-function TabIcon(props: { tab: Tab }) {
-  const Icon = TAB_ICONS[props.tab];
-  return <Icon size={15} aria-hidden="true" />;
-}
 
 function Command(props: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -218,56 +260,6 @@ function Command(props: { text: string }) {
       <code>{props.text}</code>
       <small>{copied ? "copied" : "copy"}</small>
     </button>
-  );
-}
-
-function megabytes(bytes: number): string {
-  return bytes < 1 << 20 ? `${Math.round(bytes / 1024)} KiB` : `${(bytes / (1 << 20)).toFixed(1)} MiB`;
-}
-
-/** How much a sandbox may send and receive per run; beyond it the network is cut off until the user lets it go on. */
-function DataLimits(props: { sandbox: Sandbox; act: Act }) {
-  const { sandbox, act } = props;
-  const traffic = sandbox.traffic;
-  const [up, setUp] = useState<string | null>(null);
-  const [down, setDown] = useState<string | null>(null);
-  if (!traffic) return null;
-  const field = (label: string, used: number, limit: number | null, draft: string | null, set: (value: string | null) => void, key: "upload_limit_mib" | "download_limit_mib") => (
-    <label>
-      {label}
-      <input
-        type="number"
-        min={0}
-        placeholder="no limit"
-        value={draft ?? (limit ? String(limit) : "")}
-        onChange={(e) => set(e.target.value)}
-        onBlur={() => {
-          if (draft !== null && Number(draft || 0) !== (limit ?? 0)) act(() => api.resize(sandbox.name, { [key]: Number(draft || 0) })).then(() => set(null));
-          else set(null);
-        }}
-      />
-      <small className="muted">{sandbox.running ? `${megabytes(used)} so far${limit ? ` of ${limit} MiB` : ""}` : "MiB per run"}</small>
-    </label>
-  );
-  return (
-    <>
-      <h3>Data limit</h3>
-      <p className="muted">
-        Cut the network off once this sandbox has sent or received this much to and from destinations outside. Counting starts when the sandbox starts.
-      </p>
-      {traffic.cut && (
-        <div className="warning">
-          <span>A limit was reached: the network of this sandbox is cut off.</span>
-          <button className="link" onClick={() => act(() => api.continueAfterLimit(sandbox.name))}>
-            Let it continue and count anew
-          </button>
-        </div>
-      )}
-      <div className="row">
-        {field("Sent, limit in MiB", traffic.up, traffic.upload_limit_mib, up, setUp, "upload_limit_mib")}
-        {field("Received, limit in MiB", traffic.down, traffic.download_limit_mib, down, setDown, "download_limit_mib")}
-      </div>
-    </>
   );
 }
 
@@ -497,7 +489,6 @@ function Rules(props: { sandbox: Sandbox; act: Act }) {
           kinds of connection to the destination are refused.
         </p>
       )}
-      <DataLimits sandbox={sandbox} act={act} />
     </section>
   );
 }

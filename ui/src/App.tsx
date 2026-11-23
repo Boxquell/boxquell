@@ -5,7 +5,8 @@ import { Usage } from "./Usage";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings, type UpdateInfo } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
-import { Bell, ChartColumn, LayoutDashboard, Plus, Power, Settings as SettingsIcon, SquareTerminal, ShieldAlert } from "lucide-react";
+import { Bell, ChartColumn, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Play, Plus, Power, Search, Settings as SettingsIcon, Square, SquareTerminal, ShieldAlert, type LucideIcon } from "lucide-react";
+import { CommandPalette, type Command } from "./CommandPalette";
 import { About } from "./About";
 import { AgentSettings } from "./AgentSettings";
 import { LogViewer } from "./LogViewer";
@@ -42,6 +43,18 @@ export function App() {
   /** The terminal shown on the Terminals page. */
   const [focused, setFocused] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The search over sandboxes, pages and actions is open. */
+  const [finding, setFinding] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setFinding((now) => !now);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [lockdown, setLockdown] = useState(false);
   const [outdated, setOutdated] = useState(false);
   const [release, setRelease] = useState<UpdateInfo | null>(null);
@@ -58,7 +71,7 @@ export function App() {
     const query = new URLSearchParams(location.search);
     const [box, tab] = [query.get("box"), query.get("tab")];
     // Values from the address bar: accept only what a sandbox name and a tab can be.
-    const known: Tab[] = ["overview", "terminal", "tasks", "review", "software", "config", "agent", "network", "log", "secrets", "settings"];
+    const known: Tab[] = ["overview", "terminal", "tasks", "review", "software", "config", "agent", "secrets", "network", "log", "traffic", "ports", "settings"];
     const valid = box !== null && /^[a-z0-9][a-z0-9-]*$/.test(box) && known.includes(tab as Tab);
     return valid ? { [box]: tab as Tab } : {};
   });
@@ -143,105 +156,140 @@ export function App() {
     setActiveSession((active) => ({ ...active, [session.sandbox]: session.id }));
   };
 
+  // Everything the search can jump to or do.
+  const openTab = (sandbox: string, tab: Tab) => {
+    go("sandbox", sandbox);
+    setTabs((all) => ({ ...all, [sandbox]: tab }));
+  };
+  const commands: Command[] = [
+    { id: "new", title: "New sandbox", icon: Plus, keywords: "create add", run: () => go("new") },
+    { id: "home", title: "Home", icon: LayoutDashboard, keywords: "overview load", run: () => go("overview") },
+    { id: "usage", title: "Usage", icon: ChartColumn, keywords: "tokens costs limits prices", run: () => go("usage") },
+    { id: "notifications", title: "Notifications", icon: Bell, keywords: "blocked", run: () => go("notifications") },
+    { id: "terminals", title: "Terminals", icon: SquareTerminal, run: () => go("terminals") },
+    ...SETTINGS_TABS.map(([id, label]): Command => ({
+      id: `settings-${id}`,
+      title: `Settings: ${label}`,
+      icon: SettingsIcon,
+      keywords: "preferences",
+      run: () => {
+        setSettingsTab(id);
+        go("settings");
+      },
+    })),
+    ...sandboxes.flatMap((s): Command[] => [
+      { id: `open-${s.name}`, title: s.name, hint: s.running ? "running" : "stopped", icon: LayoutDashboard, keywords: "sandbox open", run: () => go("sandbox", s.name) },
+      { id: `shell-${s.name}`, title: "Open a terminal", hint: s.name, icon: SquareTerminal, keywords: "shell", run: () => { go("sandbox", s.name); openTerminal(s.name, "Shell"); } },
+      s.running
+        ? { id: `stop-${s.name}`, title: "Stop", hint: s.name, icon: Square, run: () => void act(() => api.stop(s.name)) }
+        : { id: `start-${s.name}`, title: "Start", hint: s.name, icon: Play, run: () => void act(() => api.start(s.name)) },
+      ...(["tasks", "review", "software", "config", "network", "log", "settings"] as Tab[]).map(
+        (tab): Command => ({ id: `${tab}-${s.name}`, title: tab[0].toUpperCase() + tab.slice(1), hint: s.name, icon: Search, run: () => openTab(s.name, tab) }),
+      ),
+    ]),
+    { id: "lockdown", title: lockdown ? "Lift network lockdown" : "Emergency stop: cut every sandbox off", icon: ShieldAlert, keywords: "lockdown block network", run: () => void act(() => api.setLockdown(!lockdown)) },
+  ];
+
   return (
     <div className={collapsed ? "layout collapsed" : "layout"}>
-      <aside>
+      <CommandPalette open={finding} onClose={() => setFinding(false)} commands={commands} />
+      <aside className="sidebar">
         <h1 className="brand">
-          <img src="/icon.svg" alt="" width="28" height="28" />
-          <span className="grow label">Boxquell</span>
+          <img src="/icon.svg" alt="" width="26" height="26" />
+          <span className="label">Boxquell</span>
           <button className="fold" title={collapsed ? "Show the sidebar" : "Fold the sidebar"} aria-label={collapsed ? "Show the sidebar" : "Fold the sidebar"} onClick={toggleSidebar}>
-            {collapsed ? "›" : "‹"}
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
         </h1>
-        <nav>
-          <NavItem icon={<LayoutDashboard size={17} />} active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
+        <button className="find" onClick={() => setFinding(true)} title="Find a sandbox, a page or an action">
+          <Search size={15} aria-hidden />
+          <span className="label">Find…</span>
+          <kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
+        </button>
+        <nav className="nav" aria-label="Pages">
+          <NavItem icon={LayoutDashboard} active={page === "overview"} title="Home" onClick={() => go("overview")} />
+          <NavItem icon={SquareTerminal} active={page === "terminals"} title="Terminals" badge={sessions.length || undefined} onClick={() => go("terminals")} />
+          <NavItem icon={Bell} active={page === "notifications"} title="Notifications" badge={blocked.length || undefined} onClick={() => go("notifications")} />
+          <NavItem icon={ChartColumn} active={page === "usage"} title="Usage" onClick={() => go("usage")} />
+        </nav>
+        <span className="nav-label">
+          <span className="label">Sandboxes</span>
+          <button className="add" title="New sandbox" aria-label="New sandbox" onClick={() => go("new")}>
+            <Plus size={15} />
+          </button>
+        </span>
+        <nav className="nav boxes" aria-label="Sandboxes">
+          {sandboxes.map((s) => (
+            <Fragment key={s.name}>
+              <div className={s.name === current?.name ? "box-item active" : "box-item"}>
+                <button className="grow" onClick={() => go("sandbox", s.name)} title={s.name}>
+                  <span className={s.paused ? "dot paused" : s.running ? "dot on" : "dot"} />
+                  <span className="grow label">
+                    <strong>{s.name}</strong>
+                    <small>{s.job?.state === "running" ? "installing…" : s.paused ? "paused" : agentsOf(s, recipes) || (s.running ? "running" : "stopped")}</small>
+                  </span>
+                </button>
+                <button
+                  className="power"
+                  title={s.running ? `Stop ${s.name}` : `Start ${s.name}`}
+                  aria-label={s.running ? `Stop ${s.name}` : `Start ${s.name}`}
+                  onClick={() => act(() => (s.running ? api.stop(s.name) : api.start(s.name)))}
+                >
+                  <Power size={14} />
+                </button>
+              </div>
+              {/* Its open terminals, one line each. */}
+              {sessions
+                .filter((t) => t.sandbox === s.name)
+                .map((t) => (
+                  <div key={t.id} className={onScreen?.id === t.id ? "sub-item active" : "sub-item"}>
+                    <button
+                      className="grow"
+                      onClick={() => {
+                        go("sandbox", s.name);
+                        setTabs((all) => ({ ...all, [s.name]: "terminal" }));
+                        pick(t);
+                      }}
+                    >
+                      <span className="prompt" aria-hidden="true">
+                        &gt;_
+                      </span>
+                      <span className="label">{t.title}</span>
+                    </button>
+                    <button className="icon" title="Close this terminal" aria-label={`Close ${t.title} in ${s.name}`} onClick={() => closeTerminal(t.id)}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+            </Fragment>
+          ))}
+          {sandboxes.length === 0 && (
+            <button className="nav-item" onClick={() => go("new")}>
+              <Plus size={16} aria-hidden />
+              <span className="label">Create your first sandbox</span>
+            </button>
+          )}
+        </nav>
+        <div className="side-foot">
           <NavItem
-            icon={<SquareTerminal size={17} />}
-            active={page === "terminals"}
-            title="Terminals"
-            note={sessions.length === 0 ? "none open" : `${sessions.length} open`}
-            badge={sessions.length || undefined}
-            onClick={() => go("terminals")}
-          />
-          <NavItem
-            icon={<Bell size={17} />}
-            active={page === "notifications"}
-            title="Notifications"
-            note={blocked.length === 0 ? "nothing blocked" : `${blocked.length} blocked`}
-            badge={blocked.length || undefined}
-            onClick={() => go("notifications")}
-          />
-          <NavItem icon={<ChartColumn size={17} />} active={page === "usage"} title="Usage" note="tokens and costs" onClick={() => go("usage")} />
-          <NavItem icon={<SettingsIcon size={17} />} active={page === "settings"} title="Settings" note={release?.newer ? `version ${(release.latest ?? "").replace(/^v/, "")} is available` : "plugins, secrets, network"}
+            icon={SettingsIcon}
+            active={page === "settings"}
+            title={release?.newer ? `Settings · ${(release.latest ?? "").replace(/^v/, "")} is out` : "Settings"}
             badge={release?.newer ? 1 : undefined}
             onClick={() => {
               if (release?.newer) setSettingsTab("about");
               go("settings");
             }}
           />
-          <span className="nav-label">
-            <span className="label">Sandboxes</span>
-            <button className="add" title="New sandbox" aria-label="New sandbox" onClick={() => go("new")}>
-              <Plus size={14} />
-            </button>
-          </span>
-          {sandboxes.map((s) => (
-            <Fragment key={s.name}>
-            <div className={s.name === current?.name ? "item active" : "item"}>
-              <button className="grow" onClick={() => go("sandbox", s.name)} title={s.name}>
-                <span className={s.paused ? "dot paused" : s.running ? "dot on" : "dot"} />
-                <span className="initials" aria-hidden="true">
-                  {s.name.slice(0, 2)}
-                </span>
-                <span className="grow label">
-                  <strong>{s.name}</strong>
-                  <small>{s.job?.state === "running" ? "installing…" : s.paused ? "paused" : agentsOf(s, recipes) || (s.running ? "running" : "stopped")}</small>
-                </span>
-              </button>
-              <button
-                className="power"
-                title={s.running ? `Stop ${s.name}` : `Start ${s.name}`}
-                aria-label={s.running ? `Stop ${s.name}` : `Start ${s.name}`}
-                onClick={() => act(() => (s.running ? api.stop(s.name) : api.start(s.name)))}
-              >
-                <Power size={13} />
-              </button>
-            </div>
-            {/* Its open terminals, one line each. */}
-            {sessions
-              .filter((t) => t.sandbox === s.name)
-              .map((t) => (
-                <div key={t.id} className={onScreen?.id === t.id ? "subitem active" : "subitem"}>
-                  <button
-                    className="grow"
-                    onClick={() => {
-                      go("sandbox", s.name);
-                      setTabs((all) => ({ ...all, [s.name]: "terminal" }));
-                      pick(t);
-                    }}
-                  >
-                    <span className="prompt" aria-hidden="true">
-                      &gt;_
-                    </span>
-                    <span className="label">{t.title}</span>
-                  </button>
-                  <button className="power" title="Close this terminal" aria-label={`Close ${t.title} in ${s.name}`} onClick={() => closeTerminal(t.id)}>
-                    ×
-                  </button>
-                </div>
-              ))}
-            </Fragment>
-          ))}
-          {sandboxes.length === 0 && <p className="muted pad">No sandboxes yet.</p>}
-        </nav>
-        <button
-          className={lockdown ? "lockdown active" : "lockdown"}
-          title="Blocks every connection of every sandbox at once and stops open ones"
-          onClick={() => act(() => api.setLockdown(!lockdown))}
-        >
-          <ShieldAlert size={16} aria-hidden="true" />
-          <span className="label">{lockdown ? "Lift network lockdown" : "Emergency stop"}</span>
-        </button>
+          <button
+            className={lockdown ? "nav-item lockdown active" : "nav-item lockdown"}
+            title="Blocks every connection of every sandbox at once and stops open ones"
+            onClick={() => act(() => api.setLockdown(!lockdown))}
+          >
+            <ShieldAlert size={17} aria-hidden="true" />
+            <span className="label">{lockdown ? "Lift network lockdown" : "Emergency stop"}</span>
+          </button>
+        </div>
       </aside>
       <main>
         {outdated && (
@@ -270,7 +318,19 @@ export function App() {
           </div>
         )}
 
-        {page === "overview" && <Overview sandboxes={sandboxes} open={(name) => go("sandbox", name)} act={act} />}
+        {page === "overview" && (
+          <Overview
+            sandboxes={sandboxes}
+            recipes={recipes}
+            open={(name) => go("sandbox", name)}
+            openTerminal={(name) => {
+              go("sandbox", name);
+              openTerminal(name, "Shell");
+            }}
+            create={() => go("new")}
+            act={act}
+          />
+        )}
 
         {page === "sandbox" &&
           (current ? (
@@ -442,20 +502,13 @@ const SETTINGS_TABS: [SettingsTab, string][] = [
   ["about", "About"],
 ];
 
-function NavItem(props: { icon: React.ReactNode; active: boolean; title: string; note: string; badge?: number; onClick: () => void }) {
+function NavItem(props: { icon: LucideIcon; active: boolean; title: string; badge?: number; onClick: () => void }) {
   return (
-    <div className={props.active ? "item active" : "item"}>
-      <button className="grow" onClick={props.onClick} title={props.title}>
-        <span className="glyph" aria-hidden="true">
-          {props.icon}
-        </span>
-        <span className="grow label">
-          <strong>{props.title}</strong>
-          <small>{props.note}</small>
-        </span>
-        {props.badge !== undefined && <span className="badge">{props.badge}</span>}
-      </button>
-    </div>
+    <button className={props.active ? "nav-item active" : "nav-item"} onClick={props.onClick} title={props.title} aria-current={props.active ? "page" : undefined}>
+      <props.icon size={17} aria-hidden />
+      <span className="label">{props.title}</span>
+      {props.badge !== undefined && <span className="badge">{props.badge}</span>}
+    </button>
   );
 }
 
