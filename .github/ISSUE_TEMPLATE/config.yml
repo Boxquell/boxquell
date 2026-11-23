@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/Boxquell/boxquell/security/advisories/new
     about: Report a way around a sandbox boundary privately.
   - name: A recipe is missing or broken
-    url: https://github.com/Boxquell/boxquell-tools/issues
-    about: Recipes live in the agents, languages and tools repositories.
+    url: https://github.com/Boxquell/boxquell-tools/issues/new/choose
+    about: Recipes live in the agents, languages and tools repositories; systems in boxquell-os.

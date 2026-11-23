@@ -250,6 +250,8 @@ export const api = {
   agentImport: (sandbox: string | null, items: { instructions?: string[]; skills?: string[]; mcp?: string[] }) =>
     call<AgentConfig>("POST", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`, items),
   folders: (path?: string, hidden = false) => call<FolderListing>("GET", `/api/folders?hidden=${hidden}${path ? `&path=${encodeURIComponent(path)}` : ""}`),
+  /** Open a web address in the user's browser (needed inside the desktop app). */
+  openLink: (url: string) => call<unknown>("POST", "/api/open", { url }),
   host: () => call<HostInfo>("GET", "/api/host"),
   about: () => call<AboutInfo>("GET", "/api/about"),
   notices: () => call<{ text: string }>("GET", "/api/notices"),

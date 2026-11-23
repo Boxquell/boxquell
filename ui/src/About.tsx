@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { Bug, ExternalLink, Lightbulb, RefreshCw, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type AboutInfo, type UpdateInfo } from "./api";
 
@@ -16,6 +16,8 @@ function Changelog(props: { text: string }) {
     </div>
   );
 }
+
+const REPOSITORY = "https://github.com/Boxquell/boxquell";
 
 export function About() {
   const [about, setAbout] = useState<AboutInfo | null>(null);
@@ -72,6 +74,22 @@ export function About() {
             </a>
           )}
         </p>
+      </section>
+
+      <section>
+        <h3>Help and feedback</h3>
+        <p className="muted">Both open a form on GitHub in your browser. Nothing is sent before you submit it there.</p>
+        <div className="actions left">
+          <a className="button" href={`${about?.repository ?? REPOSITORY}/issues/new?template=bug.yml&system=${encodeURIComponent(`boxquell ${about?.version ?? ""}`)}`} target="_blank" rel="noreferrer">
+            <Bug size={15} aria-hidden="true" /> Report a bug
+          </a>
+          <a className="button" href={`${about?.repository ?? REPOSITORY}/issues/new?template=feature.yml`} target="_blank" rel="noreferrer">
+            <Lightbulb size={15} aria-hidden="true" /> Request a feature
+          </a>
+          <a className="button" href={`${about?.repository ?? REPOSITORY}/security/advisories/new`} target="_blank" rel="noreferrer" title="For ways around a sandbox boundary: reported privately">
+            <ShieldAlert size={15} aria-hidden="true" /> Report a security problem
+          </a>
+        </div>
       </section>
 
       <section>

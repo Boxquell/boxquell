@@ -563,6 +563,35 @@ async fn console_log(State(daemon): App, Path(name): Path<String>, Query(query):
     Ok(Json(json!({ "text": tail(&daemon.home.sandbox(&name).join("console.log"), query.lines) })))
 }
 
+#[derive(Deserialize)]
+struct OpenBody {
+    url: String,
+}
+
+/// Open a web address in the user's browser. The desktop app's window cannot
+/// open links itself, so it asks the daemon, which runs as the same user.
+async fn open_link(Json(body): Json<OpenBody>) -> ApiResult {
+    let url = body.url.trim();
+    let web = (url.starts_with("https://") || url.starts_with("http://")) && !url.contains(char::is_whitespace) && !url.contains(char::is_control);
+    if !web {
+        return Err(anyhow::anyhow!("only web addresses can be opened").into());
+    }
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(Json(json!({})))
+}
+
 /// What this computer has, so the interface can offer sensible limits for a sandbox.
 async fn host() -> ApiResult {
     let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
@@ -678,6 +707,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/os", get(systems))
         .route("/api/os/{id}/build", post(build_system))
         .route("/api/folders", get(folders))
+        .route("/api/open", post(open_link))
         .route("/api/host", get(host))
         .route("/api/about", get(about))
         .route("/api/notices", get(notices))
