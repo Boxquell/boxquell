@@ -426,6 +426,33 @@ fn agent_config(dir: &std::path::Path) -> ApiResult {
     Ok(Json(serde_json::to_value(boxquell_core::agentcfg::load(dir))?))
 }
 
+#[derive(Deserialize)]
+struct ImportBody {
+    #[serde(default)]
+    instructions: Vec<String>,
+    #[serde(default)]
+    skills: Vec<String>,
+    #[serde(default)]
+    mcp: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ScopeQuery {
+    sandbox: Option<String>,
+}
+
+/// Skills, instructions and MCP servers of this computer's own agents that the set does not have yet.
+async fn agent_suggestions(State(daemon): App, Query(scope): Query<ScopeQuery>) -> ApiResult {
+    let dir = agent_dir(&daemon, scope.sandbox.as_deref())?;
+    Ok(Json(serde_json::to_value(boxquell_core::agentcfg::suggestions(&dir))?))
+}
+
+async fn agent_import(State(daemon): App, Query(scope): Query<ScopeQuery>, Json(body): Json<ImportBody>) -> ApiResult {
+    let dir = agent_dir(&daemon, scope.sandbox.as_deref())?;
+    boxquell_core::agentcfg::import(&dir, &body.instructions, &body.skills, &body.mcp)?;
+    agent_config(&dir)
+}
+
 async fn global_agent_config(State(daemon): App) -> ApiResult {
     agent_config(&agent_dir(&daemon, None)?)
 }
@@ -501,6 +528,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
         .route("/api/stats", get(stats))
         .route("/api/agent-config", get(global_agent_config).put(set_global_agent_config))
+        .route("/api/agent-suggestions", get(agent_suggestions).post(agent_import))
         .route("/api/agent-config/skills", post(add_global_skill))
         .route("/api/agent-config/skills/{skill}", delete(remove_global_skill))
         .route("/api/sandboxes/{name}/agent-config", get(sandbox_agent_config).put(set_sandbox_agent_config))

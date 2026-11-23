@@ -296,3 +296,5 @@ button.lockdown .glyph { color: inherit; }
 @media (max-width: 760px) { .terminals.full, .layout.collapsed .terminals.full { left: 0; } .layout.collapsed { grid-template-columns: 1fr; } }
 .layout.collapsed .glyph { font-size: 17px; width: auto; }
 .layout.collapsed .item > button { min-height: 40px; }
+.offers { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.offers .rules { max-height: 132px; overflow-y: auto; }

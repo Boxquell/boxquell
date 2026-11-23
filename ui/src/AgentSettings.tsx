@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type AgentConfig } from "./api";
+import { api, type AgentConfig, type Found, type Suggestions } from "./api";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
@@ -14,14 +14,18 @@ export function AgentSettings(props: { sandbox: string | null; act: Act }) {
   const [mcp, setMcp] = useState("");
   const [skillPath, setSkillPath] = useState("");
 
+  const [found, setFound] = useState<Suggestions>({ instructions: [], skills: [], mcp: [] });
   const show = (next: AgentConfig) => {
     setConfig(next);
     setInstructions(next.instructions);
     setMcp(next.mcp);
+    // What is on offer depends on what the set already has.
+    api.agentSuggestions(sandbox).then(setFound, () => {});
   };
   useEffect(() => {
     api.agentConfig(sandbox).then(show, () => {});
   }, [sandbox]);
+  const take = (items: { instructions?: string[]; skills?: string[]; mcp?: string[] }) => act(() => api.agentImport(sandbox, items).then(show));
 
   if (!config) return <section className="centered muted">Loading…</section>;
   const changed = instructions !== config.instructions || mcp !== config.mcp;
@@ -34,6 +38,7 @@ export function AgentSettings(props: { sandbox: string | null; act: Act }) {
         <p className="muted">
           {scope} Agents read it as their global instructions: CLAUDE.md for Claude Code, AGENTS.md for Codex, opencode and pi.
         </p>
+        <Offers title="Found on this computer" items={found.instructions} label={(f) => f.origin} onTake={(f) => take({ instructions: [f.origin] })} />
         <textarea rows={8} spellCheck={false} placeholder={"# How to work here\n\n- Answer briefly.\n- Run the tests before you say something works."} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
       </section>
 
@@ -44,6 +49,12 @@ export function AgentSettings(props: { sandbox: string | null; act: Act }) {
           other agents. A server that talks to the network needs its hosts allowed. Tokens written here enter the sandbox as they are; use the
           placeholder of a secret instead.
         </p>
+        <Offers
+          title="Known to your agents on this computer"
+          items={found.mcp}
+          label={(f) => `${f.name}${f.detail ? ` · ${f.detail}` : ""}${f.has_secrets ? " · carries environment values or headers" : ""}`}
+          onTake={(f) => take({ mcp: [f.name] })}
+        />
         <textarea
           rows={8}
           spellCheck={false}
@@ -73,6 +84,7 @@ export function AgentSettings(props: { sandbox: string | null; act: Act }) {
           ))}
           {config.skills.length === 0 && <li className="muted">none</li>}
         </ul>
+        <Offers title="Found on this computer" items={found.skills} label={(f) => f.name} onTake={(f) => take({ skills: [f.name] })} all={() => take({ skills: found.skills.map((f) => f.name) })} />
         <form
           className="row"
           onSubmit={(event) => {
@@ -91,5 +103,32 @@ export function AgentSettings(props: { sandbox: string | null; act: Act }) {
         </p>
       </section>
     </>
+  );
+}
+
+/** Things that exist on this computer already, each with a button to take it over. */
+function Offers(props: { title: string; items: Found[]; label: (item: Found) => string; onTake: (item: Found) => void; all?: () => void }) {
+  if (props.items.length === 0) return null;
+  return (
+    <div className="offers">
+      <span className="muted">
+        {props.title}
+        {props.all && props.items.length > 1 && (
+          <button className="link" onClick={props.all}>
+            add all {props.items.length}
+          </button>
+        )}
+      </span>
+      <ul className="rules">
+        {props.items.map((item) => (
+          <li key={`${item.origin}/${item.name}`} title={`${item.origin}\n${item.detail}`}>
+            {props.label(item)}
+            <button className="link" onClick={() => props.onTake(item)}>
+              add
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

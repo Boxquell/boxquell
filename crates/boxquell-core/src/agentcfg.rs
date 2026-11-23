@@ -192,6 +192,116 @@ pub fn guest_files(global: &Path, sandbox: &Path) -> Vec<GuestFile> {
     files
 }
 
+/// Something found on this computer that could be handed to the sandboxes.
+#[derive(Debug, Serialize)]
+pub struct Found {
+    pub name: String,
+    /// Where it was found, e.g. `~/.claude/skills`.
+    pub origin: String,
+    /// For skills and instructions: the path. For MCP servers: what they start or connect to.
+    pub detail: String,
+    /// MCP servers only: the definition carries environment values or headers, which may be credentials.
+    pub has_secrets: bool,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct Suggestions {
+    pub instructions: Vec<Found>,
+    pub skills: Vec<Found>,
+    pub mcp: Vec<Found>,
+}
+
+const HOST_INSTRUCTIONS: [&str; 4] = [".claude/CLAUDE.md", ".codex/AGENTS.md", ".config/opencode/AGENTS.md", ".pi/agent/AGENTS.md"];
+const HOST_SKILL_DIRS: [&str; 3] = [".claude/skills", ".agents/skills", ".codex/skills"];
+
+/// The MCP servers the user's own agents know: Claude Code's user-level ones and Codex's.
+fn host_servers(home_dir: &Path) -> Vec<(String, String, Value)> {
+    let mut found = Vec::new();
+    let claude = std::fs::read(home_dir.join(".claude.json")).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    if let Some(Value::Object(servers)) = claude.and_then(|mut config| config.get_mut("mcpServers").map(Value::take)) {
+        found.extend(servers.into_iter().map(|(name, server)| (name, "~/.claude.json".to_string(), server)));
+    }
+    let codex = std::fs::read_to_string(home_dir.join(".codex/config.toml")).ok().and_then(|text| toml::from_str::<Value>(&text).ok());
+    if let Some(Value::Object(servers)) = codex.and_then(|mut config| config.get_mut("mcp_servers").map(Value::take)) {
+        found.extend(servers.into_iter().map(|(name, server)| (name, "~/.codex/config.toml".to_string(), server)));
+    }
+    found.retain(|(name, _, server)| valid_name(name) && server.is_object());
+    found
+}
+
+/// What exists on this computer and is not part of the set in `dir` yet.
+pub fn suggestions(dir: &Path) -> Suggestions {
+    let Some(home_dir) = std::env::home_dir() else { return Suggestions::default() };
+    let current = load(dir);
+    let mut out = Suggestions::default();
+
+    for file in HOST_INSTRUCTIONS {
+        let path = home_dir.join(file);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if !text.trim().is_empty() && !current.instructions.contains(text.trim()) {
+            out.instructions.push(Found {
+                name: file.rsplit('/').next().unwrap_or(file).to_string(),
+                origin: format!("~/{file}"),
+                detail: path.display().to_string(),
+                has_secrets: false,
+            });
+        }
+    }
+    for skill_dir in HOST_SKILL_DIRS {
+        let mut names: Vec<_> =
+            std::fs::read_dir(home_dir.join(skill_dir)).into_iter().flatten().flatten().filter(|e| e.path().join("SKILL.md").is_file()).collect();
+        names.sort_by_key(|e| e.file_name());
+        for entry in names {
+            let Ok(name) = entry.file_name().into_string() else { continue };
+            // The same skill is often present for several agents; offer it once.
+            if valid_name(&name) && !current.skills.contains(&name) && !out.skills.iter().any(|found| found.name == name) {
+                out.skills.push(Found { name, origin: format!("~/{skill_dir}"), detail: entry.path().display().to_string(), has_secrets: false });
+            }
+        }
+    }
+    let existing = servers(&current.mcp).unwrap_or_default();
+    for (name, origin, server) in host_servers(&home_dir) {
+        if existing.contains_key(&name) || out.mcp.iter().any(|found| found.name == name) {
+            continue;
+        }
+        let detail = server["url"].as_str().or(server["command"].as_str()).unwrap_or("").to_string();
+        let filled = |key: &str| server[key].as_object().is_some_and(|map| !map.is_empty());
+        out.mcp.push(Found { name, origin, detail, has_secrets: filled("env") || filled("headers") });
+    }
+    out
+}
+
+/// Take over what [`suggestions`] offered: instructions files are appended,
+/// skills copied, MCP servers added. Only items from the suggestions are accepted.
+pub fn import(dir: &Path, instructions: &[String], skills: &[String], mcp: &[String]) -> Result<()> {
+    let home_dir = std::env::home_dir().context("cannot find your home directory")?;
+    let offered = suggestions(dir);
+    let mut current = load(dir);
+
+    for origin in instructions {
+        let found = offered.instructions.iter().find(|f| f.origin == *origin).with_context(|| format!("{origin} is not on offer"))?;
+        let text = std::fs::read_to_string(&found.detail)?;
+        current.instructions =
+            [current.instructions.trim(), text.trim()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n");
+    }
+    let mut merged = servers(&current.mcp)?;
+    let mut host = host_servers(&home_dir);
+    for name in mcp {
+        ensure!(offered.mcp.iter().any(|f| f.name == *name), "the MCP server {name:?} is not on offer");
+        if let Some(at) = host.iter().position(|(n, _, _)| n == name) {
+            let (name, _, server) = host.swap_remove(at);
+            merged.insert(name, server);
+        }
+    }
+    let mcp_text = if merged.is_empty() { String::new() } else { serde_json::to_string_pretty(&merged)? };
+    save(dir, &current.instructions, &mcp_text)?;
+    for name in skills {
+        let found = offered.skills.iter().find(|f| f.name == *name).with_context(|| format!("the skill {name:?} is not on offer"))?;
+        add_skill(dir, Path::new(&found.detail))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

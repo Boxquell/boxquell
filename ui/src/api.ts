@@ -93,6 +93,20 @@ export interface AgentConfig {
   path: string;
 }
 
+/** Something on this computer that could be handed to the sandboxes. */
+export interface Found {
+  name: string;
+  origin: string;
+  detail: string;
+  has_secrets: boolean;
+}
+
+export interface Suggestions {
+  instructions: Found[];
+  skills: Found[];
+  mcp: Found[];
+}
+
 export interface Settings {
   notify_blocked: boolean;
   toast_blocked: boolean;
@@ -181,6 +195,9 @@ export const api = {
   setAgentConfig: (sandbox: string | null, instructions: string, mcp: string) => call<AgentConfig>("PUT", agentPath(sandbox), { instructions, mcp }),
   addSkill: (sandbox: string | null, path: string) => call<AgentConfig>("POST", `${agentPath(sandbox)}/skills`, { path }),
   removeSkill: (sandbox: string | null, skill: string) => call<AgentConfig>("DELETE", `${agentPath(sandbox)}/skills/${encodeURIComponent(skill)}`),
+  agentSuggestions: (sandbox: string | null) => call<Suggestions>("GET", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`),
+  agentImport: (sandbox: string | null, items: { instructions?: string[]; skills?: string[]; mcp?: string[] }) =>
+    call<AgentConfig>("POST", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`, items),
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
