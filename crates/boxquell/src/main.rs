@@ -346,12 +346,14 @@ fn ssh_into(client: &Client, name: &str, remote: Option<String>) -> Result<()> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if let Cmd::VmRun { library, spec } = &cli.command {
+        // On success the process has become the VM and never gets here.
         #[cfg(unix)]
+        match boxquell_vm::krun::enter(library, &serde_json::from_str(spec)?)? {}
+        #[cfg(not(unix))]
         {
-            boxquell_vm::krun::enter(library, &serde_json::from_str(spec)?)?;
+            let _ = (library, spec);
+            bail!("the libkrun backend is not available on this system");
         }
-        let _ = (library, spec);
-        bail!("the libkrun backend is not available on this system");
     }
     let home = Home::locate()?;
     match cli.command {

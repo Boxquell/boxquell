@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+serde.workspace = true
+
+# libkrun is loaded on Unix only.
+[target.'cfg(unix)'.dependencies]
 anyhow.workspace = true
 libloading.workspace = true
-serde.workspace = true
