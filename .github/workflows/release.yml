@@ -205,9 +205,44 @@ jobs:
             boxquell-*.zip
           if-no-files-found: error
 
+  sbom:
+    name: Software bill of materials
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
+        with:
+          tool: cargo-cyclonedx
+      # Everything that ends up in the binary, in CycloneDX form: the Rust
+      # crates of the command, and the npm packages of the embedded interface.
+      - name: Generate
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          scripts/set-version.sh "$VERSION"
+          mkdir sbom
+          cargo cyclonedx --manifest-path crates/boxquell/Cargo.toml --format json --spec-version 1.5 --override-filename sbom
+          mv crates/boxquell/sbom.json "sbom/boxquell-$VERSION.rust.cdx.json"
+          (cd ui && npm ci && npx --yes @cyclonedx/cyclonedx-npm --omit dev --output-format JSON --output-file "../sbom/boxquell-$VERSION.ui.cdx.json")
+          ls -l sbom
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/*.cdx.json
+          if-no-files-found: error
+
   release:
     name: Draft release
-    needs: [guard, build]
+    needs: [guard, build, sbom]
     runs-on: ubuntu-latest
     environment: release
     permissions:

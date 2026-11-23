@@ -239,7 +239,7 @@ flowchart LR
 
 ## Releases
 
-Release binaries are built by GitHub Actions from version tags, with a `SHA256SUMS` file and build provenance (`gh attestation verify <file> --repo Boxquell/boxquell`). The macOS and Windows binaries are signed once the certificates are configured; see [docs/release-signing.md](docs/release-signing.md). Security reports: [SECURITY.md](SECURITY.md).
+Release binaries are built by GitHub Actions from version tags, with a `SHA256SUMS` file, a software bill of materials (CycloneDX) and build provenance (`gh attestation verify <file> --repo Boxquell/boxquell`). The macOS and Windows binaries are signed once the certificates are configured; see [docs/release-signing.md](docs/release-signing.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## Development
 

@@ -23,7 +23,8 @@ A release candidate is `vX.Y.Z-rc.N`; it becomes a pre-release and leaves the ch
 
 1. **Check tag**: the tag has the form `vX.Y.Z`, its commit is on `main`, and the changelog has entries.
 2. **Build**: Linux, macOS (Apple silicon and Intel) and Windows, with the version from the tag (`scripts/set-version.sh`). macOS and Windows are signed when the secrets of the `release` environment exist, see [docs/release-signing.md](docs/release-signing.md).
-3. **Draft release**: archives, `install.sh`, `install.ps1` and `SHA256SUMS` are attached, the checksum file gets a build provenance attestation, and the notes are the install instructions plus the changelog section.
+3. **Software bill of materials**: two CycloneDX files, one for the Rust crates in the command and one for the npm packages of the embedded interface.
+4. **Draft release**: archives, the two `*.cdx.json` files, `install.sh`, `install.ps1` and `SHA256SUMS` are attached, the checksum file gets a build provenance attestation, and the notes are the install instructions plus the changelog section.
 
 The release is a **draft**. Look at the files, try one, then press **Publish** on the Releases page.
 
