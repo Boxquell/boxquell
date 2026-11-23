@@ -38,10 +38,6 @@ impl Home {
     pub fn sandbox(&self, name: &str) -> PathBuf {
         self.sandboxes().join(name)
     }
-    /// Base image; the QEMU kernel and initrd sit next to it as `base.vmlinuz` / `base.initrd`.
-    pub fn base_image(&self) -> PathBuf {
-        self.0.join("images").join("base.img")
-    }
     pub fn recipes(&self) -> PathBuf {
         self.0.join("recipes")
     }

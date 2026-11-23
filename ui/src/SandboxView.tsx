@@ -7,8 +7,7 @@ import { MachineControls } from "./Machine";
 import { NetworkLog } from "./NetworkLog";
 import { Tile, VmLoad, useStats } from "./Overview";
 import { AgentSettings } from "./AgentSettings";
-import { RecipeCards } from "./RecipeCards";
-import { recipeName } from "./RecipePicker";
+import { RecipeCards, recipeName } from "./RecipeCards";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 

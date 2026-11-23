@@ -1,5 +1,4 @@
 import type { Recipe } from "./api";
-import { recipeName } from "./RecipePicker";
 
 const TITLES: Record<Recipe["category"], [string, string]> = {
   agent: ["Agents", "Coding agents that work in this sandbox"],
@@ -7,6 +6,9 @@ const TITLES: Record<Recipe["category"], [string, string]> = {
   tool: ["Tools", "Command-line tools and build helpers"],
   ide: ["IDEs", "Editors that run in the sandbox"],
 };
+
+/** `languages:node@22` → `languages:node`. */
+export const recipeName = (entry: string) => entry.split("@")[0];
 
 /** A stable colour per recipe, so each card is recognisable at a glance. */
 function hue(id: string): number {

@@ -28,11 +28,8 @@ grep -q ' boxquell$' /etc/hosts || echo '127.0.1.1 boxquell' >> /etc/hosts
 resize2fs /dev/vda >/dev/null 2>&1 || true
 
 # Per-boot configuration from the host: a tar archive on the second disk.
-# Disks created before the project was renamed from cbox.
-[ -f /etc/ssl/boxquell-base-ca.crt ] || cp /etc/ssl/cbox-base-ca.crt /etc/ssl/boxquell-base-ca.crt 2>/dev/null \
-  || cp /etc/ssl/certs/ca-certificates.crt /etc/ssl/boxquell-base-ca.crt
-rm -f /etc/profile.d/cbox.sh
-[ -d /var/lib/cbox ] && [ ! -e /var/lib/boxquell ] && mv /var/lib/cbox /var/lib/boxquell
+# A system built by hand may lack the saved copy of its certificate bundle.
+[ -f /etc/ssl/boxquell-base-ca.crt ] || cp /etc/ssl/certs/ca-certificates.crt /etc/ssl/boxquell-base-ca.crt
 
 mkdir -p /run/boxquell
 [ -b /dev/vdb ] && tar -xf /dev/vdb -C /run/boxquell 2>/dev/null

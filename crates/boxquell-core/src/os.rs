@@ -74,13 +74,9 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-/// The disk image of a system. Images from before systems could be chosen are `base.img`.
+/// The disk image of a system.
 pub fn image(home: &Home, id: &str) -> PathBuf {
-    let path = home.root().join("images").join(format!("{id}.img"));
-    if id == DEFAULT && !path.exists() {
-        return home.base_image();
-    }
-    path
+    home.root().join("images").join(format!("{id}.img"))
 }
 
 /// The family of a built system; recipes are checked against it.
@@ -92,12 +88,7 @@ pub fn family(home: &Home, id: &str) -> String {
 /// The package manager hosts of a built system, which stand in for `@packages` in recipes.
 pub fn package_hosts(home: &Home, id: &str) -> Vec<String> {
     let record = std::fs::read(home.root().join("images").join(format!("{id}.json"))).ok();
-    let hosts = record.and_then(|bytes| serde_json::from_slice::<Built>(&bytes).ok()).map(|built| built.package_hosts).unwrap_or_default();
-    // Images from before this was recorded are Debian.
-    if hosts.is_empty() && family(home, id) == DEFAULT_FAMILY {
-        return vec!["deb.debian.org".into(), "security.debian.org".into()];
-    }
-    hosts
+    record.and_then(|bytes| serde_json::from_slice::<Built>(&bytes).ok()).map(|built| built.package_hosts).unwrap_or_default()
 }
 
 /// Every definition in the added repositories. On equal ids the official repository wins.
@@ -128,23 +119,6 @@ pub fn definitions(home: &Home) -> Vec<OsDef> {
                 all.push(def);
             }
         }
-    }
-    // An image built before systems could be chosen has no definition at hand; show it anyway.
-    if !all.iter().any(|def| def.id == DEFAULT) && image(home, DEFAULT).exists() {
-        all.insert(
-            0,
-            OsDef {
-                id: DEFAULT.into(),
-                name: "Debian".into(),
-                description: "The image already on this computer.".into(),
-                family: DEFAULT_FAMILY.into(),
-                package_hosts: Vec::new(),
-                image: String::new(),
-                setup: String::new(),
-                source: String::new(),
-                built: true,
-            },
-        );
     }
     all
 }
