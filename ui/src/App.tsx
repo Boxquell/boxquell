@@ -22,6 +22,15 @@ export function App() {
     return query.get("box") ? "sandbox" : wanted && ["terminals", "settings", "new"].includes(wanted) ? wanted : "overview";
   });
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  // The sidebar can be folded away; the choice is remembered in this browser.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("boxquell-sidebar") === "collapsed");
+  const toggleSidebar = () =>
+    setCollapsed((now) => {
+      localStorage.setItem("boxquell-sidebar", now ? "open" : "collapsed");
+      return !now;
+    });
+  /** Terminals fill everything right of the sidebar. */
+  const [fullscreen, setFullscreen] = useState(false);
   /** The terminal shown on the Terminals page. */
   const [focused, setFocused] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,11 +118,14 @@ export function App() {
   };
 
   return (
-    <div className="layout">
+    <div className={collapsed ? "layout collapsed" : "layout"}>
       <aside>
         <h1 className="brand">
           <img src="/icon.svg" alt="" width="28" height="28" />
-          Boxquell
+          <span className="grow">Boxquell</span>
+          <button className="fold" title="Hide the sidebar" aria-label="Hide the sidebar" onClick={toggleSidebar}>
+            ‹
+          </button>
         </h1>
         <nav>
           <NavItem active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
@@ -186,6 +198,11 @@ export function App() {
         </button>
       </aside>
       <main>
+        {collapsed && (
+          <button className="unfold" title="Show the sidebar" aria-label="Show the sidebar" onClick={toggleSidebar}>
+            ›
+          </button>
+        )}
         {outdated && (
           <div className="warning" role="alert">
             <strong>The running daemon is older than this page.</strong>
@@ -302,7 +319,7 @@ export function App() {
         )}
 
         {/* All terminals live here, on every page, so none loses its connection. */}
-        <section className={listed.length > 0 ? "terminals" : "hidden"}>
+        <section className={listed.length === 0 ? "hidden" : fullscreen ? "terminals full" : "terminals"}>
           <div className="tabs">
             {listed.map((s) => (
               <span key={s.id} className={onScreen?.id === s.id ? "tab active" : "tab"}>
@@ -315,6 +332,8 @@ export function App() {
                 </button>
               </span>
             ))}
+            <span className="grow" />
+            <button onClick={() => setFullscreen((now) => !now)}>{fullscreen ? "Exit full screen" : "Full screen"}</button>
           </div>
           {sessions.map((s) => (
             <Terminal key={s.id} session={s} visible={onScreen?.id === s.id} onExit={() => {}} />

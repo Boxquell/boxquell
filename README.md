@@ -19,6 +19,10 @@
   <img src="docs/screenshot.png" width="880" alt="The Boxquell web UI: a list of sandboxes and one sandbox with its tabs Terminal, Software, Network, Secrets and Settings">
 </p>
 
+<p align="center">
+  <img src="docs/screenshot-terminals.png" width="880" alt="The Terminals page: a shell running inside a sandbox, in the browser">
+</p>
+
 ## Why
 
 Coding agents such as Claude Code, Codex, opencode or pi run commands on your machine, read your files and talk to the internet. Boxquell gives each of them its own small virtual machine:
@@ -59,6 +63,13 @@ Or pick everything in a form (`boxquell new`), or use the browser:
 
 ```sh
 boxquell ui
+```
+
+Shell completion for bash, zsh, fish and PowerShell:
+
+```sh
+boxquell completions fish > ~/.config/fish/completions/boxquell.fish
+boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 ```
 
 ## What you can do

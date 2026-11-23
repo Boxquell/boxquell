@@ -98,6 +98,11 @@ enum Cmd {
     Ls,
     /// Check that this host can run sandboxes
     Doctor,
+    /// Print a completion script for your shell, e.g. `boxquell completions fish > ~/.config/fish/completions/boxquell.fish`
+    Completions {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
     /// Open the web UI for all sandboxes in the browser
     Ui {
         /// Only print the address
@@ -403,8 +408,14 @@ fn main() -> Result<()> {
             bail!("the libkrun backend is not available on this system");
         }
     }
+    if let Cmd::Completions { shell } = &cli.command {
+        use clap::CommandFactory;
+        clap_complete::generate(*shell, &mut Cli::command(), "boxquell", &mut std::io::stdout());
+        return Ok(());
+    }
     let home = Home::locate()?;
     match cli.command {
+        Cmd::Completions { .. } => unreachable!("handled above"),
         Cmd::VmRun { .. } => unreachable!("handled above"),
         Cmd::Daemon { stop: true } => match Client::existing(&home) {
             Some(client) => client.post("/api/shutdown", json!({})).map(drop)?,

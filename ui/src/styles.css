@@ -270,3 +270,15 @@ legend { font-weight: 600; padding: 0 0 4px; }
 .subitem.active { background: var(--fill-strong); }
 .subitem.active > .grow { font-weight: 600; }
 .prompt { font: 11px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+
+/* ---------- Folding sidebar, full-screen terminals ---------- */
+.layout.collapsed { grid-template-columns: 0 1fr; }
+.layout.collapsed aside { display: none; }
+.fold { min-height: 24px; width: 24px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; color: var(--muted); background: none; }
+.unfold { position: fixed; left: 10px; top: 10px; z-index: 15; width: 28px !important; min-height: 28px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; background: var(--raised); box-shadow: var(--shadow); margin: 0 !important; }
+.layout.collapsed > main { padding-left: 52px; }
+.terminals .tabs { align-items: center; }
+.terminals.full { position: fixed; inset: 0 0 0 264px; z-index: 12; max-width: none !important; width: auto !important; margin: 0 !important; border-radius: 0; padding: 10px; background: var(--panel); }
+.layout.collapsed .terminals.full { left: 0; padding-left: 48px; }
+.terminals.full .terminal { height: auto; flex: 1; min-height: 0; border-radius: 8px; }
+@media (max-width: 760px) { .terminals.full { left: 0; } }
