@@ -49,10 +49,14 @@ export interface Sandbox {
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
+  /** Environment variables for sessions in the sandbox */
+  env?: Record<string, string>;
   job: Job | null;
 }
 
 export interface Recipe {
+  /** For agents: the variable that names the model it starts with */
+  model_env?: string | null;
   /** A single-colour SVG drawing, when the definition has one. */
   icon?: string | null;
   /** The brand's colour as `#rrggbb`. */
@@ -261,7 +265,7 @@ export const api = {
   resume: (name: string) => call<Sandbox>("POST", `${box(name)}/resume`, {}),
   stop: (name: string) => call<Sandbox>("POST", `${box(name)}/stop`, {}),
   remove: (name: string) => call<unknown>("DELETE", box(name)),
-  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[] }) => call<Sandbox>("PATCH", box(name), change),
+  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string> }) => call<Sandbox>("PATCH", box(name), change),
   addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
@@ -270,6 +274,9 @@ export const api = {
     call<Sandbox>("PUT", `${box(name)}/secrets/${encodeURIComponent(secret)}`, { value, hosts, env }),
   removeLocalSecret: (name: string, secret: string) => call<Sandbox>("DELETE", `${box(name)}/secrets/${encodeURIComponent(secret)}`),
   setClaudeSettings: (name: string, settings: string) => call<Sandbox>("PUT", `${box(name)}/claude-settings`, { settings }),
+  /** Take over this computer's managed Claude Code settings; they are read by the daemon, not sent from here. */
+  useHostClaudeSettings: (name: string) => call<Sandbox>("PUT", `${box(name)}/claude-settings`, { host: true }),
+  hostClaudeSettings: () => call<{ path: string; present: boolean }>("GET", "/api/claude-settings/host"),
   clearClaudeSettings: (name: string) => call<Sandbox>("DELETE", `${box(name)}/claude-settings`),
   agentConfig: (sandbox: string | null) => call<AgentConfig>("GET", agentPath(sandbox)),
   setAgentConfig: (sandbox: string | null, instructions: string, mcp: string) => call<AgentConfig>("PUT", agentPath(sandbox), { instructions, mcp }),

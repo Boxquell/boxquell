@@ -62,6 +62,10 @@ pub struct Recipe {
     /// For agents: the command that starts it.
     #[serde(default)]
     pub command: Option<String>,
+    /// For agents: the environment variable that names the model it starts
+    /// with, e.g. `ANTHROPIC_MODEL`. The UI offers a field for it.
+    #[serde(default)]
+    pub model_env: Option<String>,
     /// Environment variables for sessions in the guest.
     #[serde(default)]
     pub env: BTreeMap<String, String>,

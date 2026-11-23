@@ -5,6 +5,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Claude Code settings with a key helper (`apiKeyHelper`), as used for sign-in through a company account: the helper keeps running on this computer and its key is put into the sandbox's requests, refreshed before it runs out. This computer's managed settings are taken over with their drop-in files (`managed-settings.d`), in the UI with one button.
+- A model field per agent in a sandbox's Agent tab, for agents whose recipe names the variable (`model_env`).
 - `boxquell mcp`: a Model Context Protocol server, so an assistant on this computer can create sandboxes, run commands in them and read the network log ([docs/mcp.md](docs/mcp.md)).
 - The desktop app is part of releases, and the installers set it up with an entry in the application menu (Linux), Applications (macOS) or the Start menu (Windows).
 - The installers offer to install what is missing (libkrun or QEMU, an SSH client, access to KVM) with the system's package manager.

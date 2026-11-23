@@ -217,6 +217,9 @@ pub struct Daemon {
     roots: Arc<boxquell_net::mitm::RootCertStore>,
     running: Mutex<HashMap<String, Arc<Running>>>,
     /// Latest recipe install per sandbox, started from the UI.
+    /// Secrets that come from a helper command: when each was last fetched, by
+    /// `<sandbox>/<secret>`, and what went wrong the last time, if anything.
+    helper_runs: Mutex<HashMap<String, (std::time::Instant, Option<String>)>>,
     /// What the last look for a newer release found.
     pub release: Mutex<Option<Value>>,
     jobs: Mutex<HashMap<String, Job>>,
@@ -253,6 +256,31 @@ fn tail(path: &Path, lines: usize) -> String {
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 
+/// Run a secret's helper command on this computer and return what it prints.
+fn run_helper(command: &str) -> Result<String> {
+    let mut shell = if cfg!(windows) { std::process::Command::new("cmd") } else { std::process::Command::new("/bin/sh") };
+    shell.arg(if cfg!(windows) { "/C" } else { "-c" }).arg(command).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = shell.spawn().context("the helper could not be started")?;
+    // A helper that waits for someone, e.g. for a sign-in in a browser, must not hold everything up.
+    let started = std::time::Instant::now();
+    while child.try_wait()?.is_none() {
+        if started.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("it did not finish within 30 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let output = child.wait_with_output()?;
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success() || value.is_empty() {
+        let errors = String::from_utf8_lossy(&output.stderr);
+        let last = errors.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it printed nothing");
+        anyhow::bail!("{}", last.trim());
+    }
+    Ok(value)
+}
+
 fn net_secret(def: &SecretDef) -> Secret {
     Secret { name: def.name.clone(), hosts: def.hosts.clone(), placeholder: def.placeholder.clone(), value: def.value.clone() }
 }
@@ -273,6 +301,7 @@ impl Daemon {
             live: broadcast::channel(1024).0,
             shutdown: Notify::new(),
             running: Mutex::new(HashMap::new()),
+            helper_runs: Mutex::default(),
             release: Mutex::default(),
             jobs: Mutex::new(HashMap::new()),
             os_jobs: Mutex::new(HashMap::new()),
@@ -533,6 +562,12 @@ impl Daemon {
     /// What keeps the installed agents from working: missing credentials.
     fn warnings(&self, spec: &SandboxSpec) -> Vec<String> {
         let mut warnings = crate::keyagent::problems(&self.global_ssh_keys().with(&spec.ssh));
+        let prefix = format!("{}/", spec.name);
+        for (key, (_, problem)) in self.helper_runs.lock().unwrap().iter() {
+            if let (Some(secret), Some(problem)) = (key.strip_prefix(&prefix), problem) {
+                warnings.push(format!("The key helper of the secret {secret} failed on this computer: {problem}"));
+            }
+        }
         for name in &spec.secrets {
             if !matches!(self.secrets.get(name), Ok(Some(_))) {
                 warnings.push(format!("The secret {name} is attached but no longer stored."));
@@ -621,10 +656,15 @@ impl Daemon {
     pub fn set_claude_settings(&self, name: &str, text: &str) -> Result<Value> {
         self.spec(name)?;
         let imported = boxquell_core::claude::import(text)?;
-        boxquell_core::write_private(&self.claude_settings_file(name), imported.settings.as_bytes())?;
-        for secret in imported.secrets {
+        for mut secret in imported.secrets {
+            // A key helper has to work here before the sandbox relies on it.
+            if let Some(command) = &secret.helper {
+                secret.value = run_helper(command).with_context(|| format!("the apiKeyHelper `{command}` did not give a key on this computer"))?;
+                self.helper_runs.lock().unwrap().insert(format!("{name}/{}", secret.name), (std::time::Instant::now(), None));
+            }
             self.local_secrets(name).set(secret)?;
         }
+        boxquell_core::write_private(&self.claude_settings_file(name), imported.settings.as_bytes())?;
         self.refresh_secrets()?;
         let rules: Vec<Rule> = imported.rules.iter().map(|rule| rule.parse().map_err(anyhow::Error::msg)).collect::<Result<_>>()?;
         self.update_rules(name, |current| {
@@ -690,6 +730,51 @@ impl Daemon {
         ensure!(entries.iter().all(|entry| !entry.contains(['\n', '\r'])), "a start command must be a single line");
         spec.autostart = entries;
         spec.save(&self.home.sandbox(name))
+    }
+
+    /// Ask the helper commands of a sandbox's secrets for fresh values where
+    /// the last ones are getting old, or for all of them with `force`. This
+    /// runs programs and waits for them: call it off the async threads.
+    pub fn refresh_helpers(&self, name: &str, force: bool) {
+        const DEFAULT_TTL: u64 = 300;
+        let store = self.local_secrets(name);
+        let mut changed = false;
+        for mut secret in store.list().unwrap_or_default() {
+            let Some(command) = secret.helper.clone() else { continue };
+            let key = format!("{name}/{}", secret.name);
+            let ttl = Duration::from_secs(if secret.ttl_secs == 0 { DEFAULT_TTL } else { secret.ttl_secs });
+            // Early enough that a key is never used up to its last second.
+            let fresh = self.helper_runs.lock().unwrap().get(&key).is_some_and(|(at, problem)| problem.is_none() && at.elapsed() < ttl.mul_f32(0.75));
+            if fresh && !force && !secret.value.is_empty() {
+                continue;
+            }
+            let problem = match run_helper(&command) {
+                Ok(value) => {
+                    if value != secret.value {
+                        secret.value = value;
+                        changed |= store.set(secret).is_ok();
+                    }
+                    None
+                }
+                Err(err) => Some(format!("{err:#}")),
+            };
+            self.helper_runs.lock().unwrap().insert(key, (std::time::Instant::now(), problem));
+        }
+        if changed {
+            let _ = self.refresh_secrets();
+        }
+    }
+
+    /// Keep the keys of running sandboxes fresh for as long as the daemon lives.
+    pub async fn keep_helpers(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            let names: Vec<String> = self.running.lock().unwrap().keys().cloned().collect();
+            for name in names {
+                let daemon = self.clone();
+                let _ = tokio::task::spawn_blocking(move || daemon.refresh_helpers(&name, false)).await;
+            }
+        }
     }
 
     /// The SSH keys every sandbox may sign with.
@@ -973,6 +1058,9 @@ impl Daemon {
         }
         let public_key = std::fs::read(key.with_extension("pub"))?;
 
+        // Keys that come from a helper command are fetched before the guest can ask for them.
+        let (daemon, sandbox) = (self.clone(), name.to_string());
+        let _ = tokio::task::spawn_blocking(move || daemon.refresh_helpers(&sandbox, true)).await;
         // The guest sees placeholders only; the gateway holds the real values.
         let secrets = self.sandbox_secrets(&spec)?;
         let mut env = String::from("# Generated by boxquell at every boot.\n");
@@ -1380,8 +1468,10 @@ pub async fn serve(home: Home) -> Result<()> {
     // the sandboxes running under a daemon nobody can reach.
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
     let upkeep = tokio::spawn(daemon.clone().keep_current());
+    let helpers = tokio::spawn(daemon.clone().keep_helpers());
     shutdown.await;
     upkeep.abort();
+    helpers.abort();
     daemon.stop_all().await;
     let _ = std::fs::remove_file(&path);
     server.abort();

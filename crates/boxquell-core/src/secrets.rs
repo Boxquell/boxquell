@@ -14,6 +14,17 @@ pub struct SecretDef {
     pub env: Vec<String>,
     pub placeholder: String,
     pub value: String,
+    /// A command on this computer that prints the value, e.g. a script that
+    /// fetches a short-lived token. With one, `value` is its last output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper: Option<String>,
+    /// How long a helper's output is used before it is asked again, in seconds; 0 for the default.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ttl_secs: u64,
+}
+
+fn is_zero(number: &u64) -> bool {
+    *number == 0
 }
 
 impl std::fmt::Debug for SecretDef {
@@ -39,6 +50,8 @@ impl SecretDef {
             env: env.iter().map(|e| e.to_string()).collect(),
             placeholder: placeholder.to_string(),
             value: String::new(),
+            helper: None,
+            ttl_secs: 0,
         })
     }
 

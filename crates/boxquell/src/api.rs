@@ -251,6 +251,8 @@ fn secret_from(existing: Option<SecretDef>, name: &str, body: SecretBody) -> Sec
         env: vec![],
         placeholder: format!("boxquell-placeholder-{name}"),
         value: String::new(),
+        helper: None,
+        ttl_secs: 0,
     });
     secret.value = body.value.trim().to_string();
     if let Some(hosts) = body.hosts {
@@ -280,11 +282,28 @@ async fn remove_local_secret(State(daemon): App, Path((name, secret)): Path<(Str
 
 #[derive(Deserialize)]
 struct SettingsBody {
+    /// The settings as text; left out with `host`.
+    #[serde(default)]
     settings: String,
+    /// Take this computer's managed settings, drop-in files included. They
+    /// are read here and never travel through the page.
+    #[serde(default)]
+    host: bool,
 }
 
 async fn set_claude_settings(State(daemon): App, Path(name): Path<String>, Json(body): Json<SettingsBody>) -> ApiResult {
-    Ok(Json(daemon.set_claude_settings(&name, &body.settings)?))
+    // A key helper in the settings is run right away, which can take a moment.
+    let info = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let text = if body.host { boxquell_core::claude::host_managed_text()? } else { body.settings };
+        daemon.set_claude_settings(&name, &text)
+    })
+    .await??;
+    Ok(Json(info))
+}
+
+/// Whether this computer has managed Claude Code settings to take over.
+async fn host_claude_settings() -> ApiResult {
+    Ok(Json(json!({ "path": boxquell_core::claude::host_managed_settings(), "present": boxquell_core::claude::host_managed_text().is_ok() })))
 }
 
 async fn clear_claude_settings(State(daemon): App, Path(name): Path<String>) -> ApiResult {
@@ -734,6 +753,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/host", get(host))
         .route("/api/about", get(about))
         .route("/api/notices", get(notices))
+        .route("/api/claude-settings/host", get(host_claude_settings))
         .route("/api/update-check", get(update_check))
         .route("/api/update-status", get(update_status))
         .route("/api/logs/daemon", get(daemon_log))

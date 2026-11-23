@@ -47,6 +47,7 @@ Rules of thumb:
 - Keep `allow` as small as possible: these destinations stay open for the sandbox.
 - The guest is Debian. Install to system paths (`/usr/local`) so every session finds the software.
 - An icon is a small single-colour SVG (under 64 KB, no scripts or links); the UI paints it in the text colour. System definitions in `os/` take the same `icon` line.
+- An agent recipe can name the variable that selects its model, `model_env = "ANTHROPIC_MODEL"`; the UI then offers a model field for it.
 - Never put credentials into a recipe. Name a secret instead; its value stays on the host.
 
 Recipes run their own scripts inside the sandbox and open the destinations they list. Users are told so when they add a repository, and should add only repositories they trust.

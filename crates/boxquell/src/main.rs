@@ -1028,8 +1028,11 @@ fn main() -> Result<()> {
                 client.delete(&format!("/api/sandboxes/{name}/claude-settings"), None)?;
                 println!("{name}: Claude settings removed (from its next start)");
             } else {
-                let file = file.unwrap_or_else(boxquell_core::claude::host_managed_settings);
-                let text = std::fs::read_to_string(&file).with_context(|| format!("cannot read {}", file.display()))?;
+                // Without a file: this computer's managed settings, with the drop-in files of managed-settings.d.
+                let (text, file) = match file {
+                    Some(file) => (std::fs::read_to_string(&file).with_context(|| format!("cannot read {}", file.display()))?, file),
+                    None => (boxquell_core::claude::host_managed_text()?, boxquell_core::claude::host_managed_settings()),
+                };
                 let info = client.put(&format!("/api/sandboxes/{name}/claude-settings"), json!({ "settings": text }))?;
                 println!("{name}: uses the Claude settings from {} (from its next start)", file.display());
                 for note in info["notes"].as_array().into_iter().flatten() {
