@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Recipe, type System } from "./api";
+import { FolderField } from "./FolderPicker";
+import { BackendChoice, MachineControls } from "./Machine";
 import { RecipeCards } from "./RecipeCards";
 
 const STEPS = ["Basics", "Software", "Network", "Machine", "Review"] as const;
@@ -26,8 +28,8 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
   useEffect(() => {
     api.systems().then(setSystems, () => {});
   }, []);
-  const built = systems.filter((system) => system.built);
-  const notBuilt = systems.filter((system) => !system.built);
+  const system = systems.find((candidate) => candidate.id === os);
+  const [building, setBuilding] = useState<string | null>(null);
   const family = systems.find((system) => system.id === os)?.family ?? "debian";
   // Only software whose install script is written for the chosen system.
   const fitting = props.recipes.filter((recipe) => (recipe.os && recipe.os.length > 0 ? recipe.os : ["debian"]).includes(family));
@@ -35,10 +37,27 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
   const nameOk = NAME.test(name);
   const last = step === STEPS.length - 1;
 
+  /** Build the chosen system's image if it does not exist yet, and wait for it. */
+  async function ensureSystem() {
+    if (!system || system.built) return;
+    await api.buildSystem(os);
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const now = (await api.systems()).find((candidate) => candidate.id === os);
+      setSystems((list) => list.map((candidate) => (candidate.id === os && now ? now : candidate)));
+      const lines = (now?.job?.log ?? "").trim().split("\n");
+      setBuilding(lines[lines.length - 1] || "starting…");
+      if (now?.built && now.job?.state !== "running") return;
+      if (now?.job?.state === "failed") throw new Error(`Building ${system.name} failed: ${lines.slice(-3).join(" ")}`);
+    }
+  }
+
   async function create() {
     setBusy(true);
     setError(null);
     try {
+      await ensureSystem();
+      setBuilding(null);
       await api.create({
         name,
         workspace: workspace.trim() || null,
@@ -89,23 +108,22 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             Name
             <input autoFocus required pattern="[a-z0-9][a-z0-9-]{0,31}" title="Lowercase letters, digits and dashes" placeholder="my-project" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label>
-            Project folder on this computer
-            <input placeholder="/home/me/project" value={workspace} onChange={(e) => setWorkspace(e.target.value)} />
-          </label>
+          <FolderField label="Project folder on this computer" placeholder="/home/me/project" value={workspace} onChange={setWorkspace} />
           <p className="muted">The folder appears in the sandbox as /workspace; nothing else of your files is visible there. Leave it empty for a sandbox without your files.</p>
           <label>
             Operating system
             <select value={os} onChange={(e) => setOs(e.target.value)}>
-              {built.map((system) => (
-                <option key={system.id} value={system.id}>
-                  {system.name}
+              {systems.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                  {candidate.built ? "" : " (built when the sandbox is created)"}
                 </option>
               ))}
-              {built.length === 0 && <option value="debian">Debian</option>}
+              {systems.length === 0 && <option value="debian">Debian</option>}
             </select>
           </label>
-          {notBuilt.length > 0 && <p className="muted">More systems appear here once built: {notBuilt.map((system) => `boxquell os build ${system.id}`).join(", ")}.</p>}
+          {system && <p className="muted">{system.description}</p>}
+          {system && !system.built && <p className="muted">Its image is built once, the first time it is used. That needs Docker on this computer and takes a few minutes.</p>}
         </section>
       )}
 
@@ -175,28 +193,17 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
       {step === 3 && (
         <section>
           <h3>Machine</h3>
-          <div className="row">
-            <label>
-              CPUs
-              <input type="number" min={1} max={64} value={cpus} onChange={(e) => setCpus(+e.target.value)} />
-            </label>
-            <label>
-              Memory (MiB)
-              <input type="number" min={256} step={256} value={ram} onChange={(e) => setRam(+e.target.value)} />
-            </label>
-            <label>
-              Disk (GiB)
-              <input type="number" min={4} value={disk} onChange={(e) => setDisk(+e.target.value)} />
-            </label>
-            <label>
-              Backend
-              <select value={backend} onChange={(e) => setBackend(e.target.value)}>
-                <option value="krun">krun</option>
-                <option value="qemu">qemu</option>
-              </select>
-            </label>
-          </div>
-          <p className="muted">All of this can be changed later; a disk can only grow. The disk takes space only as it fills.</p>
+          <MachineControls
+            value={{ cpus, ram, disk }}
+            onChange={(next) => {
+              setCpus(next.cpus);
+              setRam(next.ram);
+              setDisk(next.disk);
+            }}
+          />
+          <h3>How it runs</h3>
+          <BackendChoice value={backend} onChange={setBackend} />
+          <p className="muted">CPUs, memory and disk can be changed later.</p>
         </section>
       )}
 
@@ -207,7 +214,7 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             <tbody>
               <Row label="Name" value={name} onEdit={() => setStep(0)} />
               <Row label="Project folder" value={workspace.trim() || "none"} onEdit={() => setStep(0)} />
-              <Row label="System" value={systems.find((system) => system.id === os)?.name ?? os} onEdit={() => setStep(0)} />
+              <Row label="System" value={`${system?.name ?? os}${system && !system.built ? " (will be built first)" : ""}`} onEdit={() => setStep(0)} />
               <Row label="Software" value={chosen.map((entry) => entry.split(":").pop()).join(", ") || "nothing yet"} onEdit={() => setStep(1)} />
               <Row label="Network" value={`${mode}${hosts.length > 0 ? `, also allowing ${hosts.join(", ")}` : ""}`} onEdit={() => setStep(2)} />
               <Row label="Machine" value={`${cpus} CPUs, ${ram} MiB memory, ${disk} GiB disk, ${backend}`} onEdit={() => setStep(3)} />
@@ -217,6 +224,11 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
         </section>
       )}
 
+      {building && (
+        <p className="warning" role="status">
+          <strong>Building {system?.name}…</strong> {building}
+        </p>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -233,7 +245,7 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
           </button>
         )}
         <button className="primary" disabled={busy || !nameOk}>
-          {last ? (busy ? "Creating…" : chosen.length > 0 ? "Create and install" : "Create sandbox") : "Continue"}
+          {last ? (busy ? (building ? "Building the system…" : "Creating…") : chosen.length > 0 ? "Create and install" : "Create sandbox") : "Continue"}
         </button>
       </div>
     </form>

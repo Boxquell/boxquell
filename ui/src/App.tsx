@@ -2,8 +2,12 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
+import { Bell, LayoutDashboard, Plus, Power, Settings as SettingsIcon, SquareTerminal, ShieldAlert } from "lucide-react";
+import { About } from "./About";
 import { AgentSettings } from "./AgentSettings";
+import { LogViewer } from "./LogViewer";
 import { NewSandbox } from "./NewSandbox";
+import { Notifications, useBlocked } from "./Notifications";
 import { Overview } from "./Overview";
 import { GlobalRules, SandboxView, type Tab } from "./SandboxView";
 import { Plugins } from "./Plugins";
@@ -20,7 +24,7 @@ export function App() {
   const [page, setPage] = useState<Page>(() => {
     const query = new URLSearchParams(location.search);
     const wanted = query.get("page") as Page | null;
-    return query.get("box") ? "sandbox" : wanted && ["terminals", "settings", "new"].includes(wanted) ? wanted : "overview";
+    return query.get("box") ? "sandbox" : wanted && ["terminals", "notifications", "settings", "new"].includes(wanted) ? wanted : "overview";
   });
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   // The sidebar can be folded away; the choice is remembered in this browser.
@@ -37,7 +41,12 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [lockdown, setLockdown] = useState(false);
   const [outdated, setOutdated] = useState(false);
-  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, browser_ui: false, listen: [], listen_port: 7878 });
+  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878 });
+  const { blocked, dismiss } = useBlocked(settings);
+  const saveSettings = useCallback((next: Settings) => {
+    setSettings(next);
+    api.setSettings(next).then(setSettings, () => {});
+  }, []);
   // Terminals live here so they stay connected while another sandbox is shown.
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Record<string, number>>({});
@@ -45,7 +54,7 @@ export function App() {
     const query = new URLSearchParams(location.search);
     const [box, tab] = [query.get("box"), query.get("tab")];
     // Values from the address bar: accept only what a sandbox name and a tab can be.
-    const known: Tab[] = ["overview", "terminal", "software", "agent", "network", "secrets", "settings"];
+    const known: Tab[] = ["overview", "terminal", "software", "agent", "network", "log", "secrets", "settings"];
     const valid = box !== null && /^[a-z0-9][a-z0-9-]*$/.test(box) && known.includes(tab as Tab);
     return valid ? { [box]: tab as Tab } : {};
   });
@@ -132,20 +141,28 @@ export function App() {
           </button>
         </h1>
         <nav>
-          <NavItem icon="◔" active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
+          <NavItem icon={<LayoutDashboard size={17} />} active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
           <NavItem
-            icon=">_"
+            icon={<SquareTerminal size={17} />}
             active={page === "terminals"}
             title="Terminals"
             note={sessions.length === 0 ? "none open" : `${sessions.length} open`}
             badge={sessions.length || undefined}
             onClick={() => go("terminals")}
           />
-          <NavItem icon="⚙" active={page === "settings"} title="Settings" note="plugins, secrets, network" onClick={() => go("settings")} />
+          <NavItem
+            icon={<Bell size={17} />}
+            active={page === "notifications"}
+            title="Notifications"
+            note={blocked.length === 0 ? "nothing blocked" : `${blocked.length} blocked`}
+            badge={blocked.length || undefined}
+            onClick={() => go("notifications")}
+          />
+          <NavItem icon={<SettingsIcon size={17} />} active={page === "settings"} title="Settings" note="plugins, secrets, network" onClick={() => go("settings")} />
           <span className="nav-label">
             <span className="label">Sandboxes</span>
             <button className="add" title="New sandbox" aria-label="New sandbox" onClick={() => go("new")}>
-              +
+              <Plus size={14} />
             </button>
           </span>
           {sandboxes.map((s) => (
@@ -167,7 +184,7 @@ export function App() {
                 aria-label={s.running ? `Stop ${s.name}` : `Start ${s.name}`}
                 onClick={() => act(() => (s.running ? api.stop(s.name) : api.start(s.name)))}
               >
-                {s.running ? "■" : "▶"}
+                <Power size={13} />
               </button>
             </div>
             {/* Its open terminals, one line each. */}
@@ -202,9 +219,7 @@ export function App() {
           title="Blocks every connection of every sandbox at once and stops open ones"
           onClick={() => act(() => api.setLockdown(!lockdown))}
         >
-          <span className="glyph" aria-hidden="true">
-            ⏻
-          </span>
+          <ShieldAlert size={16} aria-hidden="true" />
           <span className="label">{lockdown ? "Lift network lockdown" : "Emergency stop"}</span>
         </button>
       </aside>
@@ -255,6 +270,28 @@ export function App() {
             </div>
           ))}
 
+        {page === "notifications" && (
+          <>
+            <header className="hero">
+              <div className="grow">
+                <h2>Notifications</h2>
+                <p className="muted">What your sandboxes tried to reach and were refused.</p>
+              </div>
+            </header>
+            <Notifications
+              blocked={blocked}
+              dismiss={dismiss}
+              settings={settings}
+              saveSettings={saveSettings}
+              act={act}
+              open={(sandbox) => {
+                go("sandbox", sandbox);
+                setTabs((all) => ({ ...all, [sandbox]: "network" }));
+              }}
+            />
+          </>
+        )}
+
         {page === "new" && (
           <>
             <header className="hero">
@@ -302,6 +339,10 @@ export function App() {
             {settingsTab === "plugins" && <Plugins onChange={() => api.recipes().then(setRecipes, () => {})} />}
             {settingsTab === "secrets" && <Secrets secrets={secrets} act={act} />}
             {settingsTab === "network" && <GlobalRules act={act} />}
+            {settingsTab === "logs" && (
+              <LogViewer title="Service log" about="What Boxquell's background service wrote: start-up, problems, and processes it had to end." load={api.daemonLog} />
+            )}
+            {settingsTab === "about" && <About />}
           </>
         )}
 
@@ -349,6 +390,7 @@ export function App() {
       </main>
       <Toasts
         enabled={settings.toast_blocked}
+        ignored={settings.ignore_blocked}
         onChange={refresh}
         onOpen={(sandbox) => {
           go("sandbox", sandbox);
@@ -359,17 +401,19 @@ export function App() {
   );
 }
 
-type Page = "overview" | "terminals" | "settings" | "new" | "sandbox";
-type SettingsTab = "general" | "agents" | "plugins" | "secrets" | "network";
+type Page = "overview" | "terminals" | "notifications" | "settings" | "new" | "sandbox";
+type SettingsTab = "general" | "agents" | "plugins" | "secrets" | "network" | "logs" | "about";
 const SETTINGS_TABS: [SettingsTab, string][] = [
   ["general", "General"],
   ["agents", "Agents"],
   ["plugins", "Plugins"],
   ["secrets", "Secrets"],
   ["network", "Network"],
+  ["logs", "Logs"],
+  ["about", "About"],
 ];
 
-function NavItem(props: { icon: string; active: boolean; title: string; note: string; badge?: number; onClick: () => void }) {
+function NavItem(props: { icon: React.ReactNode; active: boolean; title: string; note: string; badge?: number; onClick: () => void }) {
   return (
     <div className={props.active ? "item active" : "item"}>
       <button className="grow" onClick={props.onClick} title={props.title}>

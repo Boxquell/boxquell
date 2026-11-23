@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, type NetEvent, type Recipe, type Sandbox, type Secret } from "./api";
+import { Activity, Bot, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
+import { api, type Recipe, type Sandbox, type Secret } from "./api";
+import { FolderField } from "./FolderPicker";
+import { LogViewer } from "./LogViewer";
+import { MachineControls } from "./Machine";
+import { NetworkLog } from "./NetworkLog";
 import { Tile, VmLoad, useStats } from "./Overview";
 import { AgentSettings } from "./AgentSettings";
 import { RecipeCards } from "./RecipeCards";
@@ -9,16 +14,28 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "overview" | "terminal" | "software" | "agent" | "network" | "secrets" | "settings";
+export type Tab = "overview" | "terminal" | "software" | "agent" | "network" | "log" | "secrets" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["terminal", "Terminal"],
   ["software", "Software"],
   ["agent", "Agent"],
   ["network", "Network"],
+  ["log", "Log"],
   ["secrets", "Secrets"],
   ["settings", "Settings"],
 ];
+
+const TAB_ICONS: Record<Tab, LucideIcon> = {
+  overview: Activity,
+  terminal: SquareTerminal,
+  software: Package,
+  agent: Bot,
+  network: Network,
+  log: ScrollText,
+  secrets: KeyRound,
+  settings: Settings2,
+};
 
 interface ViewProps {
   sandbox: Sandbox;
@@ -49,7 +66,7 @@ export function SandboxView(props: ViewProps) {
           </h2>
           <p className="muted">
             <span className={`chip ${sandbox.paused ? "paused" : sandbox.running ? "on" : ""}`}>{busy ?? (sandbox.paused ? "paused" : sandbox.running ? "running" : "stopped")}</span>{" "}
-            {sandbox.backend} · {sandbox.cpus} CPUs · {sandbox.ram_mib} MiB · {sandbox.disk_gib} GiB disk
+            <span className="chip">{sandbox.os ?? "debian"}</span> {sandbox.backend} · {sandbox.cpus} CPUs · {sandbox.ram_mib} MiB · {sandbox.disk_gib} GiB disk
             {sandbox.workspace && <> · {sandbox.workspace}</>}
           </p>
         </div>
@@ -60,16 +77,16 @@ export function SandboxView(props: ViewProps) {
             </button>
           ) : (
             <button disabled={!!busy} title="Freeze the sandbox: it keeps its memory and programs but uses no CPU" onClick={() => run("pausing…", () => api.pause(sandbox.name))}>
-              Pause
+              <Pause size={15} aria-hidden="true" /> Pause
             </button>
           ))}
         {sandbox.running ? (
           <button disabled={!!busy} onClick={() => run("stopping…", () => api.stop(sandbox.name))}>
-            Stop
+            <Square size={14} aria-hidden="true" /> Stop
           </button>
         ) : (
           <button className="primary" disabled={!!busy} onClick={() => run("starting…", () => api.start(sandbox.name))}>
-            Start
+            <Play size={15} aria-hidden="true" /> Start
           </button>
         )}
       </header>
@@ -88,6 +105,7 @@ export function SandboxView(props: ViewProps) {
       <div className="tabbar" role="tablist">
         {TABS.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            <TabIcon tab={id} />
             {label}
             {id === "network" && sandbox.mode === "blacklist" && <small>blacklist</small>}
           </button>
@@ -125,9 +143,9 @@ export function SandboxView(props: ViewProps) {
           <Rules sandbox={sandbox} act={act} />
           <Ports sandbox={sandbox} act={act} />
           <GlobalRules act={act} />
-          <Log sandbox={sandbox} act={act} />
         </>
       )}
+      {tab === "log" && <NetworkLog sandbox={sandbox} act={act} />}
       {tab === "secrets" && (
         <>
           <SandboxSecrets {...props} />
@@ -137,6 +155,11 @@ export function SandboxView(props: ViewProps) {
       {tab === "settings" && <Resources sandbox={sandbox} recipes={recipes} act={act} remove={() => run("deleting…", () => api.remove(sandbox.name))} />}
     </>
   );
+}
+
+function TabIcon(props: { tab: Tab }) {
+  const Icon = TAB_ICONS[props.tab];
+  return <Icon size={15} aria-hidden="true" />;
 }
 
 function Command(props: { text: string }) {
@@ -257,108 +280,6 @@ function Rules(props: { sandbox: Sandbox; act: Act }) {
       </form>
     </section>
   );
-}
-
-/** Close events carry the byte counts of the connection opened under the same id. */
-function merge(rows: NetEvent[], event: NetEvent): NetEvent[] {
-  if (rows.some((r) => r.seq === event.seq)) return rows;
-  if (event.phase === "close") {
-    const at = rows.findIndex((r) => r.id === event.id && r.kind === event.kind && r.phase === "open");
-    if (at >= 0) {
-      const copy = rows.slice();
-      copy[at] = { ...copy[at], bytes_up: event.bytes_up, bytes_down: event.bytes_down, duration_ms: event.duration_ms };
-      return copy;
-    }
-    return rows;
-  }
-  return [event, ...rows].slice(0, 500);
-}
-
-function Log(props: { sandbox: Sandbox; act: Act }) {
-  const { sandbox, act } = props;
-  const [rows, setRows] = useState<NetEvent[]>([]);
-  const [blockedOnly, setBlockedOnly] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    api.events(sandbox.name).then((events) => {
-      if (alive) setRows((current) => events.sort((a, b) => a.seq - b.seq).reduce(merge, current));
-    });
-    const stop = api.follow(sandbox.name, (event) => setRows((current) => merge(current, event)));
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, [sandbox.name]);
-
-  const shown = blockedOnly ? rows.filter((r) => !r.allowed) : rows;
-  return (
-    <section>
-      <h3>
-        Network log
-        <label className="check inline">
-          <input type="checkbox" checked={blockedOnly} onChange={(e) => setBlockedOnly(e.target.checked)} /> blocked only
-        </label>
-      </h3>
-      <div className="log">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Result</th>
-              <th>Type</th>
-              <th>Destination</th>
-              <th>Why</th>
-              <th className="right">Sent / received</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((e) => {
-              const target = e.host ?? e.ip ?? "?";
-              return (
-                <tr key={e.seq} className={e.allowed ? "" : "blocked"}>
-                  <td>{new Date(e.ts_ms).toLocaleTimeString()}</td>
-                  <td>{e.allowed ? "allowed" : "blocked"}</td>
-                  <td>{e.kind}</td>
-                  <td>
-                    {e.method ? `${e.method} ` : ""}
-                    {target}
-                    {e.port && e.kind !== "dns" ? `:${e.port}` : ""}
-                    {e.path ?? ""}
-                    {e.status ? ` → ${e.status}` : ""}
-                    {e.secret ? ` (secret ${e.secret})` : ""}
-                  </td>
-                  <td className="muted">{e.reason}</td>
-                  <td className="right">{e.kind !== "dns" && e.bytes_up != null ? `${size(e.bytes_up)} / ${size(e.bytes_down ?? 0)}` : ""}</td>
-                  <td className="right">
-                    {!e.allowed && e.host && (
-                      <button className="link" onClick={() => act(() => api.addRule(sandbox.name, `allow ${e.host}`))}>
-                        allow
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {shown.length === 0 && (
-              <tr>
-                <td colSpan={7} className="muted">
-                  Nothing yet. Every connection attempt of this sandbox shows up here.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function size(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function Ports(props: { sandbox: Sandbox; act: Act }) {
@@ -583,29 +504,31 @@ function Resources(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act; remov
     <>
       <section>
         <h3>Machine</h3>
-        <form
-          className="row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            act(() => api.resize(sandbox.name, { cpus, ram_mib: ram, disk_gib: disk }));
+        <MachineControls
+          value={{ cpus, ram, disk }}
+          minDisk={sandbox.disk_gib}
+          onChange={(next) => {
+            setCpus(next.cpus);
+            setRam(next.ram);
+            setDisk(next.disk);
           }}
-        >
-          <label>
-            CPUs
-            <input type="number" min={1} max={64} value={cpus} onChange={(e) => setCpus(+e.target.value)} />
-          </label>
-          <label>
-            Memory (MiB)
-            <input type="number" min={256} step={256} value={ram} onChange={(e) => setRam(+e.target.value)} />
-          </label>
-          <label>
-            Disk (GiB, can only grow)
-            <input type="number" min={sandbox.disk_gib} value={disk} onChange={(e) => setDisk(+e.target.value)} />
-          </label>
-          <button className="primary" disabled={!changed}>
+        />
+        <div className="actions left">
+          <button className="primary" disabled={!changed} onClick={() => act(() => api.resize(sandbox.name, { cpus, ram_mib: ram, disk_gib: disk }))}>
             Save
           </button>
-        </form>
+          {changed && (
+            <button
+              onClick={() => {
+                setCpus(sandbox.cpus);
+                setRam(sandbox.ram_mib);
+                setDisk(sandbox.disk_gib);
+              }}
+            >
+              Discard changes
+            </button>
+          )}
+        </div>
         {sandbox.running && <p className="muted">Changes apply the next time the sandbox starts.</p>}
         <p className="muted">
           Backend {sandbox.backend}
@@ -613,6 +536,12 @@ function Resources(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act; remov
         </p>
       </section>
       <Autostart sandbox={sandbox} recipes={recipes} act={act} />
+      <LogViewer
+        key={sandbox.name}
+        title="Console log"
+        about="What the sandbox printed while starting and running: messages of its kernel and start script. Useful when it does not come up."
+        load={() => api.consoleLog(sandbox.name)}
+      />
       <Folders sandbox={sandbox} act={act} />
       <section>
         <h3>Delete</h3>
@@ -682,10 +611,9 @@ function Folders(props: { sandbox: Sandbox; act: Act }) {
             act(() => api.addShare(sandbox.name, host.trim(), guest.trim(), readOnly)).then(() => (setHost(""), setGuest("")));
           }}
         >
-          <label className="grow">
-            Folder on this computer
-            <input required placeholder="/home/me/data" value={host} onChange={(e) => setHost(e.target.value)} />
-          </label>
+          <div className="grow">
+            <FolderField label="Folder on this computer" required placeholder="/home/me/data" value={host} onChange={setHost} />
+          </div>
           <label>
             Path in the sandbox
             <input required placeholder="/mnt/data" value={guest} onChange={(e) => setGuest(e.target.value)} />

@@ -419,6 +419,18 @@ fn installed_agent_command(home: &Home, client: &Client, sandbox: &str, word: &s
     })
 }
 
+/// A sandbox can be created on a system whose image does not exist yet: build it first.
+fn build_system_if_missing(home: &Home, os: &str) -> Result<()> {
+    if boxquell_core::os::image(home, os).exists() {
+        return Ok(());
+    }
+    for problem in repo::ensure_official(home) {
+        eprintln!("warning: {problem}");
+    }
+    println!("the system {os} is not built yet; building it first, this takes a few minutes");
+    boxquell_core::os::build(home, os, 4).map(drop)
+}
+
 fn ssh_config(home: &Home, client: &Client) -> Result<String> {
     let names: Vec<String> =
         client.get("/api/sandboxes")?.as_array().into_iter().flatten().filter_map(|s| s["name"].as_str().map(str::to_string)).collect();
@@ -555,6 +567,7 @@ fn main() -> Result<()> {
             let spec = json!({ "name": choice.name, "workspace": choice.workspace, "cpus": choice.cpus, "ram_mib": choice.ram_mib,
                 "disk_gib": choice.disk_gib, "backend": choice.backend, "os": os, "network": mode.name(), "rules": rules, "secrets": secrets });
             let client = Client::connect(&home)?;
+            build_system_if_missing(&home, &os)?;
             client.post("/api/sandboxes", spec)?;
             install::install(&client, &choice.name, &catalog, &choice.recipes)?;
             println!("{0} is ready; open it with `boxquell shell {0}`", choice.name);
@@ -571,6 +584,7 @@ fn main() -> Result<()> {
             let catalog = catalog(&home)?;
             catalog.resolve(&with)?;
             let client = Client::connect(&home)?;
+            build_system_if_missing(&home, &os)?;
             client.post("/api/sandboxes", spec)?;
             refresh_ssh_config(&home, &client);
             if with.is_empty() {

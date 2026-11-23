@@ -13,7 +13,7 @@ const SHOWN_FOR_MS = 9000;
 const QUIET_FOR_MS = 60_000;
 
 /** A message for each blocked connection, with a button to allow the destination. */
-export function Toasts(props: { enabled: boolean; onOpen: (sandbox: string) => void; onChange: () => void }) {
+export function Toasts(props: { enabled: boolean; ignored: string[]; onOpen: (sandbox: string) => void; onChange: () => void }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seen = useRef(new Map<string, number>());
 
@@ -26,6 +26,8 @@ export function Toasts(props: { enabled: boolean; onOpen: (sandbox: string) => v
       // A lockdown blocks everything; one message per connection would flood the page.
       if (event.reason === "network lockdown") return;
       const target = event.host ?? event.ip ?? "unknown";
+      // Destinations the user chose not to hear about.
+      if (props.ignored.some((pattern) => pattern === target || pattern === "*" || (pattern.startsWith("*.") && target.endsWith(pattern.slice(1))))) return;
       const key = `${event.sandbox} ${target}`;
       const now = Date.now();
       if (now - (seen.current.get(key) ?? 0) < QUIET_FOR_MS) return;
@@ -34,7 +36,7 @@ export function Toasts(props: { enabled: boolean; onOpen: (sandbox: string) => v
       setToasts((list) => [...list.slice(-3), { key, sandbox: event.sandbox, target: target + port, host: event.host, reason: event.reason ?? "" }]);
       setTimeout(() => setToasts((list) => list.filter((t) => t.key !== key)), SHOWN_FOR_MS);
     });
-  }, [props.enabled]);
+  }, [props.enabled, props.ignored.join(" ")]);
 
   const dismiss = (key: string) => setToasts((list) => list.filter((t) => t.key !== key));
   return (

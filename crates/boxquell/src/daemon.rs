@@ -159,6 +159,9 @@ pub struct Settings {
     pub notify_blocked: bool,
     /// Message in the web UI when a sandbox's connection is blocked.
     pub toast_blocked: bool,
+    /// Destinations nobody wants to hear about again: no notification and no
+    /// entry in the notification list when they are blocked. `*.example.com` works.
+    pub ignore_blocked: Vec<String>,
     /// Whether web browsers may open the interface. Off by default: the
     /// desktop app is the interface, and it identifies itself to the daemon.
     /// This is a switch, not a lock; the API token is what protects access.
@@ -172,7 +175,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { notify_blocked: true, toast_blocked: true, browser_ui: false, listen: Vec::new(), listen_port: 7878 }
+        Self { notify_blocked: true, toast_blocked: true, ignore_blocked: Vec::new(), browser_ui: false, listen: Vec::new(), listen_port: 7878 }
     }
 }
 
@@ -200,6 +203,8 @@ pub struct Daemon {
     running: Mutex<HashMap<String, Arc<Running>>>,
     /// Latest recipe install per sandbox, started from the UI.
     jobs: Mutex<HashMap<String, Job>>,
+    /// Latest image build per operating system.
+    os_jobs: Mutex<HashMap<String, Job>>,
     /// Serializes start, stop and removal.
     lifecycle: tokio::sync::Mutex<()>,
 }
@@ -252,6 +257,7 @@ impl Daemon {
             shutdown: Notify::new(),
             running: Mutex::new(HashMap::new()),
             jobs: Mutex::new(HashMap::new()),
+            os_jobs: Mutex::new(HashMap::new()),
             lifecycle: tokio::sync::Mutex::new(()),
             home,
         }))
@@ -360,6 +366,54 @@ impl Daemon {
         stats.into()
     }
 
+    /// The latest build of a system's image, if one was started since the daemon came up.
+    pub fn os_job(&self, id: &str) -> Option<Job> {
+        self.os_jobs.lock().unwrap().get(id).cloned()
+    }
+
+    /// Build a system's image in the background by running `boxquell os build`.
+    pub fn start_os_build(self: &Arc<Self>, id: &str) -> Result<()> {
+        ensure!(boxquell_core::os::definitions(&self.home).iter().any(|def| def.id == id), "no system named {id:?}");
+        {
+            let mut jobs = self.os_jobs.lock().unwrap();
+            if jobs.get(id).is_some_and(|job| job.state == "running") {
+                return Ok(());
+            }
+            jobs.insert(id.to_string(), Job { state: "running", recipes: Vec::new(), log: String::new() });
+        }
+        let mut child = tokio::process::Command::new(EXE.get().context("daemon executable path is unknown")?)
+            .args(["os", "build", id])
+            .env("BOXQUELL_HOME", self.home.root())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("cannot start the build")?;
+        let append = |daemon: Arc<Daemon>, id: String, mut pipe: Box<dyn AsyncRead + Unpin + Send>| async move {
+            let mut buf = [0u8; 4096];
+            while let Ok(n @ 1..) = pipe.read(&mut buf).await {
+                if let Some(job) = daemon.os_jobs.lock().unwrap().get_mut(&id) {
+                    job.log.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    if job.log.len() > 64_000 {
+                        let cut = job.log.char_indices().map(|(i, _)| i).find(|i| *i >= job.log.len() - 48_000).unwrap_or(0);
+                        job.log.drain(..cut);
+                    }
+                }
+            }
+        };
+        let out = tokio::spawn(append(self.clone(), id.to_string(), Box::new(child.stdout.take().context("no stdout")?)));
+        let err = tokio::spawn(append(self.clone(), id.to_string(), Box::new(child.stderr.take().context("no stderr")?)));
+        let (daemon, id) = (self.clone(), id.to_string());
+        tokio::spawn(async move {
+            let ok = child.wait().await.is_ok_and(|status| status.success());
+            let _ = tokio::join!(out, err);
+            if let Some(job) = daemon.os_jobs.lock().unwrap().get_mut(&id) {
+                job.state = if ok { "done" } else { "failed" };
+            }
+        });
+        Ok(())
+    }
+
     /// Whether the emergency stop is on. It survives a restart of the daemon.
     pub fn lockdown(&self) -> bool {
         self.home.root().join("lockdown").exists()
@@ -395,6 +449,9 @@ impl Daemon {
             return;
         }
         let target = event.host.clone().or_else(|| event.ip.map(|ip| ip.to_string())).unwrap_or_else(|| "unknown".into());
+        if self.settings().ignore_blocked.iter().any(|pattern| boxquell_net::policy::host_matches(pattern, &target)) {
+            return;
+        }
         {
             let mut seen = self.notified.lock().unwrap();
             let now = std::time::Instant::now();

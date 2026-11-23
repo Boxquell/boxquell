@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type AgentConfig, type Found, type Suggestions } from "./api";
+import { FolderField } from "./FolderPicker";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
@@ -92,10 +93,9 @@ export function AgentSettings(props: { sandbox: string | null; act: Act }) {
             act(() => api.addSkill(sandbox, skillPath.trim()).then(show)).then(() => setSkillPath(""));
           }}
         >
-          <label className="grow">
-            Skill folder on this computer
-            <input required placeholder="/home/me/.claude/skills/my-skill" value={skillPath} onChange={(e) => setSkillPath(e.target.value)} />
-          </label>
+          <div className="grow">
+            <FolderField label="Skill folder on this computer" required hidden placeholder="/home/me/.claude/skills/my-skill" value={skillPath} onChange={setSkillPath} />
+          </div>
           <button>Add skill</button>
         </form>
         <p className="muted">

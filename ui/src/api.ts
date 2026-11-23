@@ -121,11 +121,44 @@ export interface System {
   description: string;
   family: string;
   built: boolean;
+  /** The latest build of its image, if one ran since the service started */
+  job?: Job | null;
+}
+
+export interface FolderListing {
+  path: string;
+  parent: string | null;
+  folders: string[];
+  home: string | null;
+}
+
+export interface HostInfo {
+  cpus: number;
+  /** Unknown on some systems */
+  ram_mib: number | null;
+  default_backend: "krun" | "qemu";
+}
+
+export interface AboutInfo {
+  version: string;
+  changelog: string;
+  repository: string;
+  license: string;
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest: string | null;
+  newer: boolean;
+  url?: string;
+  note?: string;
 }
 
 export interface Settings {
   notify_blocked: boolean;
   toast_blocked: boolean;
+  /** Destinations that are blocked without telling anyone */
+  ignore_blocked: string[];
   /** Web browsers may open the interface, not only the desktop app */
   browser_ui: boolean;
   /** Addresses besides 127.0.0.1 on which the UI is reachable */
@@ -216,13 +249,23 @@ export const api = {
   agentSuggestions: (sandbox: string | null) => call<Suggestions>("GET", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`),
   agentImport: (sandbox: string | null, items: { instructions?: string[]; skills?: string[]; mcp?: string[] }) =>
     call<AgentConfig>("POST", `/api/agent-suggestions${sandbox ? `?sandbox=${encodeURIComponent(sandbox)}` : ""}`, items),
+  folders: (path?: string, hidden = false) => call<FolderListing>("GET", `/api/folders?hidden=${hidden}${path ? `&path=${encodeURIComponent(path)}` : ""}`),
+  host: () => call<HostInfo>("GET", "/api/host"),
+  about: () => call<AboutInfo>("GET", "/api/about"),
+  notices: () => call<{ text: string }>("GET", "/api/notices"),
+  updateCheck: () => call<UpdateInfo>("GET", "/api/update-check"),
+  daemonLog: () => call<{ text: string }>("GET", "/api/logs/daemon"),
+  consoleLog: (name: string) => call<{ text: string }>("GET", `${box(name)}/console`),
+  buildSystem: (id: string) => call<unknown>("POST", `/api/os/${encodeURIComponent(id)}/build`, {}),
   systems: () => call<System[]>("GET", "/api/os"),
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
-  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
+  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
   addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
+  /** The most recent blocked connections of every sandbox. */
+  blockedEvents: () => call<NetEvent[]>("GET", "/api/events?blocked_only=true&limit=500"),
   /** Blocked connections of every sandbox, live; returns a function that ends the stream. */
   followBlocked: (onEvent: (event: NetEvent) => void) => {
     const source = new EventSource(`/api/events/stream?blocked_only=true&token=${encodeURIComponent(token)}`);

@@ -515,6 +515,114 @@ async fn remove_sandbox_skill(State(daemon): App, Path((name, skill)): Path<(Str
     agent_config(&dir)
 }
 
+#[derive(Deserialize)]
+struct FolderQuery {
+    /// The folder to list; the home folder when left out.
+    path: Option<std::path::PathBuf>,
+    #[serde(default)]
+    hidden: bool,
+}
+
+/// The folders inside a folder of this computer, for choosing one in the interface.
+async fn folders(Query(query): Query<FolderQuery>) -> ApiResult {
+    let start =
+        query.path.filter(|path| path.is_absolute()).or_else(std::env::home_dir).ok_or_else(|| anyhow::anyhow!("cannot find your home folder"))?;
+    let path = std::fs::canonicalize(&start).map_err(|err| anyhow::anyhow!("{}: {err}", start.display()))?;
+    let mut names: Vec<String> = std::fs::read_dir(&path)
+        .map_err(|err| anyhow::anyhow!("{}: {err}", path.display()))?
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| query.hidden || !name.starts_with('.'))
+        .collect();
+    names.sort_by_key(|name| name.to_lowercase());
+    Ok(Json(json!({ "path": path, "parent": path.parent(), "folders": names, "home": std::env::home_dir() })))
+}
+
+#[derive(Deserialize)]
+struct TailQuery {
+    /// How many lines from the end; 400 when left out.
+    lines: Option<usize>,
+}
+
+/// The last lines of a text file; empty when it does not exist.
+fn tail(path: &std::path::Path, lines: Option<usize>) -> String {
+    let text = std::fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
+    let all: Vec<&str> = text.lines().collect();
+    all[all.len().saturating_sub(lines.unwrap_or(400).min(5000))..].join("\n")
+}
+
+/// What the daemon itself wrote: start-up, errors, leftover processes it ended.
+async fn daemon_log(State(daemon): App, Query(query): Query<TailQuery>) -> ApiResult {
+    Ok(Json(json!({ "text": tail(&daemon.home.root().join("daemon.log"), query.lines) })))
+}
+
+/// What a sandbox printed while booting and running: kernel and start script messages.
+async fn console_log(State(daemon): App, Path(name): Path<String>, Query(query): Query<TailQuery>) -> ApiResult {
+    daemon.info(&name)?;
+    Ok(Json(json!({ "text": tail(&daemon.home.sandbox(&name).join("console.log"), query.lines) })))
+}
+
+/// What this computer has, so the interface can offer sensible limits for a sandbox.
+async fn host() -> ApiResult {
+    let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
+    // Linux tells its memory in /proc; elsewhere the interface falls back to a fixed range.
+    let ram_mib = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("MemTotal:")?.split_whitespace().next()?.parse::<u64>().ok()))
+        .map(|kib| kib / 1024);
+    Ok(Json(json!({ "cpus": cpus, "ram_mib": ram_mib, "default_backend": boxquell_core::Backend::default_for_host() })))
+}
+
+/// Version, changelog and where the project lives.
+async fn about() -> ApiResult {
+    Ok(Json(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "changelog": include_str!("../../../CHANGELOG.md"),
+        "repository": REPOSITORY,
+        "license": "MIT OR Apache-2.0",
+    })))
+}
+
+/// The licenses of everything Boxquell is built from.
+async fn notices() -> ApiResult {
+    Ok(Json(json!({ "text": include_str!("../../../THIRD-PARTY-NOTICES.md") })))
+}
+
+const REPOSITORY: &str = "https://github.com/ToBee94/boxquell";
+
+/// Compare two versions such as `0.1.0` and `v0.2.0-rc1` by their numbers.
+fn newer(latest: &str, current: &str) -> bool {
+    let numbers =
+        |version: &str| -> Vec<u64> { version.trim_start_matches('v').split(['.', '-', '+']).map_while(|part| part.parse().ok()).collect() };
+    numbers(latest) > numbers(current)
+}
+
+/// Ask GitHub for the latest release. Runs only when the user asks for it;
+/// nothing but the request itself is sent.
+async fn update_check() -> ApiResult {
+    let answer = tokio::task::spawn_blocking(|| -> anyhow::Result<Value> {
+        let agent: ureq::Agent =
+            ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).http_status_as_error(false).build().into();
+        let mut response = agent
+            .get("https://api.github.com/repos/ToBee94/boxquell/releases/latest")
+            .header("User-Agent", "boxquell")
+            .header("Accept", "application/vnd.github+json")
+            .call()?;
+        let status = response.status();
+        let body: Value = response.body_mut().read_json().unwrap_or_default();
+        let current = env!("CARGO_PKG_VERSION");
+        if status.as_u16() == 404 {
+            return Ok(json!({ "current": current, "latest": null, "newer": false, "note": "No release has been published yet." }));
+        }
+        anyhow::ensure!(status.is_success(), "GitHub answered {status}");
+        let latest = body["tag_name"].as_str().unwrap_or_default().to_string();
+        Ok(json!({ "current": current, "latest": latest, "newer": newer(&latest, current), "url": body["html_url"], "notes": body["body"] }))
+    })
+    .await??;
+    Ok(Json(answer))
+}
+
 /// The operating systems on offer, and which of them are built.
 async fn systems(State(daemon): App) -> ApiResult {
     let home = daemon.home.clone();
@@ -524,8 +632,17 @@ async fn systems(State(daemon): App) -> ApiResult {
     })
     .await?;
     // The setup scripts are long and of no use to a listing.
-    let list: Vec<Value> = list.iter().map(|def| json!({ "id": def.id, "name": def.name, "description": def.description, "family": def.family, "source": def.source, "built": def.built })).collect();
+    let list: Vec<Value> = list
+        .iter()
+        .map(|def| json!({ "id": def.id, "name": def.name, "description": def.description, "family": def.family, "source": def.source, "built": def.built, "job": daemon.os_job(&def.id) }))
+        .collect();
     Ok(Json(list.into()))
+}
+
+/// Build a system's image in the background; progress shows up in the list of systems.
+async fn build_system(State(daemon): App, Path(id): Path<String>) -> ApiResult {
+    daemon.start_os_build(&id)?;
+    Ok(Json(json!({})))
 }
 
 async fn stats(State(daemon): App) -> ApiResult {
@@ -559,6 +676,14 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
         .route("/api/stats", get(stats))
         .route("/api/os", get(systems))
+        .route("/api/os/{id}/build", post(build_system))
+        .route("/api/folders", get(folders))
+        .route("/api/host", get(host))
+        .route("/api/about", get(about))
+        .route("/api/notices", get(notices))
+        .route("/api/update-check", get(update_check))
+        .route("/api/logs/daemon", get(daemon_log))
+        .route("/api/sandboxes/{name}/console", get(console_log))
         .route("/api/agent-config", get(global_agent_config).put(set_global_agent_config))
         .route("/api/agent-suggestions", get(agent_suggestions).post(agent_import))
         .route("/api/agent-config/skills", post(add_global_skill))
@@ -590,4 +715,18 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .layer(middleware::from_fn_with_state(daemon.clone(), authorize))
         .fallback(ui)
         .with_state(daemon)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::newer;
+
+    #[test]
+    fn versions_compare_by_their_numbers() {
+        assert!(newer("v0.2.0", "0.1.0"));
+        assert!(newer("0.10.0", "0.9.9"));
+        assert!(!newer("v0.1.0", "0.1.0"));
+        assert!(!newer("0.1.0", "0.2.0"));
+        assert!(!newer("", "0.1.0"));
+    }
 }
