@@ -42,7 +42,7 @@ export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; pic
                 const toggle = () => !props.busy && (!installed || picked) && props.onChange(picked ? without(r.id) : [...props.picked, entry(version)]);
                 return (
                   <div key={r.id} className={`card ${state}`}>
-                    <button className="card-main" onClick={toggle} aria-pressed={!!picked} disabled={props.busy || (!!installed && !picked)}>
+                    <button type="button" className="card-main" onClick={toggle} aria-pressed={!!picked} disabled={props.busy || (!!installed && !picked)}>
                       <span className="avatar" style={{ background: `hsl(${hue(r.id)} 55% 42%)` }} aria-hidden="true">
                         {r.name.replace(/[^A-Za-z0-9+#]/g, "").slice(0, 2)}
                       </span>

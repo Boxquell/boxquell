@@ -54,6 +54,8 @@ export interface Recipe {
   /** From one of the official repositories */
   official: boolean;
   install_allow: string[];
+  /** System families the recipe supports; debian when empty */
+  os?: string[];
   /** Versions on offer, the default first; empty when there is no choice. */
   versions: string[];
   name: string;
