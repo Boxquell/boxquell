@@ -49,6 +49,8 @@ export interface Sandbox {
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
+  /** Installed software for which there is something newer */
+  recipe_updates?: { id: string; kind: "version" | "recipe"; to: string; note: string }[];
   /** What the system and installed software open by themselves, each destination with whether it is on */
   auto_rules?: { source: string; name: string; hosts: { host: string; enabled: boolean }[] }[];
   /** Environment variables for sessions in the sandbox */
@@ -72,6 +74,8 @@ export interface ConfigOption {
 export interface Recipe {
   /** Settings shown on a sandbox's Config tab */
   config?: ConfigOption[];
+  /** Script that removes the software again; without one, removing only forgets it */
+  uninstall?: string | null;
   /** Recipes that are installed first */
   requires?: string[];
   /** For agents: the variable that names the model it starts with */
@@ -347,7 +351,9 @@ export const api = {
   /** Switch a destination that software or the system opens, or all of a source's, on or off. */
   setAutoRule: (name: string, source: string, host: string | null, enabled: boolean) => call<Sandbox>("POST", `${box(name)}/auto-rules`, { source, host, enabled }),
   removeRule: (name: string, rule: string) => call<Sandbox>("DELETE", `${box(name)}/rules`, { rule }),
-  install: (name: string, recipes: string[]) => call<Sandbox>("POST", `${box(name)}/recipes`, { recipes }),
+  install: (name: string, recipes: string[], again = false) => call<Sandbox>("POST", `${box(name)}/recipes`, { recipes, again }),
+  /** Take software out of a sandbox again; like an install, it runs in the background. */
+  uninstall: (name: string, recipes: string[]) => call<Sandbox>("DELETE", `${box(name)}/recipes`, { recipes }),
   attachSecret: (name: string, secret: string) => call<Sandbox>("POST", `${box(name)}/secrets`, { secret }),
   setSecret: (name: string, value: string, hosts?: string[], env?: string[]) =>
     call<Secret>("PUT", `/api/secrets/${encodeURIComponent(name)}`, { value, hosts, env }),

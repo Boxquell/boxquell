@@ -41,6 +41,12 @@ curl -fsSL "https://nodejs.org/dist/latest-v$BOXQUELL_VERSION.x/..." | ...
 EXAMPLE = "1"
 ```
 
+### Requirements, removal and updates
+
+- `requires = ["node>=22"]` asks for that version or a newer one, `requires = ["node@22"]` for exactly that one, `requires = ["node"]` for any. The install picks a version of the required recipe that fits, or stops and says why.
+- `uninstall = '''…'''` is a script that takes the software out again (`boxquell remove <sandbox> <recipe>`, or Remove on its card). Without one, removing a recipe only takes it off the list. Software that something else installed requires cannot be removed first.
+- When a recipe offers a newer version than the one installed, or the recipe file changed since the install, its card offers Update (`boxquell add <sandbox> <recipe> --again`).
+
 ### Settings
 
 Software that is configured through environment variables can describe them, and the sandbox's **Config** tab shows a field for each:

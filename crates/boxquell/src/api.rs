@@ -157,6 +157,9 @@ async fn set_mode(State(daemon): App, Path(name): Path<String>, Json(body): Json
 #[derive(Deserialize)]
 struct RecipesBody {
     recipes: Vec<String>,
+    /// Run the install again although the software is there, to update it.
+    #[serde(default)]
+    again: bool,
 }
 
 async fn recipes(State(daemon): App) -> ApiResult {
@@ -173,7 +176,15 @@ async fn recipes(State(daemon): App) -> ApiResult {
 }
 
 async fn install_recipes(State(daemon): App, Path(name): Path<String>, Json(body): Json<RecipesBody>) -> ApiResult {
-    Ok(Json(daemon.start_install(&name, body.recipes)?))
+    Ok(Json(daemon.start_install(&name, body.recipes, "add", body.again)?))
+}
+
+async fn remove_recipes(State(daemon): App, Path(name): Path<String>, Json(body): Json<RecipesBody>) -> ApiResult {
+    Ok(Json(daemon.start_install(&name, body.recipes, "remove", false)?))
+}
+
+async fn forget_recipes(State(daemon): App, Path(name): Path<String>, Json(body): Json<RecipesBody>) -> ApiResult {
+    Ok(Json(daemon.forget_recipes(&name, &body.recipes)?))
 }
 
 async fn record_recipes(State(daemon): App, Path(name): Path<String>, Json(body): Json<RecipesBody>) -> ApiResult {
@@ -817,7 +828,8 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/mode", post(set_mode))
         .route("/api/sandboxes/{name}/terminal", get(crate::terminal::open))
         .route("/api/sandboxes/{name}/secrets", post(attach_secret))
-        .route("/api/sandboxes/{name}/recipes", post(install_recipes))
+        .route("/api/sandboxes/{name}/recipes", post(install_recipes).delete(remove_recipes))
+        .route("/api/sandboxes/{name}/forgotten", post(forget_recipes))
         .route("/api/sandboxes/{name}/installed", post(record_recipes))
         .route("/api/recipes", get(recipes))
         .route("/api/repos", get(list_repos).post(add_repo))

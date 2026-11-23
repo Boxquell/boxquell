@@ -43,9 +43,17 @@ pub struct Recipe {
     /// Operating system families the install script works on; `debian` when empty.
     #[serde(default)]
     pub os: Vec<String>,
-    /// Recipes that must be installed first.
+    /// Recipes that must be installed first. A version can be asked for:
+    /// `node>=22` (that one or newer) or `node@22` (exactly that one).
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Shell script that takes the software out of the guest again. Without
+    /// one, removing a recipe only forgets it; its files stay.
+    #[serde(default)]
+    pub uninstall: Option<String>,
+    /// A fingerprint of the recipe file, to notice that it changed after an install.
+    #[serde(default)]
+    pub revision: String,
     /// Destinations allowed only while the install script runs.
     #[serde(default)]
     pub install_allow: Vec<String>,
@@ -105,8 +113,43 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// A requirement such as `node>=22` as the recipe's name and the version asked for.
+pub fn requirement(dep: &str) -> (&str, Option<(bool, &str)>) {
+    if let Some((name, version)) = dep.split_once(">=") {
+        (name.trim(), Some((false, version.trim())))
+    } else if let Some((name, version)) = dep.split_once('@') {
+        (name.trim(), Some((true, version.trim())))
+    } else {
+        (dep.trim(), None)
+    }
+}
+
+/// Compare versions such as `3.12` and `24` by their numbers.
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let numbers = |version: &str| -> Vec<u64> { version.split(['.', '-', '+']).map_while(|part| part.parse().ok()).collect() };
+    numbers(a).cmp(&numbers(b))
+}
+
+fn satisfies(version: &str, exact: bool, wanted: &str) -> bool {
+    if exact {
+        version == wanted
+    } else {
+        compare_versions(version, wanted) != std::cmp::Ordering::Less
+    }
+}
+
+/// The same for every build of boxquell, unlike the standard library's hasher.
+fn fingerprint(text: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.bytes() {
+        hash = (hash ^ byte as u64).wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 fn parse(id: &str, source: &str, text: &str) -> Result<Recipe> {
     let mut recipe: Recipe = toml::from_str(text).with_context(|| format!("recipe {id} is invalid"))?;
+    recipe.revision = fingerprint(text);
     recipe.id = id.to_string();
     recipe.source = source.to_string();
     Ok(recipe)
@@ -174,7 +217,8 @@ impl Catalog {
                     recipe.icon = recipe.icon.as_deref().and_then(|name| crate::repo::icon(&path, name));
                     // Dependencies name recipes of the same repository first, then any other.
                     for dep in &mut recipe.requires {
-                        if !dep.contains(':') && recipe_files(&repo_recipe_dir(&checkout)).iter().any(|(s, _)| s == dep) {
+                        let name = requirement(dep).0;
+                        if !name.contains(':') && recipe_files(&repo_recipe_dir(&checkout)).iter().any(|(s, _)| s == name) {
                             *dep = format!("{repo}:{dep}");
                         }
                     }
@@ -251,11 +295,47 @@ impl Catalog {
             }
             plain.push(recipe.id.clone());
         }
-        Ok(self
-            .resolve_plain(&plain)?
+        let recipes = self.resolve_plain(&plain)?;
+        // Versions that other recipes in this install ask for, by the recipe they ask it of.
+        let mut asked: Vec<(String, bool, String, String)> = Vec::new();
+        for recipe in &recipes {
+            for dep in &recipe.requires {
+                if let (name, Some((exact, version))) = requirement(dep) {
+                    asked.push((self.find(name)?.id.clone(), exact, version.to_string(), recipe.name.clone()));
+                }
+            }
+        }
+        recipes
             .into_iter()
-            .map(|recipe| Pick { recipe, version: wanted.remove(&recipe.id).or_else(|| recipe.versions.first().cloned()) })
-            .collect())
+            .map(|recipe| {
+                let conditions: Vec<_> = asked.iter().filter(|(id, ..)| *id == recipe.id).collect();
+                let fits = |version: &str| conditions.iter().all(|(_, exact, wanted, _)| satisfies(version, *exact, wanted));
+                let version = match wanted.remove(&recipe.id) {
+                    // The user's own choice stands or the install stops; it is not changed silently.
+                    Some(version) => {
+                        if let Some((_, exact, wanted, by)) = conditions.iter().find(|(_, exact, wanted, _)| !satisfies(&version, *exact, wanted)) {
+                            bail!("{by} needs {} {}{wanted}, but version {version} was asked for", recipe.name, if *exact { "" } else { "from " });
+                        }
+                        Some(version)
+                    }
+                    None if conditions.is_empty() => recipe.versions.first().cloned(),
+                    // The default when it fits, otherwise the first one on offer that does.
+                    None => match recipe.versions.iter().find(|version| fits(version)) {
+                        Some(version) => Some(version.clone()),
+                        None => {
+                            let (_, exact, wanted, by) = conditions[0];
+                            bail!(
+                                "{by} needs {} {}{wanted}, which the recipe does not offer ({})",
+                                recipe.name,
+                                if *exact { "" } else { "from " },
+                                recipe.versions.join(", ")
+                            );
+                        }
+                    },
+                };
+                Ok(Pick { recipe, version })
+            })
+            .collect()
     }
 
     fn resolve_plain(&self, ids: &[String]) -> Result<Vec<&Recipe>> {
@@ -273,7 +353,7 @@ impl Catalog {
             }
             path.push(id.to_string());
             for dep in &recipe.requires {
-                visit(catalog, dep, path, out)?;
+                visit(catalog, requirement(dep).0, path, out)?;
             }
             path.pop();
             out.push(recipe);
@@ -315,6 +395,26 @@ pub fn fixture_catalog(extra: &[(&str, &str, &str)]) -> Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_required_version_picks_one_that_fits() {
+        let catalog = fixture_catalog(&[
+            ("tools", "old", "requires=['node@22']"),
+            ("tools", "new", "requires=['node>=23']"),
+            ("tools", "future", "requires=['node>=30']"),
+        ]);
+        let labels = |ids: &[&str]| -> Result<Vec<String>> {
+            let ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+            Ok(catalog.resolve_versions(&ids)?.iter().map(Pick::label).collect())
+        };
+        assert_eq!(labels(&["old"]).unwrap(), ["languages:node@22", "tools:old"]);
+        assert_eq!(labels(&["new"]).unwrap(), ["languages:node@24", "tools:new"]);
+        // What the recipe does not offer, or the user asked for otherwise, stops the install.
+        assert!(labels(&["future"]).unwrap_err().to_string().contains("does not offer"));
+        assert!(labels(&["new", "node@22"]).unwrap_err().to_string().contains("was asked for"));
+        assert!(labels(&["old", "new"]).is_err());
+        assert_eq!(compare_versions("3.12", "3.9"), std::cmp::Ordering::Greater);
+    }
 
     #[test]
     fn short_names_resolve_across_repositories_dependencies_first() {

@@ -390,6 +390,7 @@ impl Daemon {
             "autostart": spec.autostart,
             "env": spec.env,
             "ssh": spec.ssh,
+            "recipe_updates": self.recipe_updates(&spec),
             "auto_rules": self.auto_rules(&spec).into_iter().map(|(source, name, hosts)| json!({
                 "source": source,
                 "name": name,
@@ -1158,6 +1159,14 @@ impl Daemon {
             spec.recipes.retain(|old| old.split('@').next() != Some(name));
             spec.recipes.push(id.clone());
         }
+        if let Ok(catalog) = boxquell_core::recipe::Catalog::of(&self.home) {
+            for id in ids {
+                let id = id.split('@').next().unwrap_or(id);
+                if let Some(recipe) = catalog.get(id) {
+                    spec.recipe_revisions.insert(id.to_string(), recipe.revision.clone());
+                }
+            }
+        }
         spec.save(&self.home.sandbox(name))?;
         // What the new software opens applies from now on.
         if let Some(running) = self.running(name) {
@@ -1166,20 +1175,62 @@ impl Daemon {
         self.info(name)
     }
 
-    /// Install recipes in the background by running `boxquell add`; progress is in `info().job`.
-    pub fn start_install(self: &Arc<Self>, name: &str, ids: Vec<String>) -> Result<Value> {
+    /// Take recipes off the list of what is installed, after they were removed from the guest.
+    pub fn forget_recipes(&self, name: &str, ids: &[String]) -> Result<Value> {
+        let mut spec = self.spec(name)?;
+        for id in ids {
+            let id = id.split('@').next().unwrap_or(id);
+            spec.recipes.retain(|old| old.split('@').next() != Some(id));
+            spec.recipe_revisions.remove(id);
+            spec.auto_off.retain(|off| off != id && !off.starts_with(&format!("{id} ")));
+        }
+        spec.save(&self.home.sandbox(name))?;
+        if let Some(running) = self.running(name) {
+            running.policy.write().unwrap().rules = self.effective_rules(&spec);
+        }
+        self.info(name)
+    }
+
+    /// Installed software for which there is something newer: a newer version
+    /// on offer, or a recipe that changed since the install.
+    fn recipe_updates(&self, spec: &SandboxSpec) -> Vec<Value> {
+        let Ok(catalog) = boxquell_core::recipe::Catalog::of(&self.home) else { return Vec::new() };
+        let mut updates = Vec::new();
+        for entry in &spec.recipes {
+            let (id, version) = entry.split_once('@').map_or((entry.as_str(), None), |(id, version)| (id, Some(version)));
+            let Some(recipe) = catalog.get(id) else { continue };
+            let newest = recipe.versions.iter().max_by(|a, b| boxquell_core::recipe::compare_versions(a, b));
+            if let (Some(have), Some(newest)) = (version, newest) {
+                if boxquell_core::recipe::compare_versions(newest, have) == std::cmp::Ordering::Greater {
+                    updates.push(
+                        json!({ "id": id, "kind": "version", "to": format!("{id}@{newest}"), "note": format!("version {newest} is on offer") }),
+                    );
+                    continue;
+                }
+            }
+            if spec.recipe_revisions.get(id).is_some_and(|installed| *installed != recipe.revision) {
+                updates.push(json!({ "id": id, "kind": "recipe", "to": entry, "note": "the recipe changed since it was installed" }));
+            }
+        }
+        updates
+    }
+
+    /// Install recipes in the background by running `boxquell add`, or remove
+    /// them with `boxquell remove`; progress is in `info().job`.
+    pub fn start_install(self: &Arc<Self>, name: &str, ids: Vec<String>, verb: &str, again: bool) -> Result<Value> {
         self.spec(name)?;
         ensure!(!ids.is_empty(), "choose at least one recipe");
         boxquell_core::recipe::Catalog::of(&self.home)?.resolve(&ids)?;
         {
             let mut jobs = self.jobs.lock().unwrap();
-            ensure!(jobs.get(name).is_none_or(|job| job.state != "running"), "an install is already running in {name}");
+            ensure!(jobs.get(name).is_none_or(|job| job.state != "running"), "software is already being installed or removed in {name}");
             jobs.insert(name.to_string(), Job { state: "running", recipes: ids.clone(), log: String::new() });
         }
         let mut child = tokio::process::Command::new(EXE.get().context("daemon executable path is unknown")?)
-            .arg("add")
+            .arg(verb)
             .arg(name)
             .args(&ids)
+            .args(again.then_some("--again"))
             .env("BOXQUELL_HOME", self.home.root())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

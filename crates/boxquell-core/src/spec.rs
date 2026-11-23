@@ -136,6 +136,10 @@ pub struct SandboxSpec {
     /// Recipes installed into this sandbox.
     #[serde(default)]
     pub recipes: Vec<String>,
+    /// The fingerprint each installed recipe had when it was installed, to
+    /// notice later that the recipe has changed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub recipe_revisions: BTreeMap<String, String>,
     /// Destinations that installed software and the system open by themselves
     /// and that the user switched off: a source such as `tools:gh` or `os` for
     /// all of its destinations, or `<source> <destination>` for one.

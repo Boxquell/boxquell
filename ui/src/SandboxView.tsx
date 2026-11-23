@@ -229,7 +229,9 @@ function AutoRules(props: { sandbox: Sandbox; act: Act }) {
 function withRequired(picked: string[], recipes: Recipe[]): Recipe[] {
   const all: Recipe[] = [];
   const visit = (id: string) => {
-    const recipe = recipes.find((r) => r.id === id) ?? recipes.find((r) => r.id.endsWith(`:${id}`));
+    // A requirement may ask for a version: `node>=22`, `node@22`.
+    const name = id.split(/>=|@/)[0].trim();
+    const recipe = recipes.find((r) => r.id === name) ?? recipes.find((r) => r.id.endsWith(`:${name}`));
     if (!recipe || all.includes(recipe)) return;
     (recipe.requires ?? []).forEach(visit);
     all.push(recipe);
@@ -259,11 +261,24 @@ function Software(props: ViewProps) {
 
   return (
     <section className="software">
-      <RecipeCards recipes={recipes} installed={sandbox.recipes} picked={picked} busy={job?.state === "running"} onChange={setPicked} />
+      <RecipeCards
+        recipes={recipes}
+        installed={sandbox.recipes}
+        picked={picked}
+        busy={job?.state === "running"}
+        onChange={setPicked}
+        updates={sandbox.recipe_updates}
+        onUpdate={(entry) => act(() => api.install(sandbox.name, [entry], true))}
+        onRemove={(id) => {
+          const recipe = recipes.find((r) => r.id === id);
+          const hint = recipe?.uninstall ? "" : " Its recipe has no uninstall script: it is taken off the list, but its files stay in the sandbox.";
+          if (confirm(`Remove ${recipe?.name ?? id} from ${sandbox.name}?${hint}`)) act(() => api.uninstall(sandbox.name, [id]));
+        }}
+      />
       <div className="install-bar">
         <span className="grow muted">
           {job?.state === "running"
-            ? `Installing ${job.recipes.join(", ")}…`
+            ? `Working on ${job.recipes.join(", ")}…`
             : picked.length > 0
               ? `Selected: ${picked.map((p) => p.split(":").pop()).join(", ")}`
               : "Select what this sandbox should have. What a recipe needs is installed with it."}

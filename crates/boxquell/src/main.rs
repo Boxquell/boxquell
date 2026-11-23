@@ -141,6 +141,15 @@ enum Cmd {
         name: String,
         #[arg(required = true)]
         recipes: Vec<String>,
+        /// Run the install again although the software is there, e.g. to update it
+        #[arg(long)]
+        again: bool,
+    },
+    /// Remove installed software from a sandbox, e.g. `boxquell remove box python`
+    Remove {
+        name: String,
+        #[arg(required = true)]
+        recipes: Vec<String>,
     },
     /// Open a shell in a sandbox, starting it if needed
     Shell { name: String },
@@ -602,7 +611,7 @@ fn main() -> Result<()> {
             let client = Client::connect(&home)?;
             build_system_if_missing(&home, &os)?;
             client.post("/api/sandboxes", spec)?;
-            install::install(&client, &choice.name, &catalog, &choice.recipes)?;
+            install::install(&client, &choice.name, &catalog, &choice.recipes, false)?;
             println!("{0} is ready; open it with `boxquell shell {0}`", choice.name);
         }
         Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode, os } => {
@@ -623,7 +632,7 @@ fn main() -> Result<()> {
             if with.is_empty() {
                 println!("created {name}; start it with `boxquell up {name}` or `boxquell shell {name}`");
             } else {
-                install::install(&client, &name, &catalog, &with)?;
+                install::install(&client, &name, &catalog, &with, false)?;
                 println!("{name} is ready; open it with `boxquell shell {name}`");
             }
         }
@@ -699,7 +708,8 @@ fn main() -> Result<()> {
                 println!("removed {name}");
             }
         },
-        Cmd::Add { name, recipes } => install::install(&Client::connect(&home)?, &name, &catalog(&home)?, &recipes)?,
+        Cmd::Add { name, recipes, again } => install::install(&Client::connect(&home)?, &name, &catalog(&home)?, &recipes, again)?,
+        Cmd::Remove { name, recipes } => install::uninstall(&Client::connect(&home)?, &name, &catalog(&home)?, &recipes)?,
         Cmd::Ui { no_open } => {
             let client = Client::connect(&home)?;
             let url = client.ui_url();

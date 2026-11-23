@@ -103,6 +103,7 @@ boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 | **Sandboxes** | `new --os`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir --autostart`, `os ls\|build` |
 | **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
+| **Software** | `add <box> <recipes…> [--again]`, `remove <box> <recipes…>`, `recipes` |
 | **MCP** | `mcp [--read-only] [--allow-network-rules] [--allow-delete]`: a Model Context Protocol server for assistants on this computer |
 | **SSH keys** | `ssh-keys [name] --add <file>\|--rm <file>\|--agent on\|off`, for all sandboxes without a name |
 | **Agents** | `run <sandbox> claude`, `agent set\|show\|skill-add\|skill-rm`, `set --env KEY=value` |

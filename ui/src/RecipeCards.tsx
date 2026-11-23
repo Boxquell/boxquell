@@ -24,7 +24,17 @@ function hue(id: string): number {
  * The software catalogue as cards. `installed` and `picked` hold entries such
  * as `agents:claude` or `languages:node@22`.
  */
-export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; picked: string[]; busy: boolean; onChange: (ids: string[]) => void }) {
+export function RecipeCards(props: {
+  recipes: Recipe[];
+  installed: string[];
+  picked: string[];
+  busy: boolean;
+  onChange: (ids: string[]) => void;
+  /** Installed software for which there is something newer, by recipe id */
+  updates?: { id: string; to: string; note: string }[];
+  onUpdate?: (entry: string) => void;
+  onRemove?: (id: string) => void;
+}) {
   const without = (id: string) => props.picked.filter((p) => recipeName(p) !== id);
   const [query, setQuery] = useState("");
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -53,6 +63,7 @@ export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; pic
                 const version = (picked ?? installed)?.split("@")[1] ?? r.versions[0];
                 const entry = (v: string | undefined) => (v ? `${r.id}@${v}` : r.id);
                 const state = picked ? "picked" : installed ? "installed" : "";
+                const update = installed ? props.updates?.find((candidate) => candidate.id === r.id) : undefined;
                 const toggle = () => !props.busy && (!installed || picked) && props.onChange(picked ? without(r.id) : [...props.picked, entry(version)]);
                 return (
                   <div key={r.id} className={`card ${state}`}>
@@ -67,7 +78,19 @@ export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; pic
                     </button>
                     <div className="card-foot">
                       {installed ? (
-                        <span className="chip on">installed{installed.includes("@") ? ` ${installed.split("@")[1]}` : ""}</span>
+                        <>
+                          <span className="chip on">installed{installed.includes("@") ? ` ${installed.split("@")[1]}` : ""}</span>
+                          {update && props.onUpdate && (
+                            <button type="button" className="link" disabled={props.busy} title={update.note} onClick={() => props.onUpdate!(update.to)}>
+                              Update
+                            </button>
+                          )}
+                          {props.onRemove && (
+                            <button type="button" className="link bad" disabled={props.busy} title={`Remove ${r.name} from this sandbox`} onClick={() => props.onRemove!(r.id)}>
+                              Remove
+                            </button>
+                          )}
+                        </>
                       ) : (
                         <span className="chip">{picked ? "selected" : r.official ? "official" : r.source}</span>
                       )}

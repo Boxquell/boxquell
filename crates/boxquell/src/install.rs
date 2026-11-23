@@ -14,11 +14,14 @@ use std::process::{Command, Stdio};
 const MARKERS: &str = "/var/lib/boxquell/recipes";
 
 /// The script sent to the guest for one recipe. Exit code 0 means installed (now or earlier).
-fn guest_script(pick: &Pick) -> String {
+fn guest_script(pick: &Pick, again: bool) -> String {
     let recipe = pick.recipe;
     // The marker carries the version, so asking for another one installs it.
     let marker = format!("{MARKERS}/{}", pick.label());
-    let mut script = format!("set -euo pipefail\nif [ -e {marker} ]; then echo 'already installed'; exit 0; fi\n");
+    let mut script = String::from("set -euo pipefail\n");
+    if !again {
+        script += &format!("if [ -e {marker} ]; then echo 'already installed'; exit 0; fi\n");
+    }
     if let Some(version) = &pick.version {
         script += &format!("export BOXQUELL_VERSION={}\n", shell_quote(version));
     }
@@ -36,8 +39,72 @@ fn rules_of(info: &Value) -> Vec<String> {
     info["rules"].as_array().into_iter().flatten().filter_map(|r| r.as_str().map(str::to_string)).collect()
 }
 
-pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]) -> Result<()> {
+/// Take software out of a sandbox: run the recipe's uninstall script where it
+/// has one, then forget the recipe. What other installed software requires stays.
+pub fn uninstall(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]) -> Result<()> {
+    let path = format!("/api/sandboxes/{sandbox}");
+    let before = client.get(&path)?;
+    let installed: Vec<String> =
+        before["recipes"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).map(|r| r.split('@').next().unwrap_or(r).to_string()).collect();
+    let mut going = Vec::new();
+    for id in ids {
+        let recipe = catalog.find(id.split('@').next().unwrap_or(id))?;
+        if !installed.contains(&recipe.id) {
+            bail!("{} is not installed in {sandbox}", recipe.name);
+        }
+        going.push(recipe);
+    }
+    // Something that stays must not lose what it requires.
+    for other in installed.iter().filter(|id| !going.iter().any(|r| r.id == **id)) {
+        let Some(other) = catalog.get(other) else { continue };
+        for dep in &other.requires {
+            let needed = catalog.find(boxquell_core::recipe::requirement(dep).0)?;
+            if going.iter().any(|r| r.id == needed.id) {
+                bail!("{} is needed by {}; remove that first, or both together", needed.name, other.name);
+            }
+        }
+    }
+    // What requires another goes first.
+    going.sort_by_key(|recipe| std::cmp::Reverse(installed.iter().position(|id| *id == recipe.id)));
+    let with_script = going.iter().any(|recipe| recipe.uninstall.is_some());
+    let (key, port) = if with_script {
+        let info = client.post(&format!("{path}/start"), json!({}))?;
+        (
+            PathBuf::from(info["ssh_key"].as_str().context("daemon reported no ssh key")?),
+            info["ssh_port"].as_u64().context("daemon reported no ssh port")? as u16,
+        )
+    } else {
+        (PathBuf::new(), 0)
+    };
+    for recipe in going {
+        println!("==> removing {}", recipe.name);
+        let forget = format!(
+            "sudo rm -f {MARKERS}/{id} {MARKERS}/{id}@* /etc/profile.d/boxquell-recipe-{file}.sh\n",
+            id = recipe.id,
+            file = recipe.id.replace(':', "-")
+        );
+        match &recipe.uninstall {
+            Some(script) => run_script(&key, port, &format!("set -euo pipefail\n(\n{}\n)\n{forget}", script.trim()))
+                .with_context(|| format!("removing {} failed; it is still listed as installed", recipe.id))?,
+            None => {
+                println!("    the recipe has no uninstall script: it is taken off the list, its files stay in the sandbox");
+                if before["running"] == true {
+                    let info = client.get(&path)?;
+                    let key = PathBuf::from(info["ssh_key"].as_str().unwrap_or_default());
+                    let _ = run_script(&key, info["ssh_port"].as_u64().unwrap_or(0) as u16, &forget);
+                }
+            }
+        }
+        client.post(&format!("{path}/forgotten"), json!({ "recipes": [recipe.id] }))?;
+    }
+    Ok(())
+}
+
+pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String], again: bool) -> Result<()> {
     let picks = catalog.resolve_versions(ids)?;
+    // Running it again concerns what was named, not what that requires.
+    let named: Vec<String> =
+        ids.iter().filter_map(|id| catalog.find(id.split('@').next().unwrap_or(id)).ok().map(|recipe| recipe.id.clone())).collect();
     let recipes: Vec<_> = picks.iter().map(|pick| pick.recipe).collect();
     let path = format!("/api/sandboxes/{sandbox}");
 
@@ -106,7 +173,7 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
             }
         }
 
-        let outcome = run_script(&key, port, &guest_script(pick));
+        let outcome = run_script(&key, port, &guest_script(pick, again && named.contains(&recipe.id)));
         for rule in temporary {
             client.delete(&format!("{path}/rules"), Some(json!({ "rule": rule })))?;
         }
