@@ -378,10 +378,12 @@ async fn set_lockdown(State(daemon): App, Json(body): Json<LockdownBody>) -> Api
 
 /// IPv4 addresses of this computer that the UI could be opened on.
 async fn addresses() -> ApiResult {
+    // An address can be listed once per interface entry; show each address once.
+    let mut seen = std::collections::BTreeSet::new();
     let list: Vec<Value> = if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
-        .filter(|interface| !interface.is_loopback() && interface.ip().is_ipv4())
+        .filter(|interface| !interface.is_loopback() && interface.ip().is_ipv4() && seen.insert(interface.ip()))
         .map(|interface| json!({ "address": interface.ip(), "interface": interface.name }))
         .collect();
     Ok(Json(list.into()))

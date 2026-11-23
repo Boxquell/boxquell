@@ -249,3 +249,24 @@ legend { font-weight: 600; padding: 0 0 4px; }
 @media (prefers-contrast: more) {
   :root { --line: light-dark(rgb(0 0 0 / 0.5), rgb(255 255 255 / 0.6)); --muted: light-dark(#3a3a3c, #d1d1d6); }
 }
+
+/* ---------- Pages ---------- */
+.pane { background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.pane h3 { margin-top: 6px; }
+.pane form { display: flex; flex-direction: column; gap: 14px; }
+.nav-label { display: flex; align-items: center; justify-content: space-between; }
+.add { min-height: 22px; width: 22px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; color: var(--accent); }
+.badge { background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 0 7px; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center; }
+.item.active .badge { background: rgb(255 255 255 / 0.28); }
+.launch { display: flex; flex-wrap: wrap; gap: 8px; }
+.launch button { display: inline-flex; align-items: center; gap: 8px; }
+.terminals { padding: 12px; }
+.terminals .terminal { height: min(68vh, 760px); }
+.subitem { display: flex; align-items: center; margin-left: 26px; border-radius: 8px; }
+.subitem:hover { background: var(--fill); }
+.subitem > button { background: none; min-height: 28px; }
+.subitem > button:hover:not(:disabled) { background: none; }
+.subitem > .grow { display: flex; align-items: center; gap: 8px; text-align: left; padding: 2px 8px; font-size: 13px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subitem.active { background: var(--fill-strong); }
+.subitem.active > .grow { font-weight: 600; }
+.prompt { font: 11px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }

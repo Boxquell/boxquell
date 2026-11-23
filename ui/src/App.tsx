@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
 import { NewSandbox } from "./NewSandbox";
 import { Overview } from "./Overview";
-import { SandboxView, type Tab } from "./SandboxView";
+import { GlobalRules, SandboxView, type Tab } from "./SandboxView";
 import { Plugins } from "./Plugins";
 import { Secrets } from "./Secrets";
 import { Terminal, type Session } from "./Terminal";
@@ -15,7 +15,15 @@ export function App() {
   const [secrets, setSecrets] = useState<Secret[]>([]);
   // `?box=name&tab=network` opens a sandbox and tab directly, e.g. from a bookmark.
   const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.search).get("box"));
-  const [dialog, setDialog] = useState<"new" | "secrets" | "plugins" | "settings" | null>(null);
+  // `?box=` opens that sandbox; otherwise the overview is the start page.
+  const [page, setPage] = useState<Page>(() => {
+    const query = new URLSearchParams(location.search);
+    const wanted = query.get("page") as Page | null;
+    return query.get("box") ? "sandbox" : wanted && ["terminals", "settings", "new"].includes(wanted) ? wanted : "overview";
+  });
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  /** The terminal shown on the Terminals page. */
+  const [focused, setFocused] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lockdown, setLockdown] = useState(false);
   const [outdated, setOutdated] = useState(false);
@@ -29,11 +37,13 @@ export function App() {
     return box && tab ? { [box]: tab as Tab } : {};
   });
   const nextSession = useRef(1);
-  const openTerminal = useCallback((sandbox: string, title: string, cmd?: string) => {
+  const openTerminal = useCallback((sandbox: string, title: string, cmd?: string, stay?: boolean) => {
     const id = nextSession.current++;
     setSessions((list) => [...list, { id, sandbox, title, cmd }]);
     setActiveSession((active) => ({ ...active, [sandbox]: id }));
-    setTabs((all) => ({ ...all, [sandbox]: "terminal" }));
+    setFocused(id);
+    // Opened from a sandbox, its terminal tab comes to the front; `stay` keeps the current page.
+    if (!stay) setTabs((all) => ({ ...all, [sandbox]: "terminal" }));
   }, []);
   const closeTerminal = useCallback((id: number) => setSessions((list) => list.filter((s) => s.id !== id)), []);
 
@@ -84,8 +94,19 @@ export function App() {
     );
   }
 
-  // Nothing selected means the overview.
-  const current = sandboxes.find((s) => s.name === selected) ?? null;
+  const current = page === "sandbox" ? (sandboxes.find((s) => s.name === selected) ?? null) : null;
+  const go = (next: Page, sandbox?: string) => {
+    setPage(next);
+    if (sandbox) setSelected(sandbox);
+  };
+  const sandboxTab = current ? (tabs[current.name] ?? "overview") : null;
+  // Terminals stay mounted on every page; this decides which of them are listed and which one is on screen.
+  const listed = page === "terminals" ? sessions : current && sandboxTab === "terminal" ? sessions.filter((s) => s.sandbox === current.name) : [];
+  const onScreen = page === "terminals" ? (listed.find((s) => s.id === focused) ?? listed.at(-1)) : current ? listed.find((s) => s.id === shown(sessions, activeSession, current.name)) : undefined;
+  const pick = (session: Session) => {
+    setFocused(session.id);
+    setActiveSession((active) => ({ ...active, [session.sandbox]: session.id }));
+  };
 
   return (
     <div className="layout">
@@ -95,18 +116,25 @@ export function App() {
           Boxquell
         </h1>
         <nav>
-          <div className={current ? "item" : "item active"}>
-            <button className="grow" onClick={() => setSelected(null)}>
-              <span className="grow">
-                <strong>Overview</strong>
-                <small>load and network of all sandboxes</small>
-              </span>
+          <NavItem active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
+          <NavItem
+            active={page === "terminals"}
+            title="Terminals"
+            note={sessions.length === 0 ? "none open" : `${sessions.length} open`}
+            badge={sessions.length || undefined}
+            onClick={() => go("terminals")}
+          />
+          <NavItem active={page === "settings"} title="Settings" note="plugins, secrets, network" onClick={() => go("settings")} />
+          <span className="nav-label">
+            Sandboxes
+            <button className="add" title="New sandbox" aria-label="New sandbox" onClick={() => go("new")}>
+              +
             </button>
-          </div>
-          <span className="nav-label">Sandboxes</span>
+          </span>
           {sandboxes.map((s) => (
-            <div key={s.name} className={s.name === current?.name ? "item active" : "item"}>
-              <button className="grow" onClick={() => setSelected(s.name)}>
+            <Fragment key={s.name}>
+            <div className={s.name === current?.name ? "item active" : "item"}>
+              <button className="grow" onClick={() => go("sandbox", s.name)}>
                 <span className={s.paused ? "dot paused" : s.running ? "dot on" : "dot"} />
                 <span className="grow">
                   <strong>{s.name}</strong>
@@ -122,22 +150,40 @@ export function App() {
                 {s.running ? "■" : "▶"}
               </button>
             </div>
+            {/* Its open terminals, one line each. */}
+            {sessions
+              .filter((t) => t.sandbox === s.name)
+              .map((t) => (
+                <div key={t.id} className={onScreen?.id === t.id ? "subitem active" : "subitem"}>
+                  <button
+                    className="grow"
+                    onClick={() => {
+                      go("sandbox", s.name);
+                      setTabs((all) => ({ ...all, [s.name]: "terminal" }));
+                      pick(t);
+                    }}
+                  >
+                    <span className="prompt" aria-hidden="true">
+                      &gt;_
+                    </span>
+                    {t.title}
+                  </button>
+                  <button className="power" title="Close this terminal" aria-label={`Close ${t.title} in ${s.name}`} onClick={() => closeTerminal(t.id)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </Fragment>
           ))}
           {sandboxes.length === 0 && <p className="muted pad">No sandboxes yet.</p>}
         </nav>
-        <button className="primary" onClick={() => setDialog("new")}>
-          New sandbox
-        </button>
         <button
           className={lockdown ? "lockdown active" : "lockdown"}
           title="Blocks every connection of every sandbox at once and stops open ones"
           onClick={() => act(() => api.setLockdown(!lockdown))}
         >
-          {lockdown ? "Lift network lockdown" : "Emergency stop: block all network"}
+          {lockdown ? "Lift network lockdown" : "Emergency stop"}
         </button>
-        <button onClick={() => setDialog("plugins")}>Plugins</button>
-        <button onClick={() => setDialog("secrets")}>Secrets ({secrets.length})</button>
-        <button onClick={() => setDialog("settings")}>Settings</button>
       </aside>
       <main>
         {outdated && (
@@ -165,8 +211,11 @@ export function App() {
             </button>
           </div>
         )}
-        {current ? (
-          <>
+
+        {page === "overview" && <Overview sandboxes={sandboxes} open={(name) => go("sandbox", name)} act={act} />}
+
+        {page === "sandbox" &&
+          (current ? (
             <SandboxView
               key={current.name}
               sandbox={current}
@@ -177,66 +226,132 @@ export function App() {
               tab={tabs[current.name] ?? "overview"}
               setTab={(tab) => setTabs((all) => ({ ...all, [current.name]: tab }))}
             />
-            <section className={(tabs[current.name] ?? "overview") === "terminal" && sessions.some((s) => s.sandbox === current.name) ? "" : "hidden"}>
-              <div className="tabs">
-                {sessions
-                  .filter((s) => s.sandbox === current.name)
-                  .map((s) => (
-                    <span key={s.id} className={shown(sessions, activeSession, current.name) === s.id ? "tab active" : "tab"}>
-                      <button className="link" onClick={() => setActiveSession((active) => ({ ...active, [current.name]: s.id }))}>
-                        {s.title}
-                      </button>
-                      <button className="link" title="Close this terminal" aria-label={`Close ${s.title}`} onClick={() => closeTerminal(s.id)}>
-                        ×
-                      </button>
-                    </span>
-                  ))}
+          ) : (
+            <div className="empty">
+              <p>There is no sandbox named {selected}.</p>
+            </div>
+          ))}
+
+        {page === "new" && (
+          <>
+            <header className="hero">
+              <div className="grow">
+                <h2>New sandbox</h2>
+                <p className="muted">A microVM for one project. Software can be added later as well.</p>
               </div>
-              {sessions.map((s) => (
-                <Terminal key={s.id} session={s} visible={shown(sessions, activeSession, current.name) === s.id} onExit={() => {}} />
-              ))}
-            </section>
+            </header>
+            <NewSandbox
+              recipes={recipes}
+              onClose={() => go("overview")}
+              onCreated={(name) => {
+                go("sandbox", name);
+                refresh();
+              }}
+            />
           </>
-        ) : (
-          <Overview sandboxes={sandboxes} open={setSelected} act={act} />
         )}
+
+        {page === "settings" && (
+          <>
+            <header className="hero">
+              <div className="grow">
+                <h2>Settings</h2>
+                <p className="muted">For all sandboxes on this computer.</p>
+              </div>
+            </header>
+            <div className="tabbar" role="tablist">
+              {SETTINGS_TABS.map(([id, label]) => (
+                <button key={id} role="tab" aria-selected={settingsTab === id} className={settingsTab === id ? "active" : ""} onClick={() => setSettingsTab(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {settingsTab === "general" && (
+              <Preferences
+                settings={settings}
+                onChange={(next) => {
+                  setSettings(next);
+                  api.setSettings(next).then(setSettings, () => {});
+                }}
+              />
+            )}
+            {settingsTab === "plugins" && <Plugins onChange={() => api.recipes().then(setRecipes, () => {})} />}
+            {settingsTab === "secrets" && <Secrets secrets={secrets} act={act} />}
+            {settingsTab === "network" && <GlobalRules act={act} />}
+          </>
+        )}
+
+        {page === "terminals" && (
+          <header className="hero">
+            <div className="grow">
+              <h2>Terminals</h2>
+              <p className="muted">
+                {sessions.length === 0 ? "No terminal is open. Open one from a sandbox, or start here:" : "Every open terminal, across all sandboxes. They stay connected while you look elsewhere."}
+              </p>
+            </div>
+          </header>
+        )}
+        {page === "terminals" && (
+          <div className="launch">
+            {sandboxes.map((s) => (
+              <button key={s.name} onClick={() => openTerminal(s.name, "Shell", undefined, true)}>
+                <span className={s.paused ? "dot paused" : s.running ? "dot on" : "dot"} /> Shell in {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* All terminals live here, on every page, so none loses its connection. */}
+        <section className={listed.length > 0 ? "terminals" : "hidden"}>
+          <div className="tabs">
+            {listed.map((s) => (
+              <span key={s.id} className={onScreen?.id === s.id ? "tab active" : "tab"}>
+                <button className="link" onClick={() => pick(s)}>
+                  {page === "terminals" && <span className="muted">{s.sandbox} · </span>}
+                  {s.title}
+                </button>
+                <button className="link" title="Close this terminal" aria-label={`Close ${s.title} in ${s.sandbox}`} onClick={() => closeTerminal(s.id)}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          {sessions.map((s) => (
+            <Terminal key={s.id} session={s} visible={onScreen?.id === s.id} onExit={() => {}} />
+          ))}
+        </section>
       </main>
-      {dialog === "new" && (
-        <NewSandbox
-          recipes={recipes}
-          onClose={() => setDialog(null)}
-          onCreated={(name) => {
-            setDialog(null);
-            setSelected(name);
-            refresh();
-          }}
-        />
-      )}
-      {dialog === "plugins" && (
-        <Plugins
-          onChange={() => api.recipes().then(setRecipes, () => {})}
-          onClose={() => setDialog(null)}
-        />
-      )}
-      {dialog === "settings" && (
-        <Preferences
-          settings={settings}
-          onChange={(next) => {
-            setSettings(next);
-            api.setSettings(next).then(setSettings, () => {});
-          }}
-          onClose={() => setDialog(null)}
-        />
-      )}
       <Toasts
         enabled={settings.toast_blocked}
         onChange={refresh}
         onOpen={(sandbox) => {
-          setSelected(sandbox);
+          go("sandbox", sandbox);
           setTabs((all) => ({ ...all, [sandbox]: "network" }));
         }}
       />
-      {dialog === "secrets" && <Secrets secrets={secrets} act={act} onClose={() => setDialog(null)} />}
+    </div>
+  );
+}
+
+type Page = "overview" | "terminals" | "settings" | "new" | "sandbox";
+type SettingsTab = "general" | "plugins" | "secrets" | "network";
+const SETTINGS_TABS: [SettingsTab, string][] = [
+  ["general", "General"],
+  ["plugins", "Plugins"],
+  ["secrets", "Secrets"],
+  ["network", "Network"],
+];
+
+function NavItem(props: { active: boolean; title: string; note: string; badge?: number; onClick: () => void }) {
+  return (
+    <div className={props.active ? "item active" : "item"}>
+      <button className="grow" onClick={props.onClick}>
+        <span className="grow">
+          <strong>{props.title}</strong>
+          <small>{props.note}</small>
+        </span>
+        {props.badge !== undefined && <span className="badge">{props.badge}</span>}
+      </button>
     </div>
   );
 }

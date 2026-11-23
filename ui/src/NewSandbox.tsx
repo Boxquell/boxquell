@@ -28,9 +28,7 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
   }
 
   return (
-    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <form className="dialog" onSubmit={submit}>
-        <h2>New sandbox</h2>
+    <form className="pane" onSubmit={submit}>
         <label>
           Name
           <input autoFocus required pattern="[a-z0-9][a-z0-9-]*" title="lowercase letters, digits and dashes" value={name} onChange={(e) => setName(e.target.value)} />
@@ -77,7 +75,6 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
             {busy ? "Creating…" : picked.length > 0 ? "Create and install" : "Create"}
           </button>
         </div>
-      </form>
-    </div>
+    </form>
   );
 }

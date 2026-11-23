@@ -3,7 +3,7 @@ import { api, type Secret } from "./api";
 
 const PRESETS = ["anthropic", "claude-oauth", "openai", "openrouter", "github"];
 
-export function Secrets(props: { secrets: Secret[]; act: (action: () => Promise<unknown>) => Promise<void>; onClose: () => void }) {
+export function Secrets(props: { secrets: Secret[]; act: (action: () => Promise<unknown>) => Promise<void> }) {
   const [name, setName] = useState("anthropic");
   const [custom, setCustom] = useState("");
   const [hosts, setHosts] = useState("");
@@ -19,9 +19,7 @@ export function Secrets(props: { secrets: Secret[]; act: (action: () => Promise<
   }
 
   return (
-    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="dialog">
-        <h2>Secrets</h2>
+    <div className="pane">
         <p className="muted">
           Values stay on this computer. A sandbox only sees a placeholder; the real value is put into requests to the listed hosts on their way out.
         </p>
@@ -81,13 +79,9 @@ export function Secrets(props: { secrets: Secret[]; act: (action: () => Promise<
             </div>
           )}
           <div className="actions">
-            <button type="button" onClick={props.onClose}>
-              Close
-            </button>
             <button className="primary">Save secret</button>
           </div>
         </form>
-      </div>
     </div>
   );
 }

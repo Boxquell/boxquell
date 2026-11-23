@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, type Repo } from "./api";
 
 /** Recipe repositories: git repositories that add agents, languages and tools. */
-export function Plugins(props: { onChange: () => void; onClose: () => void }) {
+export function Plugins(props: { onChange: () => void }) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -32,9 +32,7 @@ export function Plugins(props: { onChange: () => void; onClose: () => void }) {
   };
 
   return (
-    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="dialog">
-        <h2>Plugins</h2>
+    <div className="pane">
         <p className="muted">
           Agents, languages and tools come from plugin repositories: git repositories with recipe files. The official ones are added automatically. Recipes of other repositories run their own install scripts inside the sandbox and open the network
           destinations they list, so add only repositories you trust.
@@ -73,15 +71,11 @@ export function Plugins(props: { onChange: () => void; onClose: () => void }) {
             <input required placeholder="https://example.com/someone/boxquell-recipes.git" value={url} onChange={(e) => setUrl(e.target.value)} />
           </label>
           <div className="actions">
-            <button type="button" onClick={props.onClose}>
-              Close
-            </button>
             <button className="primary" disabled={!!busy}>
               {busy ?? "Add repository"}
             </button>
           </div>
         </form>
-      </div>
     </div>
   );
 }

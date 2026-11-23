@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Settings } from "./api";
 
-export function Preferences(props: { settings: Settings; onChange: (settings: Settings) => void; onClose: () => void }) {
+export function Preferences(props: { settings: Settings; onChange: (settings: Settings) => void }) {
   const { settings } = props;
   const [addresses, setAddresses] = useState<{ address: string; interface: string }[]>([]);
   useEffect(() => {
@@ -11,12 +11,10 @@ export function Preferences(props: { settings: Settings; onChange: (settings: Se
   const toggleAddress = (address: string) =>
     props.onChange({ ...settings, listen: settings.listen.includes(address) ? settings.listen.filter((a) => a !== address) : [...settings.listen, address] });
   // Addresses that were chosen earlier but are not present right now stay visible.
-  const known = [...addresses, ...settings.listen.filter((a) => !addresses.some((x) => x.address === a)).map((address) => ({ address, interface: "not connected" }))];
+  const known = [...addresses.filter((a, i) => addresses.findIndex((x) => x.address === a.address) === i), ...settings.listen.filter((a) => !addresses.some((x) => x.address === a)).map((address) => ({ address, interface: "not connected" }))];
 
   return (
-    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="dialog">
-        <h2>Settings</h2>
+    <div className="pane">
         <h3>When a connection is blocked</h3>
         <label className="check setting">
           <input type="checkbox" className="switch" checked={settings.notify_blocked} onChange={() => toggle("notify_blocked")} />
@@ -36,7 +34,9 @@ export function Preferences(props: { settings: Settings; onChange: (settings: Se
         {known.map((a) => (
           <label key={a.address} className="check setting">
             <input type="checkbox" className="switch" checked={settings.listen.includes(a.address)} onChange={() => toggleAddress(a.address)} />
-            <code>{a.address}</code> <span className="muted">{a.interface}</span>
+            <span>
+              <code>{a.address}</code> <span className="muted">{a.interface}</span>
+            </span>
           </label>
         ))}
         <div className="row">
@@ -60,12 +60,6 @@ export function Preferences(props: { settings: Settings; onChange: (settings: Se
           </div>
         )}
         <p className="muted">Changes to the addresses apply after the daemon restarts (boxquell daemon --stop).</p>
-        <div className="actions">
-          <button className="primary" onClick={props.onClose}>
-            Done
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -398,7 +398,7 @@ function Ports(props: { sandbox: Sandbox; act: Act }) {
   );
 }
 
-function GlobalRules(props: { act: Act }) {
+export function GlobalRules(props: { act: Act }) {
   const [rules, setRules] = useState<string[]>([]);
   const [host, setHost] = useState("");
   const [action, setAction] = useState("deny");
