@@ -98,6 +98,7 @@ export interface ProjectFile {
   ports?: string[];
   secrets?: string[];
   env?: Record<string, string>;
+  review?: boolean;
 }
 
 /** Tokens used in one stretch of time by one sandbox with one key and model. */

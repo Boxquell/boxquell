@@ -183,6 +183,18 @@ boxquell claude-settings mybox settings.json
 
 The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and model names. The sandbox receives it as its managed settings with the token replaced by a placeholder, the token becomes a secret of that sandbox, and the gateway is added to the allowed destinations. A gateway on your own computer (`localhost`) is reachable from the sandbox as `10.0.2.2`. A key helper in the settings (`apiKeyHelper`, e.g. for a token from a company sign-in) keeps running on your computer: Boxquell calls it, refreshes the key before it runs out and puts it into the requests; the sandbox only has a placeholder. Without a file name, `boxquell claude-settings mybox` takes this computer's managed settings, drop-in files included.
 
+### Review mode
+
+```sh
+boxquell new mybox --workspace . --review    # or later: boxquell review mybox on
+boxquell review mybox                        # what the sandbox changed
+boxquell review mybox --diff src/cart.js
+boxquell review mybox --apply                # take everything into the project; or name files
+boxquell review mybox --discard src/cart.js  # throw a change away
+```
+
+In review mode the sandbox does not get your project folder but a copy of it. Whatever an agent does there stays in the copy until you take it over, in the app on the sandbox's **Review** tab with a line-by-line view, or with the commands above. Files that you changed in the project meanwhile are marked, and can be brought into the copy; a file that both sides changed is shown as such, and you decide which version wins. The whole folder is copied, so the sandbox has dependencies and the repository's data too, but only project files are compared: what the project's ignore files leave out, and `.git` itself, never show up as changes. Commits an agent makes in the copy therefore stay in the copy; the changed files come over, the history does not.
+
 ### Tasks in the background
 
 ```sh
