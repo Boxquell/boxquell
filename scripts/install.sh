@@ -11,6 +11,8 @@
 # Options:
 #   --dir <path>     install the command into this directory instead of ~/.local/bin
 #   --no-desktop     install the command only, without the desktop app
+#   --deps           install what boxquell needs with the system's package
+#                    manager without asking; --no-deps never does (default: ask)
 #   --uninstall      remove the command and the app again (sandboxes and settings stay)
 #   --help
 # Environment:
@@ -23,6 +25,7 @@ release_url=${BOXQUELL_RELEASE_URL:-https://github.com/Boxquell/boxquell/release
 install_dir=${BOXQUELL_INSTALL_DIR:-$HOME/.local/bin}
 uninstall=0
 desktop=1
+deps=ask
 [ -z "${BOXQUELL_NO_DESKTOP:-}" ] || desktop=0
 # Where the desktop app lives on Linux: unpacked, with a menu entry and an icon.
 data=${XDG_DATA_HOME:-$HOME/.local/share}
@@ -62,6 +65,8 @@ Install the boxquell command on Linux or macOS.
 Options:
   --dir <path>     install the command into this directory instead of ~/.local/bin
   --no-desktop     install the command only, without the desktop app
+  --deps           install what boxquell needs with the system's package
+                   manager without asking; --no-deps never does (default: ask)
   --uninstall      remove the command and the app again (sandboxes and settings stay)
   --help
 Environment:
@@ -76,6 +81,8 @@ while [ $# -gt 0 ]; do
     --dir) [ $# -ge 2 ] || die "--dir needs a path"; install_dir=$2; shift ;;
     --uninstall) uninstall=1 ;;
     --no-desktop) desktop=0 ;;
+    --deps) deps=yes ;;
+    --no-deps) deps=no ;;
     --help | -h) usage; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
@@ -267,15 +274,109 @@ check() {
 }
 result() { if "$@"; then echo 0; else echo 1; fi; }
 has_kvm() { [ -r /dev/kvm ] && [ -w /dev/kvm ]; }
-has_runner() { found_lib || have qemu-system-x86_64; }
+has_runner() { found_lib || have qemu-system-x86_64 || have qemu-system-aarch64; }
 
-if [ "$system" = macOS ]; then
-  check "$(result found_lib)" "libkrun (runs the sandboxes)" "brew tap slp/krun && brew install libkrun"
-else
-  check "$(result has_runner)" "libkrun or QEMU (runs the sandboxes)" "install libkrun and libkrunfw, or qemu-system-x86_64"
-  check "$(result has_kvm)" "KVM (/dev/kvm)" "enable virtualization and join the kvm group"
+# The commands that would install what is missing, one per line, for the
+# package manager of this system. Empty when there is nothing we know to do.
+fixes=''
+fix() {
+  fixes="$fixes$1
+"
+}
+plan_fixes() {
+  fixes=''
+  if [ "$system" = macOS ]; then
+    if ! found_lib; then
+      if have brew; then
+        fix "brew tap slp/krun"
+        fix "brew install libkrun"
+      else
+        note "Homebrew is needed to install libkrun: https://brew.sh"
+      fi
+    fi
+    return 0
+  fi
+  if [ "$cpu" = x86_64 ]; then qemu_deb=qemu-system-x86; else qemu_deb=qemu-system-arm; fi
+  # Root needs no sudo, and a minimal system may not have it.
+  if [ "$(id -u)" = 0 ]; then sudo=''; else sudo='sudo '; fi
+  if have pacman; then
+    has_runner || fix "${sudo}pacman -S --needed --noconfirm libkrun libkrunfw"
+    have ssh || fix "${sudo}pacman -S --needed --noconfirm openssh"
+  elif have dnf; then
+    has_runner || fix "${sudo}dnf install -y libkrun"
+    have ssh || fix "${sudo}dnf install -y openssh-clients"
+  elif have apt-get; then
+    # Debian and Ubuntu do not package libkrun; QEMU runs the sandboxes there.
+    packages=''
+    has_runner || packages=" $qemu_deb"
+    have ssh || packages="$packages openssh-client"
+    if [ -n "$packages" ]; then
+      fix "${sudo}apt-get update"
+      fix "${sudo}apt-get install -y$packages"
+    fi
+  fi
+  # A device that exists but is closed to this user: joining its group opens it.
+  if [ -e /dev/kvm ] && ! has_kvm; then
+    fix "${sudo}usermod -aG kvm $(id -un)"
+  fi
+}
+
+show_needs() {
+  missing=0
+  if [ "$system" = macOS ]; then
+    check "$(result found_lib)" "libkrun (runs the sandboxes)" "brew tap slp/krun && brew install libkrun"
+  else
+    check "$(result has_runner)" "libkrun or QEMU (runs the sandboxes)" "install libkrun and libkrunfw, or qemu-system-x86_64"
+    if [ -e /dev/kvm ]; then
+      check "$(result has_kvm)" "KVM (/dev/kvm)" "join the kvm group"
+    else
+      check 1 "KVM (/dev/kvm)" "enable virtualization in the firmware (BIOS/UEFI) settings"
+    fi
+  fi
+  check "$(result have ssh)" "OpenSSH client" "install openssh"
+}
+show_needs
+
+if [ "$missing" -gt 0 ] && [ "$deps" != no ]; then
+  plan_fixes
+  if [ -n "$fixes" ]; then
+    say ""
+    say "These commands install what is missing:"
+    printf '%s' "$fixes" | while IFS= read -r command; do say "    ${blue}$command${reset}"; done
+    run=$deps
+    if [ "$deps" = ask ]; then
+      run=no
+      # The script itself may arrive through a pipe; the question goes to the terminal.
+      if [ -t 1 ] && (exec < /dev/tty) 2>/dev/null; then
+        printf '%s?%s Run them now? [y/N] ' "$blue" "$reset"
+        read -r answer < /dev/tty || answer=''
+        case $answer in y | Y | yes | j | J | ja) run=yes ;; esac
+      fi
+    fi
+    if [ "$run" = yes ]; then
+      joined_kvm=0
+      while IFS= read -r command <&3; do
+        [ -n "$command" ] || continue
+        step "$command"
+        # sudo asks for its password on the terminal itself.
+        # Its input is not this script, which may itself be arriving through a pipe.
+        if sh -c "$command" < /dev/null; then
+          case $command in *"usermod -aG kvm"*) joined_kvm=1 ;; esac
+        else
+          note "That did not work; run it yourself to see why."
+        fi
+      done 3<<FIXES
+$fixes
+FIXES
+      say ""
+      say "${bold}What boxquell needs${reset}"
+      show_needs
+      if [ "$joined_kvm" = 1 ] && ! has_kvm; then
+        note "You joined the kvm group: log out and in again for it to apply."
+      fi
+    fi
+  fi
 fi
-check "$(result have ssh)" "OpenSSH client" "install openssh"
 
 say ""
 say "${bold}Next${reset}"

@@ -6,8 +6,22 @@
 export function BrandIcon(props: { svg?: string | null; size?: number; children?: React.ReactNode }) {
   if (!props.svg) return <>{props.children}</>;
   const size = props.size ?? 24;
-  const image = `url("data:image/svg+xml,${encodeURIComponent(props.svg)}") center / contain no-repeat`;
-  return <span className="brand-icon" aria-hidden="true" style={{ width: size, height: size, mask: image, WebkitMask: image }} />;
+  const image = `url("data:image/svg+xml,${encodeURIComponent(props.svg)}")`;
+  // Every property on its own: WebKit, which the desktop app runs on, reads
+  // the short form differently and would leave the picture in a corner.
+  const mask: React.CSSProperties = {
+    width: size,
+    height: size,
+    maskImage: image,
+    maskRepeat: "no-repeat",
+    maskPosition: "center",
+    maskSize: "contain",
+    WebkitMaskImage: image,
+    WebkitMaskRepeat: "no-repeat",
+    WebkitMaskPosition: "center",
+    WebkitMaskSize: "contain",
+  };
+  return <span className="brand-icon" aria-hidden="true" style={mask} />;
 }
 
 /**
