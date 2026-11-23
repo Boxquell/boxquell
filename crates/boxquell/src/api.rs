@@ -509,6 +509,10 @@ async fn review_settle(State(daemon): App, Path(name): Path<String>, Json(body):
     Ok(Json(tokio::task::spawn_blocking(move || daemon.review_settle(&name, body.paths, to_project, from_project_only)).await??))
 }
 
+async fn traffic(State(daemon): App, Path(name): Path<String>, Query(query): Query<UsageQuery>) -> ApiResult {
+    Ok(Json(daemon.traffic_report(&name, query.days.unwrap_or(7).clamp(1, 90))?))
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -541,6 +545,9 @@ struct ResizeBody {
     autostart: Option<Vec<String>>,
     /// When to stop the idle sandbox: minutes, 0 for never, -1 for the setting of all sandboxes.
     idle_stop_minutes: Option<i64>,
+    /// Speed limits in kbit per second; 0 takes one away.
+    upload_kbit: Option<u64>,
+    download_kbit: Option<u64>,
     /// Data limits in MiB; 0 takes one away.
     upload_limit_mib: Option<u64>,
     download_limit_mib: Option<u64>,
@@ -556,6 +563,7 @@ async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<R
     }
     daemon.set_env(&name, body.env)?;
     daemon.set_data_limits(&name, body.upload_limit_mib, body.download_limit_mib)?;
+    daemon.set_speed_limits(&name, body.upload_kbit, body.download_kbit)?;
     if let Some(minutes) = body.idle_stop_minutes {
         daemon.set_idle_stop(&name, u64::try_from(minutes).ok())?;
     }
@@ -1007,6 +1015,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/rules", post(add_rule).delete(remove_rule))
         .route("/api/sandboxes/{name}/auto-rules", post(set_auto_rule))
         .route("/api/sandboxes/{name}/traffic/continue", post(continue_after_limit))
+        .route("/api/sandboxes/{name}/traffic", get(traffic))
         .route("/api/sandboxes/{name}/pause", post(pause))
         .route("/api/sandboxes/{name}/resume", post(resume))
         .route("/api/sandboxes/{name}/mode", post(set_mode))

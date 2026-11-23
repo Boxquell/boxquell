@@ -154,6 +154,12 @@ pub struct SandboxSpec {
     /// changes reach the project only when the user takes them over.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub review: bool,
+    /// How fast the sandbox may send to destinations outside, in kbit per second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_kbit: Option<u64>,
+    /// The same for what it receives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_kbit: Option<u64>,
     /// Only when a sandbox is created: the template its disk and software come from.
     #[serde(default, skip_serializing)]
     pub template: Option<String>,

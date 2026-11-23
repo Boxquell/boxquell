@@ -6,6 +6,7 @@ use crate::mitm;
 use crate::sniff::{http_host, tls_sni, Sniff};
 use crate::stack::{GuestStream, GATEWAY_IP};
 use bytes::Bytes;
+use std::future::Future;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::pin::Pin;
@@ -51,6 +52,65 @@ async fn sniff(guest: &mut GuestStream, head: &mut Vec<u8>, parse: fn(&[u8]) -> 
 }
 
 /// The guest stream with the already sniffed bytes put back in front, counting traffic.
+/// A speed limit for one direction of a sandbox's traffic to destinations
+/// outside: bytes are let through as fast as the rate allows, with up to one
+/// second's worth at once. A rate of 0 means no limit.
+#[derive(Default)]
+pub struct Throttle {
+    rate: AtomicU64,
+    /// Bytes that may pass now, and when that was last worked out.
+    state: std::sync::Mutex<Option<(f64, Instant)>>,
+}
+
+impl Throttle {
+    /// Set the rate in bytes per second; 0 lifts the limit.
+    pub fn set(&self, bytes_per_second: u64) {
+        self.rate.store(bytes_per_second, Ordering::Relaxed);
+    }
+
+    /// How many of `wanted` bytes may pass now, or how long to wait for the next ones.
+    fn take(&self, wanted: usize) -> Result<usize, Duration> {
+        let rate = self.rate.load(Ordering::Relaxed) as f64;
+        if rate <= 0.0 || wanted == 0 {
+            return Ok(wanted);
+        }
+        let mut state = self.state.lock().unwrap();
+        let now = Instant::now();
+        let (mut allowance, last) = state.unwrap_or((rate, now));
+        allowance = (allowance + now.duration_since(last).as_secs_f64() * rate).min(rate);
+        // Pieces of at least a few hundred bytes, so small rates do not turn into a trickle of single bytes.
+        let piece = (rate / 20.0).clamp(256.0, 65536.0).min(wanted as f64);
+        if allowance < piece {
+            *state = Some((allowance, now));
+            return Err(Duration::from_secs_f64(((piece - allowance) / rate).clamp(0.005, 1.0)));
+        }
+        let granted = allowance.min(wanted as f64).floor();
+        *state = Some((allowance - granted, now));
+        Ok(granted as usize)
+    }
+
+    /// Give back what was allowed but not used.
+    fn refund(&self, bytes: usize) {
+        if let Some((allowance, _)) = self.state.lock().unwrap().as_mut() {
+            *allowance += bytes as f64;
+        }
+    }
+}
+
+/// Wait out a throttle inside a poll function: `Ready` with the bytes that may pass.
+fn allowed(throttle: &Throttle, wait: &mut Option<Pin<Box<tokio::time::Sleep>>>, cx: &mut Context<'_>, wanted: usize) -> Poll<usize> {
+    loop {
+        if let Some(sleep) = wait.as_mut() {
+            ready!(sleep.as_mut().poll(cx));
+            *wait = None;
+        }
+        match throttle.take(wanted) {
+            Ok(bytes) => return Poll::Ready(bytes),
+            Err(pause) => *wait = Some(Box::pin(tokio::time::sleep(pause))),
+        }
+    }
+}
+
 struct Replay {
     head: Bytes,
     guest: GuestStream,
@@ -58,29 +118,59 @@ struct Replay {
     down: Arc<AtomicU64>,
     /// The sandbox's totals to destinations outside: bytes sent and received.
     total: Arc<(AtomicU64, AtomicU64)>,
+    /// The sandbox's speed limits for sending and receiving, and the waits they impose here.
+    speed: Arc<(Throttle, Throttle)>,
+    wait_up: Option<Pin<Box<tokio::time::Sleep>>>,
+    wait_down: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl AsyncRead for Replay {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        let before = buf.filled().len();
-        if self.head.is_empty() {
-            ready!(Pin::new(&mut self.guest).poll_read(cx, buf))?;
-        } else {
-            let n = buf.remaining().min(self.head.len());
-            buf.put_slice(&self.head.split_to(n));
+        let this = &mut *self;
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
         }
-        let sent = (buf.filled().len() - before) as u64;
-        self.up.fetch_add(sent, Ordering::Relaxed);
-        self.total.0.fetch_add(sent, Ordering::Relaxed);
+        // What the guest sends goes out only as fast as its upload limit allows.
+        let may = ready!(allowed(&this.speed.0, &mut this.wait_up, cx, buf.remaining()));
+        let sent = if this.head.is_empty() {
+            let mut part = ReadBuf::new(buf.initialize_unfilled_to(may));
+            match Pin::new(&mut this.guest).poll_read(cx, &mut part) {
+                Poll::Ready(Ok(())) => {}
+                other => {
+                    this.speed.0.refund(may);
+                    return other;
+                }
+            }
+            let read = part.filled().len();
+            buf.advance(read);
+            read
+        } else {
+            let n = may.min(this.head.len());
+            buf.put_slice(&this.head.split_to(n));
+            n
+        };
+        this.speed.0.refund(may - sent);
+        this.up.fetch_add(sent as u64, Ordering::Relaxed);
+        this.total.0.fetch_add(sent as u64, Ordering::Relaxed);
         Poll::Ready(Ok(()))
     }
 }
 
 impl AsyncWrite for Replay {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let n = ready!(Pin::new(&mut self.guest).poll_write(cx, buf))?;
-        self.down.fetch_add(n as u64, Ordering::Relaxed);
-        self.total.1.fetch_add(n as u64, Ordering::Relaxed);
+        let this = &mut *self;
+        // What comes back reaches the guest only as fast as its download limit allows.
+        let may = ready!(allowed(&this.speed.1, &mut this.wait_down, cx, buf.len()));
+        let n = match Pin::new(&mut this.guest).poll_write(cx, &buf[..may]) {
+            Poll::Ready(Ok(n)) => n,
+            other => {
+                this.speed.1.refund(may);
+                return other;
+            }
+        };
+        this.speed.1.refund(may - n);
+        this.down.fetch_add(n as u64, Ordering::Relaxed);
+        this.total.1.fetch_add(n as u64, Ordering::Relaxed);
         Poll::Ready(Ok(n))
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -149,7 +239,16 @@ pub(crate) async fn handle<U: Upstream>(shared: Arc<Shared<U>>, dst: SocketAddrV
     // Every byte to and from the destination is counted as it passes, so a
     // limit on the sandbox's traffic holds for connections that stay open too.
     let (up, down) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
-    let mut guest = Replay { head: Bytes::from(std::mem::take(&mut head)), guest, up: up.clone(), down: down.clone(), total: shared.traffic.clone() };
+    let mut guest = Replay {
+        head: Bytes::from(std::mem::take(&mut head)),
+        guest,
+        up: up.clone(),
+        down: down.clone(),
+        total: shared.traffic.clone(),
+        speed: shared.speed.clone(),
+        wait_up: None,
+        wait_down: None,
+    };
     match tokio::time::timeout(DIAL_TIMEOUT, shared.upstream.dial(target)).await {
         Ok(Ok(upstream)) if intercept.is_some() => {
             let (intercept, host) = intercept.expect("checked by the match guard");

@@ -291,6 +291,12 @@ enum Cmd {
         /// Stop the sandbox after this many minutes without work in it; 0 for never, -1 for the setting of all sandboxes
         #[arg(long, value_name = "MINUTES", allow_hyphen_values = true)]
         idle_stop: Option<i64>,
+        /// Limit how fast the sandbox sends to destinations outside, in kbit per second; 0 for no limit
+        #[arg(long, value_name = "KBIT")]
+        upload_speed: Option<u64>,
+        /// The same for what it receives
+        #[arg(long, value_name = "KBIT")]
+        download_speed: Option<u64>,
         /// Cut the network off once the sandbox has sent this much to destinations outside, in MiB per run; 0 for no limit
         #[arg(long, value_name = "MIB")]
         upload_limit: Option<u64>,
@@ -1409,7 +1415,7 @@ fn main() -> Result<()> {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
         }
-        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart, upload_limit, download_limit, idle_stop } => {
+        Cmd::Set { name, cpus, ram, disk, workdir, env, autostart, upload_limit, download_limit, idle_stop, upload_speed, download_speed } => {
             let autostart = (!autostart.is_empty()).then_some(autostart);
             let env: serde_json::Map<String, Value> = env
                 .iter()
@@ -1421,7 +1427,7 @@ fn main() -> Result<()> {
                 .collect::<Result<_>>()?;
             let info = Client::connect(&home)?.patch(
                 &format!("/api/sandboxes/{name}"),
-                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart, "upload_limit_mib": upload_limit, "download_limit_mib": download_limit, "idle_stop_minutes": idle_stop }),
+                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env, "autostart": autostart, "upload_limit_mib": upload_limit, "download_limit_mib": download_limit, "idle_stop_minutes": idle_stop, "upload_kbit": upload_speed, "download_kbit": download_speed }),
             )?;
             let hint = if info["running"] == true { " (from its next start)" } else { "" };
             println!("{name}: {} CPUs, {} MiB memory, {} GiB disk{hint}", info["cpus"], info["ram_mib"], info["disk_gib"]);

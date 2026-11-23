@@ -3,6 +3,7 @@ import { Config } from "./Config";
 import { Snapshots } from "./Snapshots";
 import { Review } from "./Review";
 import { Tasks } from "./Tasks";
+import { Traffic } from "./Traffic";
 import { count, dollars } from "./Usage";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -159,6 +160,7 @@ export function SandboxView(props: ViewProps) {
         <>
           <Rules sandbox={sandbox} act={act} />
           <AutoRules sandbox={sandbox} act={act} />
+          <Traffic sandbox={sandbox} act={act} />
           <Ports sandbox={sandbox} act={act} />
           <GlobalRules act={act} />
         </>

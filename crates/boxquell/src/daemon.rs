@@ -75,6 +75,8 @@ struct Running {
     busy_at: Mutex<std::time::Instant>,
     /// The network is cut off because a data limit was reached.
     cut: std::sync::atomic::AtomicBool,
+    /// The totals at the last note of traffic for the statistics.
+    traffic_noted: Mutex<(u64, u64)>,
     /// Where counting towards the data limits starts: the totals when the
     /// sandbox started or was last let continue.
     traffic_base: Mutex<(u64, u64)>,
@@ -473,6 +475,8 @@ impl Daemon {
             "env": spec.env,
             "ssh": spec.ssh,
             "rule_expiry": spec.rule_expiry,
+            "upload_kbit": spec.upload_kbit,
+            "download_kbit": spec.download_kbit,
             "idle_stop_minutes": spec.idle_stop_minutes,
             "traffic": traffic,
             "recipe_updates": self.recipe_updates(&spec),
@@ -676,6 +680,29 @@ impl Daemon {
         spec.save(&self.home.sandbox(name))
     }
 
+    /// How fast a sandbox may send and receive, in kbit per second; 0 takes a limit away.
+    pub fn set_speed_limits(&self, name: &str, upload_kbit: Option<u64>, download_kbit: Option<u64>) -> Result<()> {
+        let mut spec = self.spec(name)?;
+        if let Some(limit) = upload_kbit {
+            spec.upload_kbit = Some(limit).filter(|limit| *limit > 0);
+        }
+        if let Some(limit) = download_kbit {
+            spec.download_kbit = Some(limit).filter(|limit| *limit > 0);
+        }
+        spec.save(&self.home.sandbox(name))?;
+        if let Some(running) = self.running(name) {
+            running.gateway.set_speed(spec.upload_kbit.unwrap_or(0) * 125, spec.download_kbit.unwrap_or(0) * 125);
+        }
+        Ok(())
+    }
+
+    /// A sandbox's traffic over the last `days`, per hour or day, with the destinations that carried most of it.
+    pub fn traffic_report(&self, name: &str, days: u64) -> Result<Value> {
+        self.spec(name)?;
+        let bucket = if days <= 2 { 3_600_000 } else { 86_400_000 };
+        self.store.traffic(name, now_ms().saturating_sub(days * 86_400_000), bucket)
+    }
+
     /// The data limits of a sandbox; 0 takes a limit away.
     pub fn set_data_limits(&self, name: &str, upload_mib: Option<u64>, download_mib: Option<u64>) -> Result<()> {
         let mut spec = self.spec(name)?;
@@ -714,6 +741,16 @@ impl Daemon {
                     }
                 }
                 let Some(running) = self.running(&name) else { continue };
+                // Once a minute, what went out and came in is noted for the statistics.
+                if now % 60 < 2 {
+                    let total = running.gateway.traffic();
+                    let mut noted = running.traffic_noted.lock().unwrap();
+                    let (up, down) = (total.0.saturating_sub(noted.0), total.1.saturating_sub(noted.1));
+                    if up + down > 0 {
+                        let _ = self.store.record_traffic(&name, now * 1000, up, down);
+                    }
+                    *noted = total;
+                }
                 // The idle stop: nothing computed, no terminal open and no data moved for long enough.
                 // A sandbox that starts servers by itself is left alone unless it has a value of its own.
                 let minutes = match spec.idle_stop_minutes {
@@ -2163,6 +2200,7 @@ impl Daemon {
             busy_at: Mutex::new(std::time::Instant::now()),
             cut: false.into(),
             traffic_base: Mutex::default(),
+            traffic_noted: Mutex::default(),
             allowed: 0.into(),
             blocked: 0.into(),
             pid: child.id(),
@@ -2170,6 +2208,7 @@ impl Daemon {
             stop: stop.clone(),
             exited,
         });
+        running.gateway.set_speed(spec.upload_kbit.unwrap_or(0) * 125, spec.download_kbit.unwrap_or(0) * 125);
         self.running.lock().unwrap().insert(name.to_string(), running.clone());
         let sampler = tokio::spawn(sample_load(running.clone(), dir.join("id_ed25519")));
         self.connect_ssh_keys(name, &running, &spec);

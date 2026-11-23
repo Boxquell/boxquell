@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type Price, type UsageReport, type UsageRow } from "./api";
 import { Tile } from "./Overview";
 
@@ -6,10 +6,10 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 /** The four kinds of tokens, always in this order and always in these colours. */
 const SERIES = [
-  { key: "input", label: "Input" },
-  { key: "output", label: "Output" },
-  { key: "cache_read", label: "Read from cache" },
-  { key: "cache_write", label: "Written to cache" },
+  { key: "input", label: "Input", css: "series-input" },
+  { key: "output", label: "Output", css: "series-output" },
+  { key: "cache_read", label: "Read from cache", css: "series-cache_read" },
+  { key: "cache_write", label: "Written to cache", css: "series-cache_write" },
 ] as const;
 
 export function count(n: number): string {
@@ -49,19 +49,37 @@ function buckets(rows: UsageRow[], bucketMs: number, days: number): Bucket[] {
   return [...all.values()];
 }
 
-/** Stacked bars of the tokens used per hour or day, with the figures of a bar on hover. */
-function TokenChart(props: { buckets: Bucket[]; hourly: boolean }) {
-  const { buckets: data, hourly } = props;
+/** One kind of value in a chart of stacked bars; `css` names its colour class. */
+export interface Series {
+  key: string;
+  label: string;
+  css: string;
+}
+
+/**
+ * Stacked bars per hour or day, with the figures of a bar on hover. `values`
+ * gives a bar's amount per series; `format` writes an amount, `foot` the last
+ * line of the hover box.
+ */
+export function StackedBars<B extends { t: number }>(props: {
+  buckets: B[];
+  hourly: boolean;
+  series: readonly Series[];
+  values: (bucket: B, key: string) => number;
+  format: (value: number) => string;
+  foot?: (bucket: B) => React.ReactNode;
+  label: string;
+}) {
+  const { buckets: data, hourly, series } = props;
   const [hover, setHover] = useState<number | null>(null);
-  const frame = useRef<HTMLDivElement>(null);
-  const [width, height, left, bottom, top] = [860, 240, 44, 22, 8];
-  const total = (b: Bucket) => SERIES.reduce((sum, { key }) => sum + b[key], 0);
+  const [width, height, left, bottom, top] = [860, 240, 52, 22, 8];
+  const total = (b: B) => series.reduce((sum, { key }) => sum + props.values(b, key), 0);
   const peak = Math.max(1, ...data.map(total));
   // A round number above the peak, so the axis reads in clean steps.
   const magnitude = 10 ** Math.floor(Math.log10(peak));
   const ceiling = [1, 2, 2.5, 5, 10].map((step) => step * magnitude).find((step) => step >= peak) ?? peak;
   const plot = { width: width - left, height: height - bottom - top };
-  const slot = plot.width / data.length;
+  const slot = plot.width / Math.max(1, data.length);
   const bar = Math.max(2, Math.min(28, slot - 2));
   const y = (value: number) => top + plot.height * (1 - value / ceiling);
   const label = (t: number) =>
@@ -70,27 +88,27 @@ function TokenChart(props: { buckets: Bucket[]; hourly: boolean }) {
   const shown = hover === null ? null : data[hover];
 
   return (
-    <div className="chart" ref={frame}>
+    <div className="chart">
       <ul className="legend" aria-label="What the colours mean">
-        {SERIES.map(({ key, label }) => (
+        {series.map(({ key, label, css }) => (
           <li key={key}>
-            <span className={`swatch series-${key}`} aria-hidden="true" /> {label}
+            <span className={`swatch ${css}`} aria-hidden="true" /> {label}
           </li>
         ))}
       </ul>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Tokens used per ${hourly ? "hour" : "day"}; the table below lists the totals`} onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${props.label} per ${hourly ? "hour" : "day"}; the table below lists the totals`} onMouseLeave={() => setHover(null)}>
         {[0, 0.5, 1].map((share) => (
           <g key={share}>
             <line className="grid" x1={left} x2={width} y1={y(ceiling * share)} y2={y(ceiling * share)} />
             <text className="axis" x={left - 8} y={y(ceiling * share) + 4} textAnchor="end">
-              {count(ceiling * share)}
+              {props.format(ceiling * share)}
             </text>
           </g>
         ))}
         {data.map((bucket, index) => {
           const x = left + slot * index + (slot - bar) / 2;
           let stacked = 0;
-          const kinds = SERIES.filter(({ key }) => bucket[key] > 0);
+          const kinds = series.filter(({ key }) => props.values(bucket, key) > 0);
           return (
             <g key={bucket.t}>
               {index % every === 0 && (
@@ -98,15 +116,15 @@ function TokenChart(props: { buckets: Bucket[]; hourly: boolean }) {
                   {label(bucket.t)}
                 </text>
               )}
-              {kinds.map(({ key }, at) => {
+              {kinds.map(({ key, css }, at) => {
                 const from = y(stacked);
-                stacked += bucket[key];
+                stacked += props.values(bucket, key);
                 const to = y(stacked);
                 // A gap of the surface colour between the parts; the top one gets round corners.
                 const gap = at === 0 ? 0 : 2;
                 const size = Math.max(0, from - to - gap);
                 const last = at === kinds.length - 1;
-                return <rect key={key} className={`series-${key}`} x={x} y={to} width={bar} height={size} rx={last ? Math.min(4, bar / 2, size) : 0} />;
+                return <rect key={key} className={css} x={x} y={to} width={bar} height={size} rx={last ? Math.min(4, bar / 2, size) : 0} />;
               })}
               <rect className={hover === index ? "hit on" : "hit"} x={left + slot * index} y={top} width={slot} height={plot.height} onMouseEnter={() => setHover(index)} />
             </g>
@@ -114,20 +132,27 @@ function TokenChart(props: { buckets: Bucket[]; hourly: boolean }) {
         })}
       </svg>
       {shown && hover !== null && (
-        <div className="chart-tip" style={{ left: `${((left + slot * (hover + 0.5)) / width) * 100}%` }} role="status">
+        <div className="chart-tip" style={{ left: `${Math.min(88, Math.max(12, ((left + slot * (hover + 0.5)) / width) * 100))}%` }} role="status">
           <strong>{hourly ? `${new Date(shown.t).toLocaleDateString([], { day: "numeric", month: "short" })}, ${label(shown.t)}` : label(shown.t)}</strong>
-          {SERIES.map(({ key, label }) => (
+          {series.map(({ key, label, css }) => (
             <span key={key}>
-              <span className={`swatch series-${key}`} aria-hidden="true" /> {label} <b>{count(shown[key])}</b>
+              <span className={`swatch ${css}`} aria-hidden="true" /> {label} <b>{props.format(props.values(shown, key))}</b>
             </span>
           ))}
-          <span className="sum">
-            {shown.requests} requests <b>{dollars(shown.cost)}</b>
-          </span>
+          {props.foot && <span className="sum">{props.foot(shown)}</span>}
         </div>
       )}
     </div>
   );
+}
+
+/** Every stretch of time in the range, also the empty ones, as `make` fills it. */
+export function timeline<B extends { t: number }>(bucketMs: number, days: number, make: (t: number) => B): Map<number, B> {
+  const end = Math.floor(Date.now() / bucketMs) * bucketMs;
+  const start = Math.floor((Date.now() - days * 86_400_000) / bucketMs) * bucketMs + bucketMs;
+  const all = new Map<number, B>();
+  for (let t = start; t <= end; t += bucketMs) all.set(t, make(t));
+  return all;
 }
 
 function Sums(props: { title: string; first: string; rows: { name: string; tokens: number; cost: number; requests: number }[]; unpriced?: string[] }) {
@@ -371,7 +396,19 @@ export function Usage(props: { act: Act; secrets: string[] }) {
             that sign in another way pass through unseen.
           </p>
         ) : (
-          <TokenChart buckets={data} hourly={hourly} />
+          <StackedBars
+            buckets={data}
+            hourly={hourly}
+            series={SERIES}
+            values={(bucket, key) => bucket[key as (typeof SERIES)[number]["key"]]}
+            format={count}
+            label="Tokens used"
+            foot={(bucket) => (
+              <>
+                {bucket.requests} requests <b>{dollars(bucket.cost)}</b>
+              </>
+            )}
+          />
         )}
       </section>
       <Sums title="By key" first="Key" rows={report.by_key} />

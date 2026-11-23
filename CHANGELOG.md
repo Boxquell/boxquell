@@ -5,6 +5,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Speed limits per sandbox for sending and receiving (`boxquell set box --download-speed 2000`, in kbit per second, and under Network); they apply at once, also to open connections.
+- Traffic statistics per sandbox under Network: what it sent and received per hour or day, and the destinations that carried most of it.
 - Review mode: the sandbox works on a copy of the project folder, and a Review tab shows what it changed, file by file and line by line. Changes are taken into the project or discarded, all at once or per file; files that changed in the project meanwhile are told apart (`boxquell review`, `boxquell new --review`).
 - Tasks: give an installed agent a task to work through in the background, without a terminal (`boxquell task box "…"`, and a Tasks tab per sandbox with the log of each task). A snapshot of the sandbox can be taken first, and a notification says when the task is over. Agent recipes name the command for it with `task`.
 - Usage: Boxquell reads the tokens a request to a model API used from its answer as it passes (Anthropic and OpenAI formats, also streams) and shows them on a Usage page: a chart per hour or day, sums per key, sandbox and model, and an estimated cost from an editable price list.

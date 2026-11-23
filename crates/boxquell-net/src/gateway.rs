@@ -63,6 +63,8 @@ pub(crate) struct Shared<U> {
     pub intercept: Option<Intercept>,
     /// Bytes sent to and received from destinations outside, over all connections.
     pub traffic: Arc<(std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64)>,
+    /// Speed limits for sending and receiving.
+    pub speed: Arc<(crate::proxy::Throttle, crate::proxy::Throttle)>,
 }
 
 /// Addresses that lead back to the host, its LAN or other special networks.
@@ -213,9 +215,17 @@ impl<U: Upstream> Filter for PolicyFilter<U> {
 pub struct GatewayHandle {
     cmds: mpsc::Sender<Cmd>,
     traffic: Arc<(std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64)>,
+    speed: Arc<(crate::proxy::Throttle, crate::proxy::Throttle)>,
 }
 
 impl GatewayHandle {
+    /// Limit how fast the sandbox sends to and receives from destinations
+    /// outside, in bytes per second; 0 lifts a limit. Applies at once, also to open connections.
+    pub fn set_speed(&self, up: u64, down: u64) {
+        self.speed.0.set(up);
+        self.speed.1.set(down);
+    }
+
     /// Bytes the sandbox has sent to and received from destinations outside since it started.
     pub fn traffic(&self) -> (u64, u64) {
         use std::sync::atomic::Ordering::Relaxed;
@@ -251,7 +261,9 @@ where
     U: Upstream,
 {
     let traffic = Arc::new((std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0)));
-    let shared = Arc::new(Shared { upstream, policy, pins: Mutex::new(HashMap::new()), events, intercept, traffic: traffic.clone() });
+    let speed: Arc<(crate::proxy::Throttle, crate::proxy::Throttle)> = Arc::default();
+    let shared =
+        Arc::new(Shared { upstream, policy, pins: Mutex::new(HashMap::new()), events, intercept, traffic: traffic.clone(), speed: speed.clone() });
     let (mut link_rx, mut link_tx) = tokio::io::split(link);
     let (frames_in_tx, frames_in) = mpsc::channel::<Vec<u8>>(1024);
     let (frames_out, mut frames_out_rx) = mpsc::channel::<Vec<u8>>(1024);
@@ -319,5 +331,5 @@ where
         }
     });
 
-    GatewayHandle { cmds, traffic }
+    GatewayHandle { cmds, traffic, speed }
 }

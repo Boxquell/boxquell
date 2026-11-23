@@ -53,7 +53,14 @@ impl EventStore {
                  cache_read INTEGER NOT NULL,
                  cache_write INTEGER NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS usage_time ON usage (ts_ms);",
+             CREATE INDEX IF NOT EXISTS usage_time ON usage (ts_ms);
+             CREATE TABLE IF NOT EXISTS traffic (
+                 ts_ms INTEGER NOT NULL,
+                 sandbox TEXT NOT NULL,
+                 up INTEGER NOT NULL,
+                 down INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS traffic_sandbox ON traffic (sandbox, ts_ms);",
         )?;
         Ok(Self { db: Mutex::new(db) })
     }
@@ -66,6 +73,43 @@ impl EventStore {
             params![sandbox, event.ts_ms as i64, event.allowed, serde_json::to_string(event)?],
         )?;
         Ok(row(db.last_insert_rowid(), sandbox, serde_json::to_value(event)?))
+    }
+
+    /// Note what a sandbox sent and received in the last stretch of time.
+    pub fn record_traffic(&self, sandbox: &str, ts_ms: u64, up: u64, down: u64) -> Result<()> {
+        self.db.lock().unwrap().execute(
+            "INSERT INTO traffic (ts_ms, sandbox, up, down) VALUES (?1, ?2, ?3, ?4)",
+            params![ts_ms as i64, sandbox, up as i64, down as i64],
+        )?;
+        Ok(())
+    }
+
+    /// A sandbox's traffic since `since_ms`: bytes sent and received per
+    /// stretch of `bucket_ms`, oldest first, and the destinations that carried
+    /// most of it, from the connection log.
+    pub fn traffic(&self, sandbox: &str, since_ms: u64, bucket_ms: u64) -> Result<Value> {
+        let db = self.db.lock().unwrap();
+        let mut statement =
+            db.prepare("SELECT (ts_ms / ?3) * ?3, SUM(up), SUM(down) FROM traffic WHERE sandbox = ?1 AND ts_ms >= ?2 GROUP BY 1 ORDER BY 1")?;
+        let buckets: Vec<Value> = statement
+            .query_map(params![sandbox, since_ms as i64, bucket_ms.max(1) as i64], |row| {
+                Ok(serde_json::json!({ "t": row.get::<_, i64>(0)?, "up": row.get::<_, i64>(1)?, "down": row.get::<_, i64>(2)? }))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        // A connection's bytes are known when it closes.
+        let mut statement = db.prepare(
+            "SELECT COALESCE(json_extract(event, '$.host'), json_extract(event, '$.ip')), SUM(json_extract(event, '$.bytes_up')), SUM(json_extract(event, '$.bytes_down')), COUNT(*)
+             FROM events WHERE sandbox = ?1 AND ts_ms >= ?2 AND json_extract(event, '$.phase') = 'close'
+             GROUP BY 1 ORDER BY SUM(json_extract(event, '$.bytes_up')) + SUM(json_extract(event, '$.bytes_down')) DESC LIMIT 12",
+        )?;
+        let top: Vec<Value> = statement
+            .query_map(params![sandbox, since_ms as i64], |row| {
+                Ok(serde_json::json!({
+                    "host": row.get::<_, Option<String>>(0)?, "up": row.get::<_, Option<i64>>(1)?.unwrap_or(0), "down": row.get::<_, Option<i64>>(2)?.unwrap_or(0), "connections": row.get::<_, i64>(3)?,
+                }))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(serde_json::json!({ "bucket_ms": bucket_ms, "buckets": buckets, "top": top }))
     }
 
     /// Note the tokens one request to a model API used.
@@ -128,6 +172,7 @@ impl EventStore {
     }
 
     pub fn delete_sandbox(&self, sandbox: &str) -> Result<()> {
+        self.db.lock().unwrap().execute("DELETE FROM traffic WHERE sandbox = ?1", params![sandbox])?;
         self.db.lock().unwrap().execute("DELETE FROM events WHERE sandbox = ?1", params![sandbox])?;
         Ok(())
     }

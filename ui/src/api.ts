@@ -51,6 +51,9 @@ export interface Sandbox {
   notes?: string[];
   /** Minutes without work after which it is stopped; 0 never, absent: as set for all sandboxes */
   idle_stop_minutes?: number | null;
+  /** Speed limits in kbit per second */
+  upload_kbit?: number | null;
+  download_kbit?: number | null;
   /** Rules that end by themselves: the rule with the time it ends, in seconds since 1970 */
   rule_expiry?: Record<string, number>;
   /** Bytes to and from destinations outside since the start, against the limits */
@@ -427,7 +430,7 @@ export const api = {
   resume: (name: string) => call<Sandbox>("POST", `${box(name)}/resume`, {}),
   stop: (name: string) => call<Sandbox>("POST", `${box(name)}/stop`, {}),
   remove: (name: string) => call<unknown>("DELETE", box(name)),
-  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string>; upload_limit_mib?: number; download_limit_mib?: number; idle_stop_minutes?: number }) => call<Sandbox>("PATCH", box(name), change),
+  resize: (name: string, change: { cpus?: number; ram_mib?: number; disk_gib?: number; workdir?: string; autostart?: string[]; env?: Record<string, string>; upload_limit_mib?: number; download_limit_mib?: number; idle_stop_minutes?: number; upload_kbit?: number; download_kbit?: number }) => call<Sandbox>("PATCH", box(name), change),
   addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
@@ -498,6 +501,9 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  /** A sandbox's traffic to and from destinations outside: per hour or day, and the destinations that carried most of it. */
+  traffic: (name: string, days: number) =>
+    call<{ bucket_ms: number; buckets: { t: number; up: number; down: number }[]; top: { host: string | null; up: number; down: number; connections: number }[] }>("GET", `${box(name)}/traffic?days=${days}`),
   setReview: (name: string, on: boolean) => call<Sandbox>("PUT", `${box(name)}/review`, { on }),
   review: (name: string) => call<{ project: string; changes: Change[] }>("GET", `${box(name)}/review`),
   reviewDiff: (name: string, path: string, towardsProject: boolean) =>

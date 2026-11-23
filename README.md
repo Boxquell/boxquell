@@ -239,6 +239,8 @@ boxquell read mybox docs.example.com                 # reading only: GET, HEAD a
 boxquell set mybox --upload-limit 200                # cut the network off after 200 MiB sent in one run
 ```
 
+`boxquell set mybox --download-speed 2000 --upload-speed 500` limits how fast a sandbox receives and sends, in kbit per second. The Network tab of a sandbox shows its traffic over time and the destinations that carried most of it.
+
 A read-only rule works for websites: Boxquell looks into the requests, which for HTTPS means it answers with a certificate of the sandbox's own authority (the sandbox trusts it). Other kinds of connection to a read-only destination are refused, because they cannot be checked. Data limits count what passes to and from destinations outside, not the terminal or the project folder; when one is reached, the sandbox is cut off and the interface offers to let it continue.
 
 ### Snapshots and templates

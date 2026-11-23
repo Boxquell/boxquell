@@ -577,3 +577,5 @@ section.review { display: grid; grid-template-columns: minmax(220px, 300px) 1fr;
 
 section.review-bar { flex-direction: row; }
 section.notice { flex-direction: row; text-align: left; }
+
+.row.between { justify-content: space-between; align-items: center; }
