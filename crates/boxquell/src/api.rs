@@ -200,7 +200,20 @@ async fn remove_repo(State(daemon): App, Path(name): Path<String>) -> ApiResult 
 #[folder = "$CARGO_MANIFEST_DIR/../../ui/dist"]
 struct Ui;
 
-async fn ui(uri: axum::http::Uri) -> Response {
+/// How the desktop app names itself in its requests.
+pub const DESKTOP_AGENT: &str = "Boxquell-Desktop";
+
+const BROWSER_UI_OFF: &str = "<!doctype html><meta charset=utf-8><meta name=color-scheme content='light dark'><title>Boxquell</title>\
+<body style='font:15px/1.5 system-ui,sans-serif;max-width:34em;margin:18vh auto;padding:0 1.5em'>\
+<h1 style='font-size:1.4em'>The browser interface is switched off</h1>\
+<p>Open the Boxquell app instead. To use Boxquell in a web browser as well, turn it on:</p>\
+<p><code>boxquell config browser-ui on</code></p>";
+
+async fn ui(State(daemon): App, headers: axum::http::HeaderMap, uri: axum::http::Uri) -> Response {
+    let from_app = headers.get(header::USER_AGENT).and_then(|value| value.to_str().ok()).is_some_and(|agent| agent.contains(DESKTOP_AGENT));
+    if !uri.path().starts_with("/api/") && !from_app && !daemon.settings().browser_ui {
+        return (StatusCode::FORBIDDEN, [(header::CONTENT_TYPE, "text/html; charset=utf-8")], BROWSER_UI_OFF).into_response();
+    }
     // An API path this version does not know must not be answered with the page.
     if uri.path().starts_with("/api/") {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "this daemon does not know that request; it may be older than the page" })))

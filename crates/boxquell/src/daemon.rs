@@ -159,6 +159,10 @@ pub struct Settings {
     pub notify_blocked: bool,
     /// Message in the web UI when a sandbox's connection is blocked.
     pub toast_blocked: bool,
+    /// Whether web browsers may open the interface. Off by default: the
+    /// desktop app is the interface, and it identifies itself to the daemon.
+    /// This is a switch, not a lock; the API token is what protects access.
+    pub browser_ui: bool,
     /// Addresses of this computer, besides 127.0.0.1, on which the UI and API
     /// are reachable. Traffic there is not encrypted. Read when the daemon starts.
     pub listen: Vec<std::net::IpAddr>,
@@ -168,7 +172,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { notify_blocked: true, toast_blocked: true, listen: Vec::new(), listen_port: 7878 }
+        Self { notify_blocked: true, toast_blocked: true, browser_ui: false, listen: Vec::new(), listen_port: 7878 }
     }
 }
 

@@ -72,7 +72,8 @@ fn main() {
                 // The bundled page explains what went wrong.
                 Err(err) => WebviewUrl::App(format!("index.html#{err:#}").into()),
             };
-            WebviewWindowBuilder::new(app, "main", page).title("Boxquell").inner_size(1360.0, 900.0).min_inner_size(760.0, 520.0).build()?;
+            // The daemon shows its interface to this app; browsers have to be allowed in the settings.
+            WebviewWindowBuilder::new(app, "main", page).user_agent("Boxquell-Desktop").title("Boxquell").inner_size(1360.0, 900.0).min_inner_size(760.0, 520.0).build()?;
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -158,8 +158,8 @@ enum Cmd {
     },
     /// Preferences, e.g. `boxquell config notify-blocked off`
     Config {
-        /// `notify-blocked`, `toast-blocked` (on|off), `listen` (addresses separated by commas, or `off`), `listen-port`
-        #[arg(value_parser = ["notify-blocked", "toast-blocked", "listen", "listen-port"])]
+        /// `notify-blocked`, `toast-blocked`, `browser-ui` (on|off), `listen` (addresses separated by commas, or `off`), `listen-port`
+        #[arg(value_parser = ["notify-blocked", "toast-blocked", "browser-ui", "listen", "listen-port"])]
         key: Option<String>,
         value: Option<String>,
     },
@@ -620,9 +620,12 @@ fn main() -> Result<()> {
         },
         Cmd::Add { name, recipes } => install::install(&Client::connect(&home)?, &name, &catalog(&home)?, &recipes)?,
         Cmd::Ui { no_open } => {
-            let url = Client::connect(&home)?.ui_url();
-            println!("{url}");
-            if !no_open {
+            let client = Client::connect(&home)?;
+            let url = client.ui_url();
+            if no_open {
+                println!("{url}");
+            } else if client.get("/api/settings")?["browser_ui"] == true {
+                println!("{url}");
                 let opener = if cfg!(target_os = "macos") {
                     "open"
                 } else if cfg!(windows) {
@@ -631,6 +634,19 @@ fn main() -> Result<()> {
                     "xdg-open"
                 };
                 let _ = Command::new(opener).arg(&url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+            } else {
+                // The desktop app is the interface unless the browser one was switched on.
+                let name = if cfg!(windows) { "boxquell-desktop.exe" } else { "boxquell-desktop" };
+                let beside = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join(name))).filter(|path| path.is_file());
+                let app = std::env::var_os("BOXQUELL_DESKTOP").map(PathBuf::from).or(beside).unwrap_or_else(|| PathBuf::from(name));
+                let started = Command::new(&app)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+                if started.is_err() {
+                    bail!("the Boxquell app was not found ({}). Install it, or allow the interface in web browsers with `boxquell config browser-ui on`", app.display());
+                }
             }
         }
         Cmd::Doctor => {
@@ -765,7 +781,7 @@ fn main() -> Result<()> {
                     println!("note: applies after the daemon restarts (`boxquell daemon --stop`); traffic on these addresses is not encrypted");
                 }
             }
-            for key in ["notify_blocked", "toast_blocked"] {
+            for key in ["notify_blocked", "toast_blocked", "browser_ui"] {
                 println!("{:<16} {}", key.replace('_', "-"), if settings[key] == true { "on" } else { "off" });
             }
             let listen: Vec<&str> = settings["listen"].as_array().into_iter().flatten().filter_map(|a| a.as_str()).collect();

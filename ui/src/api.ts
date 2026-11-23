@@ -112,6 +112,8 @@ export interface Suggestions {
 export interface Settings {
   notify_blocked: boolean;
   toast_blocked: boolean;
+  /** Web browsers may open the interface, not only the desktop app */
+  browser_ui: boolean;
   /** Addresses besides 127.0.0.1 on which the UI is reachable */
   listen: string[];
   listen_port: number;
@@ -203,7 +205,7 @@ export const api = {
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
-  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
+  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
   addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
   /** Blocked connections of every sandbox, live; returns a function that ends the stream. */
