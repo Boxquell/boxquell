@@ -180,6 +180,10 @@ export interface Settings {
   /** Addresses besides 127.0.0.1 on which the UI is reachable */
   listen: string[];
   listen_port: number;
+  /** Fetch the repositories once a day */
+  update_repos: boolean;
+  /** Look for a newer Boxquell once a day */
+  check_updates: boolean;
 }
 
 export interface Secret {
@@ -281,6 +285,8 @@ export const api = {
   about: () => call<AboutInfo>("GET", "/api/about"),
   notices: () => call<{ text: string }>("GET", "/api/notices"),
   updateCheck: () => call<UpdateInfo>("GET", "/api/update-check"),
+  /** What the daemon's daily look for a newer release found; `null` before the first one. */
+  updateStatus: () => call<UpdateInfo | null>("GET", "/api/update-status"),
   daemonLog: () => call<{ text: string }>("GET", "/api/logs/daemon"),
   consoleLog: (name: string) => call<{ text: string }>("GET", `${box(name)}/console`),
   buildSystem: (id: string) => call<unknown>("POST", `/api/os/${encodeURIComponent(id)}/build`, {}),
@@ -291,7 +297,7 @@ export const api = {
   sshKeys: (sandbox: string | null) => call<SshKeyChoice>("GET", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys"),
   setSshKeys: (sandbox: string | null, keys: { agent: boolean; files: string[] }) =>
     call<SshKeyChoice>("PUT", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys", keys),
-  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
+  settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878, update_repos: s.update_repos ?? true, check_updates: s.check_updates ?? true })),
   addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),
   /** The most recent blocked connections of every sandbox. */

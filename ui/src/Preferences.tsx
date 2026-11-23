@@ -12,7 +12,7 @@ export function Preferences(props: {
   useEffect(() => {
     api.addresses().then(setAddresses, () => {});
   }, []);
-  const toggle = (key: "notify_blocked" | "toast_blocked" | "browser_ui") =>
+  const toggle = (key: "notify_blocked" | "toast_blocked" | "browser_ui" | "update_repos" | "check_updates") =>
     props.onChange({ ...settings, [key]: !settings[key] });
   const toggleAddress = (address: string) =>
     props.onChange({
@@ -33,6 +33,21 @@ export function Preferences(props: {
 
   return (
     <div className="pane">
+      <h3>Updates</h3>
+      <label className="check setting">
+        <input type="checkbox" className="switch" checked={settings.update_repos} onChange={() => toggle("update_repos")} />
+        <span>
+          Keep repositories up to date
+          <small className="muted block">Fetches new and changed agents, languages, tools and systems once a day. Installed software stays as it is.</small>
+        </span>
+      </label>
+      <label className="check setting">
+        <input type="checkbox" className="switch" checked={settings.check_updates} onChange={() => toggle("check_updates")} />
+        <span>
+          Look for new versions of Boxquell
+          <small className="muted block">Asks GitHub once a day for the latest release and tells you when there is one. Nothing is installed by itself.</small>
+        </span>
+      </label>
       <h3>When a connection is blocked</h3>
       <label className="check setting">
         <input

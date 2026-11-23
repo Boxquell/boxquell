@@ -87,6 +87,8 @@ export function About() {
 
   useEffect(() => {
     api.about().then(setAbout, () => {});
+    // What the daily check found, so the page does not start empty.
+    api.updateStatus().then((found) => found && setUpdate(found), () => {});
   }, []);
   const check = () => {
     setChecking(true);
@@ -126,7 +128,7 @@ export function About() {
         )}
         {problem && <p className="bad">The check did not work: {problem}</p>}
         <p className="muted">
-          Checking asks GitHub for the latest release, and only when you press the button.{" "}
+          Checking asks GitHub for the latest release: when you press the button, and once a day unless you switch that off under General.{" "}
           {about && (
             <a href={about.repository} target="_blank" rel="noreferrer">
               Project page <ExternalLink size={13} aria-hidden="true" />

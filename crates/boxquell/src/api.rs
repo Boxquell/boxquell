@@ -643,29 +643,36 @@ fn newer(latest: &str, current: &str) -> bool {
     numbers(latest) > numbers(current)
 }
 
-/// Ask GitHub for the latest release. Runs only when the user asks for it;
-/// nothing but the request itself is sent.
-async fn update_check() -> ApiResult {
-    let answer = tokio::task::spawn_blocking(|| -> anyhow::Result<Value> {
-        let agent: ureq::Agent =
-            ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).http_status_as_error(false).build().into();
-        let mut response = agent
-            .get("https://api.github.com/repos/Boxquell/boxquell/releases/latest")
-            .header("User-Agent", "boxquell")
-            .header("Accept", "application/vnd.github+json")
-            .call()?;
-        let status = response.status();
-        let body: Value = response.body_mut().read_json().unwrap_or_default();
-        let current = env!("CARGO_PKG_VERSION");
-        if status.as_u16() == 404 {
-            return Ok(json!({ "current": current, "latest": null, "newer": false, "note": "No release has been published yet." }));
-        }
-        anyhow::ensure!(status.is_success(), "GitHub answered {status}");
-        let latest = body["tag_name"].as_str().unwrap_or_default().to_string();
-        Ok(json!({ "current": current, "latest": latest, "newer": newer(&latest, current), "url": body["html_url"], "notes": body["body"] }))
-    })
-    .await??;
+/// Ask GitHub for the latest release; nothing but the request itself is sent.
+pub fn latest_release() -> anyhow::Result<Value> {
+    let agent: ureq::Agent =
+        ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).http_status_as_error(false).build().into();
+    let mut response = agent
+        .get("https://api.github.com/repos/Boxquell/boxquell/releases/latest")
+        .header("User-Agent", "boxquell")
+        .header("Accept", "application/vnd.github+json")
+        .call()?;
+    let status = response.status();
+    let body: Value = response.body_mut().read_json().unwrap_or_default();
+    let current = env!("CARGO_PKG_VERSION");
+    if status.as_u16() == 404 {
+        return Ok(json!({ "current": current, "latest": null, "newer": false, "note": "No release has been published yet." }));
+    }
+    anyhow::ensure!(status.is_success(), "GitHub answered {status}");
+    let latest = body["tag_name"].as_str().unwrap_or_default().to_string();
+    Ok(json!({ "current": current, "latest": latest, "newer": newer(&latest, current), "url": body["html_url"], "notes": body["body"] }))
+}
+
+/// Look for a newer release now, because the user asked.
+async fn update_check(State(daemon): App) -> ApiResult {
+    let answer = tokio::task::spawn_blocking(latest_release).await??;
+    *daemon.release.lock().unwrap() = Some(answer.clone());
     Ok(Json(answer))
+}
+
+/// What the last look for a newer release found; `null` before the first one.
+async fn update_status(State(daemon): App) -> ApiResult {
+    Ok(Json(daemon.release.lock().unwrap().clone().unwrap_or(Value::Null)))
 }
 
 /// The operating systems on offer, and which of them are built.
@@ -728,6 +735,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/about", get(about))
         .route("/api/notices", get(notices))
         .route("/api/update-check", get(update_check))
+        .route("/api/update-status", get(update_status))
         .route("/api/logs/daemon", get(daemon_log))
         .route("/api/sandboxes/{name}/console", get(console_log))
         .route("/api/agent-config", get(global_agent_config).put(set_global_agent_config))

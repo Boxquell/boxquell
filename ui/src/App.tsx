@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { SshKeys } from "./SshKeys";
-import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
+import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings, type UpdateInfo } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
 import { Bell, LayoutDashboard, Plus, Power, Settings as SettingsIcon, SquareTerminal, ShieldAlert } from "lucide-react";
@@ -42,7 +42,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [lockdown, setLockdown] = useState(false);
   const [outdated, setOutdated] = useState(false);
-  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878 });
+  const [release, setRelease] = useState<UpdateInfo | null>(null);
+  const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, ignore_blocked: [], browser_ui: false, listen: [], listen_port: 7878, update_repos: true, check_updates: true });
   const { blocked, dismiss } = useBlocked(settings);
   const saveSettings = useCallback((next: Settings) => {
     setSettings(next);
@@ -85,11 +86,17 @@ export function App() {
   useEffect(() => {
     if (!token) return;
     api.level().then((level) => setOutdated(level < API_LEVEL), () => {});
+    const look = () => api.updateStatus().then(setRelease, () => {});
+    look();
+    const hourly = setInterval(look, 60 * 60 * 1000);
     api.recipes().then(setRecipes, () => {});
     api.settings().then(setSettings, () => {});
     refresh();
     const timer = setInterval(refresh, 2000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearInterval(hourly);
+    };
   }, [refresh]);
 
   /** Run an action, show its error, and reload the lists. */
@@ -159,7 +166,13 @@ export function App() {
             badge={blocked.length || undefined}
             onClick={() => go("notifications")}
           />
-          <NavItem icon={<SettingsIcon size={17} />} active={page === "settings"} title="Settings" note="plugins, secrets, network" onClick={() => go("settings")} />
+          <NavItem icon={<SettingsIcon size={17} />} active={page === "settings"} title="Settings" note={release?.newer ? `version ${(release.latest ?? "").replace(/^v/, "")} is available` : "plugins, secrets, network"}
+            badge={release?.newer ? 1 : undefined}
+            onClick={() => {
+              if (release?.newer) setSettingsTab("about");
+              go("settings");
+            }}
+          />
           <span className="nav-label">
             <span className="label">Sandboxes</span>
             <button className="add" title="New sandbox" aria-label="New sandbox" onClick={() => go("new")}>

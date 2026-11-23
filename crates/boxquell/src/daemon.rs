@@ -173,11 +173,24 @@ pub struct Settings {
     pub listen: Vec<std::net::IpAddr>,
     /// The port used on those addresses.
     pub listen_port: u16,
+    /// Fetch the newest state of the recipe and system repositories once a day.
+    pub update_repos: bool,
+    /// Ask GitHub once a day whether a newer Boxquell has been released.
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { notify_blocked: true, toast_blocked: true, ignore_blocked: Vec::new(), browser_ui: false, listen: Vec::new(), listen_port: 7878 }
+        Self {
+            notify_blocked: true,
+            toast_blocked: true,
+            ignore_blocked: Vec::new(),
+            browser_ui: false,
+            listen: Vec::new(),
+            listen_port: 7878,
+            update_repos: true,
+            check_updates: true,
+        }
     }
 }
 
@@ -204,6 +217,8 @@ pub struct Daemon {
     roots: Arc<boxquell_net::mitm::RootCertStore>,
     running: Mutex<HashMap<String, Arc<Running>>>,
     /// Latest recipe install per sandbox, started from the UI.
+    /// What the last look for a newer release found.
+    pub release: Mutex<Option<Value>>,
     jobs: Mutex<HashMap<String, Job>>,
     /// Latest image build per operating system.
     os_jobs: Mutex<HashMap<String, Job>>,
@@ -258,6 +273,7 @@ impl Daemon {
             live: broadcast::channel(1024).0,
             shutdown: Notify::new(),
             running: Mutex::new(HashMap::new()),
+            release: Mutex::default(),
             jobs: Mutex::new(HashMap::new()),
             os_jobs: Mutex::new(HashMap::new()),
             lifecycle: tokio::sync::Mutex::new(()),
@@ -448,6 +464,48 @@ impl Daemon {
 
     pub fn set_settings(&self, settings: &Settings) -> Result<()> {
         Ok(std::fs::write(self.home.root().join("settings.json"), serde_json::to_vec_pretty(settings)?)?)
+    }
+
+    /// Once a day, as far as the settings allow: fetch the repositories and look
+    /// for a newer release. When each last happened survives a restart, so a
+    /// daemon that starts often does not ask more often.
+    pub async fn keep_current(self: Arc<Self>) {
+        const EVERY: u64 = 24 * 60 * 60;
+        let file = self.home.root().join("updates.json");
+        let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        // Let the daemon settle first; whoever started it is waiting for a sandbox.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        loop {
+            let mut state: Value = std::fs::read(&file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(|| json!({}));
+            let due = |key: &str, state: &Value| now().saturating_sub(state[key].as_u64().unwrap_or(0)) >= EVERY;
+            let settings = self.settings();
+            if settings.update_repos && due("repos_at", &state) {
+                let home = self.home.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    for repo in boxquell_core::repo::list(&home) {
+                        if let Err(err) = boxquell_core::repo::update(&home, &repo.name) {
+                            eprintln!("boxquell: updating the repository {}: {err:#}", repo.name);
+                        }
+                    }
+                })
+                .await;
+                state["repos_at"] = json!(now());
+            }
+            if settings.check_updates && due("checked_at", &state) {
+                if let Ok(Ok(found)) = tokio::task::spawn_blocking(crate::api::latest_release).await {
+                    // One notification per release, not one per day.
+                    let latest = found["latest"].as_str().unwrap_or_default().to_string();
+                    if found["newer"] == true && state["notified"] != json!(latest) {
+                        crate::notify::show(&format!("Boxquell {latest} is available"), "Open Settings › About to see what is new.");
+                        state["notified"] = json!(latest);
+                    }
+                    *self.release.lock().unwrap() = Some(found);
+                    state["checked_at"] = json!(now());
+                }
+            }
+            let _ = std::fs::write(&file, serde_json::to_vec_pretty(&state).unwrap_or_default());
+            tokio::time::sleep(Duration::from_secs(30 * 60)).await;
+        }
     }
 
     /// Show a desktop notification for a blocked connection, at most once a minute per destination.
@@ -1321,7 +1379,9 @@ pub async fn serve(home: Home) -> Result<()> {
     // terminals open for as long as it lives, and waiting for them would leave
     // the sandboxes running under a daemon nobody can reach.
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let upkeep = tokio::spawn(daemon.clone().keep_current());
     shutdown.await;
+    upkeep.abort();
     daemon.stop_all().await;
     let _ = std::fs::remove_file(&path);
     server.abort();

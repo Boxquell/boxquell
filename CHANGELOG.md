@@ -17,6 +17,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Icons for software and systems, taken from their repositories, and a search field in the software catalogue.
 - Choosing the operating system of a new sandbox from tiles, with a version chooser where a system comes in several versions.
 - Icons carry their brand colour (`icon_color`).
+- Repositories are fetched once a day, and Boxquell looks for a newer release once a day and says so with a notification and in the sidebar. Both can be switched off under Settings › General.
+- Software that is installed already is greyed out in the catalogue.
 
 ### Fixed
 - Environment variables of a recipe (`[env]`) were not set in login shells on Debian.
