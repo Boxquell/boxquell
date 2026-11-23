@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- `boxquell mcp`: a Model Context Protocol server, so an assistant on this computer can create sandboxes, run commands in them and read the network log ([docs/mcp.md](docs/mcp.md)).
 - The desktop app is part of releases, and the installers set it up with an entry in the application menu (Linux), Applications (macOS) or the Start menu (Windows).
 - The installers offer to install what is missing (libkrun or QEMU, an SSH client, access to KVM) with the system's package manager.
 - The desktop app finds the `boxquell` command where the installers and Homebrew put it, also when started from the menu.

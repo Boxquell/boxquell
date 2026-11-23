@@ -6,6 +6,7 @@ mod daemon;
 mod doctor;
 mod install;
 mod keyagent;
+mod mcp;
 mod notify;
 mod pull;
 mod ssh;
@@ -198,6 +199,18 @@ enum Cmd {
         /// Environment variable for sessions in the sandbox, `KEY=value`; `KEY=` removes it (repeatable)
         #[arg(long = "env", value_name = "KEY=VALUE")]
         env: Vec<String>,
+    },
+    /// Serve the Model Context Protocol on standard input and output, so an assistant on this computer can work with sandboxes
+    Mcp {
+        /// Offer only tools that look: no create, start, stop, run or install
+        #[arg(long)]
+        read_only: bool,
+        /// Also offer tools that allow and deny network destinations
+        #[arg(long)]
+        allow_network_rules: bool,
+        /// Also offer the tool that deletes a sandbox
+        #[arg(long)]
+        allow_delete: bool,
     },
     /// SSH keys of this computer a sandbox may use, e.g. for git over SSH; the keys stay on this computer
     SshKeys {
@@ -922,6 +935,9 @@ fn main() -> Result<()> {
             for (key, value) in info["env"].as_object().into_iter().flatten() {
                 println!("  {key}={}", value.as_str().unwrap_or_default());
             }
+        }
+        Cmd::Mcp { read_only, allow_network_rules, allow_delete } => {
+            mcp::serve(mcp::Access { read_only, network_rules: allow_network_rules, delete: allow_delete })?;
         }
         Cmd::SshKeys { name, agent, add, rm } => {
             let client = Client::connect(&home)?;

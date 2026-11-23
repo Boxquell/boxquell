@@ -101,6 +101,7 @@ boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 | **Sandboxes** | `new --os`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir --autostart`, `os ls\|build` |
 | **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
+| **MCP** | `mcp [--read-only] [--allow-network-rules] [--allow-delete]`: a Model Context Protocol server for assistants on this computer |
 | **SSH keys** | `ssh-keys [name] --add <file>\|--rm <file>\|--agent on\|off`, for all sandboxes without a name |
 | **Agents** | `run <sandbox> claude`, `agent set\|show\|skill-add\|skill-rm`, `set --env KEY=value` |
 | **Software** | `recipes`, `add <sandbox> claude node@22 …`, `repo add\|ls\|update\|rm` |
@@ -178,6 +179,14 @@ boxquell claude-settings mybox settings.json
 ```
 
 The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and model names. The sandbox receives it as its managed settings with the token replaced by a placeholder, the token becomes a secret of that sandbox, and the gateway is added to the allowed destinations. A gateway on your own computer (`localhost`) is reachable from the sandbox as `10.0.2.2`.
+
+### MCP server
+
+```sh
+claude mcp add boxquell -- boxquell mcp      # or any other MCP client: command `boxquell`, argument `mcp`
+```
+
+`boxquell mcp` lets an assistant on your computer work with sandboxes through the Model Context Protocol: create one, run commands in it, install software, read the network log. Changing network rules and deleting sandboxes are off unless you start it with `--allow-network-rules` or `--allow-delete`; secrets have no tool at all. See [docs/mcp.md](docs/mcp.md).
 
 ### SSH keys for git
 
