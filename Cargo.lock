@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "boxquell"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "boxquell-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "boxquell-net",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "boxquell-net"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "boxquell-vm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "libloading",

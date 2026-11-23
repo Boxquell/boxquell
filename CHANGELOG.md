@@ -5,10 +5,6 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
-- Ready-made system images: a sandbox downloads its system on first use, checked against checksums, so Docker is no longer needed to get started.
-- Building a system image works with Docker alone, on Windows and macOS too.
-- Installers for Linux, macOS and Windows, a Homebrew formula, and a software bill of materials with every release.
-- A tray icon for the desktop app.
 - The desktop app is part of releases, and the installers set it up with an entry in the application menu (Linux), Applications (macOS) or the Start menu (Windows).
 - The installers offer to install what is missing (libkrun or QEMU, an SSH client, access to KVM) with the system's package manager.
 - The desktop app finds the `boxquell` command where the installers and Homebrew put it, also when started from the menu.
@@ -22,6 +18,14 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ### Fixed
 - Environment variables of a recipe (`[env]`) were not set in login shells on Debian.
+
+## [0.0.2] - 2026-11-23
+
+### Added
+- Ready-made system images: a sandbox downloads its system on first use, checked against checksums, so Docker is no longer needed to get started.
+- Building a system image works with Docker alone, on Windows and macOS too.
+- Installers for Linux, macOS and Windows, a Homebrew formula, and a software bill of materials with every release.
+- A tray icon for the desktop app.
 
 ## [0.0.1] - 2026-11-23
 
