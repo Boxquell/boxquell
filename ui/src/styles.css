@@ -378,3 +378,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px 
 .notices strong, .notices small { display: block; overflow-wrap: anywhere; }
 .notices li > .grow { min-width: 220px; box-shadow: inset 3px 0 0 var(--bad); padding-left: 12px; }
 button.icon { padding: 0; width: 30px; justify-content: center; color: var(--muted); }
+
+/* Round icon buttons: the symbol sits in the middle. */
+.add, .fold, button.icon { display: inline-grid; place-items: center; padding: 0; line-height: 0; }
+.add { width: 24px; height: 24px; min-height: 24px; }
