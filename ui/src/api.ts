@@ -56,7 +56,22 @@ export interface Sandbox {
   job: Job | null;
 }
 
+/** One setting of a piece of software, kept as an environment variable of the sandbox. */
+export interface ConfigOption {
+  env: string;
+  label: string;
+  help?: string;
+  /** `text` (default), `number`, `switch` or `choice` */
+  kind?: string;
+  options?: string[];
+  placeholder?: string;
+  /** For a switch: the value that means on */
+  on?: string;
+}
+
 export interface Recipe {
+  /** Settings shown on a sandbox's Config tab */
+  config?: ConfigOption[];
   /** Recipes that are installed first */
   requires?: string[];
   /** For agents: the variable that names the model it starts with */

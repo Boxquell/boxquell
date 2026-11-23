@@ -41,6 +41,28 @@ curl -fsSL "https://nodejs.org/dist/latest-v$BOXQUELL_VERSION.x/..." | ...
 EXAMPLE = "1"
 ```
 
+### Settings
+
+Software that is configured through environment variables can describe them, and the sandbox's **Config** tab shows a field for each:
+
+```toml
+[[config]]
+env = "NPM_CONFIG_REGISTRY"            # the variable
+label = "Package registry"             # what the field is called
+help = "Where npm downloads packages from."
+placeholder = "https://registry.npmjs.org"
+options = ["https://registry.npmjs.org"]   # optional: suggestions, or the values of a choice
+
+[[config]]
+env = "DISABLE_TELEMETRY"
+label = "No usage statistics"
+help = "Do not send usage statistics."
+kind = "switch"                        # text (default), number, switch or choice
+on = "1"                               # for a switch: the value that means on
+```
+
+A value the user sets is stored with the sandbox and exported in every session; an empty field removes the variable. Only describe variables the software documents. An agent's `model_env` shows up there too, as a field called Model.
+
 Rules of thumb:
 
 - List every host the install script contacts in `install_allow`. Anything else is blocked, and `boxquell logs <sandbox> --blocked` shows what was refused.

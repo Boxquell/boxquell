@@ -1,7 +1,8 @@
 import { BrandIcon } from "./BrandIcon";
+import { Config } from "./Config";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Activity, Bot, Monitor, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
+import { Activity, Bot, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
 import { api, type Recipe, type Sandbox, type Secret } from "./api";
 import { FolderField } from "./FolderPicker";
 import { LogViewer } from "./LogViewer";
@@ -15,11 +16,12 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "overview" | "terminal" | "software" | "agent" | "network" | "log" | "secrets" | "settings";
+export type Tab = "overview" | "terminal" | "software" | "config" | "agent" | "network" | "log" | "secrets" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["terminal", "Terminal"],
   ["software", "Software"],
+  ["config", "Config"],
   ["agent", "Agent"],
   ["network", "Network"],
   ["log", "Log"],
@@ -31,6 +33,7 @@ const TAB_ICONS: Record<Tab, LucideIcon> = {
   overview: Activity,
   terminal: SquareTerminal,
   software: Package,
+  config: SlidersHorizontal,
   agent: Bot,
   network: Network,
   log: ScrollText,
@@ -140,12 +143,8 @@ export function SandboxView(props: ViewProps) {
         </section>
       )}
       {tab === "software" && <Software {...props} />}
-      {tab === "agent" && (
-        <>
-          <AgentModels sandbox={sandbox} recipes={recipes} act={act} />
-          <AgentSettings sandbox={sandbox.name} act={act} />
-        </>
-      )}
+      {tab === "config" && <Config sandbox={sandbox} recipes={recipes} act={act} openSoftware={() => setTab("software")} />}
+      {tab === "agent" && <AgentSettings sandbox={sandbox.name} act={act} />}
       {tab === "network" && (
         <>
           <Rules sandbox={sandbox} act={act} />
@@ -864,41 +863,6 @@ function Addresses(props: { sandbox: Sandbox }) {
         </tbody>
       </table>
       <p className="muted">The sandbox has no address in your network. Other devices reach it only through port forwards.</p>
-    </section>
-  );
-}
-
-/** The model each installed agent starts with, for agents whose recipe names the variable for it. */
-function AgentModels(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act }) {
-  const { sandbox, recipes, act } = props;
-  const agents = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))).filter((r): r is Recipe => !!r?.model_env);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  if (agents.length === 0) return null;
-  return (
-    <section>
-      <h3>Model</h3>
-      <p className="muted">The model an agent starts with in this sandbox. Leave a field empty for the agent's own default. Applies to new sessions after a restart.</p>
-      {agents.map((agent) => {
-        const variable = agent.model_env!;
-        const saved = sandbox.env?.[variable] ?? "";
-        const draft = drafts[variable] ?? saved;
-        return (
-          <form
-            key={agent.id}
-            className="row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              act(() => api.resize(sandbox.name, { env: { [variable]: draft.trim() } })).then(() => setDrafts((all) => ({ ...all, [variable]: undefined as unknown as string })));
-            }}
-          >
-            <label className="grow">
-              {agent.name} <span className="muted plain">({variable})</span>
-              <input placeholder="the agent's default" value={draft} onChange={(e) => setDrafts((all) => ({ ...all, [variable]: e.target.value }))} />
-            </label>
-            <button disabled={draft.trim() === saved}>Save</button>
-          </form>
-        );
-      })}
     </section>
   );
 }

@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- A Config tab per sandbox: installed software shows its settings as fields (recipes describe them with `[[config]]`), next to the variables set by hand. Changes reach a running sandbox at once.
 - The overview shows the load of this computer itself: CPU, memory and the disk that holds the sandboxes.
 - What installed software and the system's package manager need is open by itself, shown under Network and to be switched off per destination; before an install, a sheet lists what comes along and which destinations it opens.
 - A Block button for allowed connections in the network log.

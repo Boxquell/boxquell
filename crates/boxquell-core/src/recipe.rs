@@ -62,6 +62,10 @@ pub struct Recipe {
     /// For agents: the command that starts it.
     #[serde(default)]
     pub command: Option<String>,
+    /// Settings of the software that are environment variables. The UI shows
+    /// a field for each on the sandbox's Config tab.
+    #[serde(default)]
+    pub config: Vec<ConfigOption>,
     /// For agents: the environment variable that names the model it starts
     /// with, e.g. `ANTHROPIC_MODEL`. The UI offers a field for it.
     #[serde(default)]
@@ -71,6 +75,30 @@ pub struct Recipe {
     pub env: BTreeMap<String, String>,
     /// Shell script run in the guest as the `dev` user (with passwordless sudo).
     pub install: String,
+}
+
+/// One setting of a piece of software, kept as an environment variable of the sandbox.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigOption {
+    /// The variable, e.g. `NPM_CONFIG_REGISTRY`.
+    pub env: String,
+    /// What the field is called, e.g. `Package registry`.
+    pub label: String,
+    /// One sentence on what it does.
+    #[serde(default)]
+    pub help: String,
+    /// `text` (the default), `number`, `switch` or `choice`.
+    #[serde(default)]
+    pub kind: String,
+    /// For `choice`: the values on offer. For `text`: suggestions.
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// Shown in an empty field, e.g. the software's own default.
+    #[serde(default)]
+    pub placeholder: String,
+    /// For `switch`: the value that means on; `1` when left out. Off removes the variable.
+    #[serde(default)]
+    pub on: String,
 }
 
 fn valid_id(id: &str) -> bool {

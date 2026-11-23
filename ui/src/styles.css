@@ -464,3 +464,11 @@ select.version { padding: 1px 24px 1px 8px; background-position: right 7px cente
 .sheet-list code { margin-right: 6px; }
 .sheet .actions { justify-content: flex-end; }
 @keyframes sheet-fade { from { opacity: 0; } }
+
+/* The Config tab: one card per piece of software, a row per setting with the field on the right. */
+.config-head { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 15px; }
+.avatar.small { width: 28px; height: 28px; border-radius: 8px; font-size: 11px; }
+.setting.field { align-items: center; gap: 16px; color: var(--text); font-size: 14px; }
+.setting.field > input, .setting.field > select { width: min(320px, 45%); flex: none; }
+.setting.field > span { flex: 1; min-width: 0; }
+code.faint { color: var(--muted); background: none; padding: 0; font-size: 11.5px; }
