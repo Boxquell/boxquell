@@ -148,27 +148,29 @@ jobs:
         working-directory: apps/desktop
         shell: bash
         env:
-          # Read by the bundler; empty values leave the package as the configuration says (ad hoc on macOS, unsigned on Windows).
-          APPLE_CERTIFICATE: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_API_KEY || '' }}
-          APPLE_API_KEY_PATH: ${{ steps.apple.outputs.key_path }}
+          # Handed to the bundler below only when signing is set up: an empty
+          # identity would make it try to sign with nothing.
+          SIGN_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SIGN_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGN_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          SIGN_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          SIGN_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          SIGN_APPLE_API_KEY_PATH: ${{ steps.apple.outputs.key_path }}
           CERTUM_CERT_SHA1: ${{ vars.CERTUM_CERT_SHA1 }}
         run: |
           npm ci
-          extra=()
           if [[ "${{ steps.apple.outputs.enabled }}" == "true" ]]; then
+            export APPLE_CERTIFICATE="$SIGN_APPLE_CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$SIGN_APPLE_CERTIFICATE_PASSWORD" APPLE_SIGNING_IDENTITY="$SIGN_APPLE_SIGNING_IDENTITY"
+            export APPLE_API_ISSUER="$SIGN_APPLE_API_ISSUER" APPLE_API_KEY="$SIGN_APPLE_API_KEY" APPLE_API_KEY_PATH="$SIGN_APPLE_API_KEY_PATH"
             # The configuration asks for an ad hoc signature; a release gets the real identity.
-            extra=(--config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}")
-          fi
-          if [[ "${{ steps.certum.outputs.enabled }}" == "true" ]]; then
+            npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}"
+          elif [[ "${{ steps.certum.outputs.enabled }}" == "true" ]]; then
             # The bundler signs the program and its installer with the same script as boxquell.exe.
             script=$(cygpath -m "$GITHUB_WORKSPACE/scripts/sign-windows.ps1")
-            extra=(--config "{\"bundle\":{\"windows\":{\"signCommand\":{\"cmd\":\"pwsh\",\"args\":[\"-NoProfile\",\"-File\",\"$script\",\"%1\"]}}}}")
+            npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "{\"bundle\":{\"windows\":{\"signCommand\":{\"cmd\":\"pwsh\",\"args\":[\"-NoProfile\",\"-File\",\"$script\",\"%1\"]}}}}"
+          else
+            npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           fi
-          npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${extra[@]}"
       # One name scheme for every platform: boxquell-desktop-<version>-<target>.<kind>
       - name: Collect the packages
         shell: bash
