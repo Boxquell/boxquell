@@ -1,5 +1,6 @@
+import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Activity, Bot, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
+import { Activity, Bot, Monitor, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
 import { api, type Recipe, type Sandbox, type Secret } from "./api";
 import { FolderField } from "./FolderPicker";
 import { LogViewer } from "./LogViewer";
@@ -149,6 +150,7 @@ export function SandboxView(props: ViewProps) {
         <>
           <SandboxSecrets {...props} />
           <ClaudeSettings sandbox={sandbox} act={act} />
+          <SshKeys sandbox={sandbox.name} act={act} />
         </>
       )}
       {tab === "settings" && <Resources sandbox={sandbox} recipes={recipes} act={act} remove={() => run("deleting…", () => api.remove(sandbox.name))} />}
@@ -636,11 +638,16 @@ function Status(props: { sandbox: Sandbox; recipes: Recipe[]; start: () => void;
   const { sandbox, recipes } = props;
   const stats = useStats()[sandbox.name];
   const installed = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))?.name ?? recipeName(id));
+  const system = sandbox.os_name ?? sandbox.os ?? "debian";
+  const machine = `${sandbox.backend === "krun" ? "libkrun" : "QEMU"} · ${sandbox.cpus} CPUs · ${Math.round(sandbox.ram_mib / 102.4) / 10} GiB memory`;
   if (!sandbox.running) {
     return (
       <section className="centered">
         <h3>This sandbox is stopped</h3>
         <p className="muted">Start it to see its load and network activity here. Opening a terminal starts it too.</p>
+        <p className="muted">
+          <Monitor size={14} aria-hidden /> {system} · {machine}
+        </p>
         <div className="actions">
           <button className="primary" onClick={props.start}>
             Start {sandbox.name}
@@ -652,6 +659,7 @@ function Status(props: { sandbox: Sandbox; recipes: Recipe[]; start: () => void;
   return (
     <>
       <div className="kpis">
+        <Tile label="System" value={system} note={machine} />
         <Tile label="Connections allowed" value={`${stats?.allowed ?? 0}`} note="since it started" />
         <Tile label="Connections blocked" value={`${stats?.blocked ?? 0}`} note="since it started">
           {(stats?.blocked ?? 0) > 0 && (

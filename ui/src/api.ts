@@ -26,6 +26,9 @@ export interface Sandbox {
   backend: "krun" | "qemu";
   /** Operating system id, e.g. debian */
   os?: string;
+  /** The system's name as its definition gives it, e.g. "Debian 13". */
+  os_name?: string | null;
+  family?: string;
   mode: "whitelist" | "blacklist";
   rules: string[];
   secrets: string[];
@@ -212,8 +215,17 @@ function withDefaults(sandbox: Sandbox): Sandbox {
 const agentPath = (sandbox: string | null) => (sandbox ? `/api/sandboxes/${encodeURIComponent(sandbox)}/agent-config` : "/api/agent-config");
 const box = (name: string) => `/api/sandboxes/${encodeURIComponent(name)}`;
 
+/** SSH keys of this computer that sandboxes may sign with, and what there is to choose from. */
+export type SshKeyChoice = {
+  agent: boolean;
+  files: string[];
+  global: { agent: boolean; files: string[] };
+  problems: string[];
+  available: { agent: boolean; supported: boolean; keys: { path: string; kind: string; comment: string; passphrase: boolean }[] };
+};
+
 /** What this page needs from the daemon; see `API_LEVEL` in `crates/boxquell/src/api.rs`. */
-export const API_LEVEL = 1;
+export const API_LEVEL = 2;
 
 export const api = {
   /** The API level of the running daemon; 0 for one that predates levels. */
@@ -263,6 +275,9 @@ export const api = {
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
+  sshKeys: (sandbox: string | null) => call<SshKeyChoice>("GET", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys"),
+  setSshKeys: (sandbox: string | null, keys: { agent: boolean; files: string[] }) =>
+    call<SshKeyChoice>("PUT", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys", keys),
   settings: () => call<Settings>("GET", "/api/settings").then((s) => ({ ...s, ignore_blocked: s.ignore_blocked ?? [], browser_ui: s.browser_ui ?? true, listen: s.listen ?? [], listen_port: s.listen_port ?? 7878 })),
   addresses: () => call<{ address: string; interface: string }[]>("GET", "/api/addresses"),
   setSettings: (settings: Settings) => call<Settings>("PUT", "/api/settings", settings),

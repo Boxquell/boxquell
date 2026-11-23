@@ -5,6 +5,7 @@ mod client;
 mod daemon;
 mod doctor;
 mod install;
+mod keyagent;
 mod notify;
 mod pull;
 mod ssh;
@@ -197,6 +198,20 @@ enum Cmd {
         /// Environment variable for sessions in the sandbox, `KEY=value`; `KEY=` removes it (repeatable)
         #[arg(long = "env", value_name = "KEY=VALUE")]
         env: Vec<String>,
+    },
+    /// SSH keys of this computer a sandbox may use, e.g. for git over SSH; the keys stay on this computer
+    SshKeys {
+        /// The sandbox; without it the choice applies to all sandboxes
+        name: Option<String>,
+        /// Share every key loaded in this computer's SSH agent
+        #[arg(long, value_parser = ["on", "off"])]
+        agent: Option<String>,
+        /// Share this private key file, e.g. ~/.ssh/id_ed25519 (repeatable)
+        #[arg(long, value_name = "FILE")]
+        add: Vec<PathBuf>,
+        /// Stop sharing this key file (repeatable)
+        #[arg(long, value_name = "FILE")]
+        rm: Vec<PathBuf>,
     },
     /// Share more directories of this computer with a sandbox (libkrun backend)
     Share {
@@ -906,6 +921,54 @@ fn main() -> Result<()> {
             }
             for (key, value) in info["env"].as_object().into_iter().flatten() {
                 println!("  {key}={}", value.as_str().unwrap_or_default());
+            }
+        }
+        Cmd::SshKeys { name, agent, add, rm } => {
+            let client = Client::connect(&home)?;
+            let path = match &name {
+                Some(name) => format!("/api/sandboxes/{name}/ssh-keys"),
+                None => "/api/ssh-keys".to_string(),
+            };
+            let mut info = client.get(&path)?;
+            if agent.is_some() || !add.is_empty() || !rm.is_empty() {
+                let mut files: Vec<PathBuf> =
+                    info["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str().map(PathBuf::from)).collect();
+                for file in &rm {
+                    let file = std::path::absolute(file)?;
+                    files.retain(|kept| *kept != file);
+                }
+                for file in &add {
+                    let file = std::path::absolute(file)?;
+                    if !files.contains(&file) {
+                        files.push(file);
+                    }
+                }
+                let agent = agent.as_deref().map_or(info["agent"] == true, |state| state == "on");
+                info = client.put(&path, json!({ "agent": agent, "files": files }))?;
+            }
+            let scope = name.as_deref().map_or("all sandboxes".to_string(), |name| format!("sandbox {name}"));
+            println!("SSH keys for {scope}:");
+            println!("  keys in this computer's SSH agent: {}", if info["agent"] == true { "shared" } else { "not shared" });
+            for file in info["files"].as_array().into_iter().flatten() {
+                println!("  key file: {}", file.as_str().unwrap_or_default());
+            }
+            if name.is_some() {
+                let global = &info["global"];
+                if global["agent"] == true {
+                    println!("  for all sandboxes: the SSH agent");
+                }
+                for file in global["files"].as_array().into_iter().flatten() {
+                    println!("  for all sandboxes: {}", file.as_str().unwrap_or_default());
+                }
+            }
+            for problem in info["problems"].as_array().into_iter().flatten() {
+                println!("warning: {}", problem.as_str().unwrap_or_default());
+            }
+            if info["agent"] != true && info["files"].as_array().is_none_or(|files| files.is_empty()) {
+                println!(
+                    "Share one with --add ~/.ssh/id_ed25519 or --agent on. The keys stay on this computer; the sandbox can only sign with them."
+                );
+                println!("Git over SSH also needs its port allowed, e.g. `boxquell allow <sandbox> github.com:22`.");
             }
         }
         Cmd::Share { command } => {

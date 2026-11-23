@@ -9,6 +9,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Building a system image works with Docker alone, on Windows and macOS too.
 - Installers for Linux, macOS and Windows, a Homebrew formula, and a software bill of materials with every release.
 - A tray icon for the desktop app.
+- SSH keys for git: sandboxes can sign with keys of this computer, chosen for all sandboxes or for one, without the keys entering a sandbox (`boxquell ssh-keys`, and under Secrets in the UI).
+- The overview of a sandbox names the system it runs.
 
 ## [0.0.1] - 2026-11-23
 

@@ -101,6 +101,7 @@ boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 | **Sandboxes** | `new --os`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir --autostart`, `os ls\|build` |
 | **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
+| **SSH keys** | `ssh-keys [name] --add <file>\|--rm <file>\|--agent on\|off`, for all sandboxes without a name |
 | **Agents** | `run <sandbox> claude`, `agent set\|show\|skill-add\|skill-rm`, `set --env KEY=value` |
 | **Software** | `recipes`, `add <sandbox> claude node@22 …`, `repo add\|ls\|update\|rm` |
 | **Access** | `ssh-config --install`, `port add <sandbox> 8080:3000`, `share add <sandbox> ~/data /mnt/data`, `ui`, `claude-settings`, `config` |
@@ -177,6 +178,16 @@ boxquell claude-settings mybox settings.json
 ```
 
 The file is a Claude Code settings file, for example with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and model names. The sandbox receives it as its managed settings with the token replaced by a placeholder, the token becomes a secret of that sandbox, and the gateway is added to the allowed destinations. A gateway on your own computer (`localhost`) is reachable from the sandbox as `10.0.2.2`.
+
+### SSH keys for git
+
+```sh
+boxquell ssh-keys --add ~/.ssh/id_ed25519        # every sandbox may sign with this key
+boxquell ssh-keys mybox --agent on               # this sandbox may use everything in your SSH agent
+boxquell allow mybox github.com:22               # git over SSH needs the port allowed
+```
+
+The private keys never enter a sandbox. Each sandbox gets an agent socket (`SSH_AUTH_SOCK`) that leads back to this computer, where the signing happens: the sandbox can use a key while it runs, but cannot read or copy it. Key files with a passphrase work through your own SSH agent (`ssh-add`, then `--agent on`). Changes apply at once, also to running sandboxes. Not available on Windows yet.
 
 ### Plugins
 

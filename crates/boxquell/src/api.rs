@@ -411,6 +411,22 @@ async fn addresses() -> ApiResult {
     Ok(Json(list.into()))
 }
 
+async fn ssh_keys(State(daemon): App) -> ApiResult {
+    Ok(Json(daemon.ssh_keys(None)?))
+}
+
+async fn set_ssh_keys(State(daemon): App, Json(body): Json<boxquell_core::spec::SshKeys>) -> ApiResult {
+    Ok(Json(daemon.set_ssh_keys(None, body)?))
+}
+
+async fn sandbox_ssh_keys(State(daemon): App, Path(name): Path<String>) -> ApiResult {
+    Ok(Json(daemon.ssh_keys(Some(&name))?))
+}
+
+async fn set_sandbox_ssh_keys(State(daemon): App, Path(name): Path<String>, Json(body): Json<boxquell_core::spec::SshKeys>) -> ApiResult {
+    Ok(Json(daemon.set_ssh_keys(Some(&name), body)?))
+}
+
 async fn settings(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.settings())?))
 }
@@ -681,7 +697,7 @@ async fn stats(State(daemon): App) -> ApiResult {
 /// Raised whenever the web UI starts to need something new from the API, so a
 /// page served next to an older daemon can say so instead of failing quietly.
 /// Keep in step with `API_LEVEL` in `ui/src/api.ts`.
-const API_LEVEL: u32 = 1;
+const API_LEVEL: u32 = 2;
 
 async fn ping() -> ApiResult {
     Ok(Json(json!({ "version": env!("CARGO_PKG_VERSION"), "api": API_LEVEL })))
@@ -723,6 +739,8 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/agent-config/skills/{skill}", delete(remove_sandbox_skill))
         .route("/api/lockdown", get(lockdown).post(set_lockdown))
         .route("/api/settings", get(settings).put(set_settings))
+        .route("/api/ssh-keys", get(ssh_keys).put(set_ssh_keys))
+        .route("/api/sandboxes/{name}/ssh-keys", get(sandbox_ssh_keys).put(set_sandbox_ssh_keys))
         .route("/api/addresses", get(addresses))
         .route("/api/rules", get(global_rules).post(add_global_rule).delete(remove_global_rule))
         .route("/api/sandboxes/{name}/start", post(start))

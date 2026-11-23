@@ -83,7 +83,10 @@ done
 
 [ -f /etc/ssh/ssh_host_ed25519_key ] || ssh-keygen -A >/dev/null
 mkdir -p /run/sshd
-/usr/sbin/sshd
+# Where the host connects its SSH agent for git over SSH; a socket left over
+# from an earlier connection is replaced.
+install -d -m 700 -o dev -g dev /run/boxquell-ssh
+/usr/sbin/sshd -o StreamLocalBindUnlink=yes
 
 # boxquell-shutdown sends TERM. Under libkrun the VM ends when this process exits;
 # under QEMU this is PID 1 and the VM ends on a guest reboot.

@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { SshKeys } from "./SshKeys";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
@@ -337,7 +338,12 @@ export function App() {
             )}
             {settingsTab === "agents" && <AgentSettings sandbox={null} act={act} />}
             {settingsTab === "plugins" && <Plugins onChange={() => api.recipes().then(setRecipes, () => {})} />}
-            {settingsTab === "secrets" && <Secrets secrets={secrets} act={act} />}
+            {settingsTab === "secrets" && (
+              <>
+                <Secrets secrets={secrets} act={act} />
+                <SshKeys sandbox={null} act={act} />
+              </>
+            )}
             {settingsTab === "network" && <GlobalRules act={act} />}
             {settingsTab === "logs" && (
               <LogViewer title="Service log" about="What Boxquell's background service wrote: start-up, problems, and processes it had to end." load={api.daemonLog} />

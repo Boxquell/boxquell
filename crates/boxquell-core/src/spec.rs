@@ -72,6 +72,30 @@ fn default_disk_gib() -> u32 {
     20
 }
 
+/// Which SSH keys of this computer a sandbox may sign with, e.g. for git over
+/// SSH. The keys never enter the sandbox: it gets a socket that signs for it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SshKeys {
+    /// Every key loaded in this computer's SSH agent.
+    pub agent: bool,
+    /// Private key files of this computer, used when the agent is not shared.
+    pub files: Vec<PathBuf>,
+}
+
+impl SshKeys {
+    pub fn is_off(&self) -> bool {
+        !self.agent && self.files.is_empty()
+    }
+
+    /// What a sandbox gets: the keys for all sandboxes plus its own.
+    pub fn with(&self, other: &SshKeys) -> SshKeys {
+        let mut files = self.files.clone();
+        files.extend(other.files.iter().filter(|file| !self.files.contains(file)).cloned());
+        SshKeys { agent: self.agent || other.agent, files }
+    }
+}
+
 /// Everything that defines a sandbox; stored as `sandbox.toml` in its directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxSpec {
@@ -115,6 +139,9 @@ pub struct SandboxSpec {
     /// Extra environment variables for sessions in the guest.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// SSH keys of this computer the sandbox may sign with, besides the global ones.
+    #[serde(default, skip_serializing_if = "SshKeys::is_off")]
+    pub ssh: SshKeys,
 }
 
 pub fn validate_name(name: &str) -> Result<()> {

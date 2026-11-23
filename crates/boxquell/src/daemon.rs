@@ -4,7 +4,7 @@
 use crate::ssh;
 use anyhow::{ensure, Context, Result};
 use boxquell_core::drive::{self, shell_quote, DriveFile};
-use boxquell_core::spec::validate_name;
+use boxquell_core::spec::{validate_name, SshKeys};
 use boxquell_core::{Backend, EventStore, Home, PortForward, SandboxSpec, SecretDef, SecretStore};
 use boxquell_net::{CertAuthority, GatewayHandle, Intercept, Policy, Rule, Secret, SystemUpstream};
 use boxquell_vm::{NetLink, VmSpec};
@@ -71,6 +71,8 @@ struct Running {
     blocked: std::sync::atomic::AtomicU64,
     /// Port forwards by host port; ended when the sandbox stops.
     forwards: Mutex<HashMap<u16, tokio::task::JoinHandle<()>>>,
+    /// Keeps the guest's SSH agent socket connected to this computer's keys.
+    key_agent: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The VM process, for pausing.
     #[cfg_attr(not(unix), allow(dead_code))]
     pid: Option<u32>,
@@ -288,6 +290,7 @@ impl Daemon {
             "ram_mib": spec.ram_mib,
             "backend": spec.backend,
             "os": spec.os,
+            "os_name": boxquell_core::os::definitions(&self.home).into_iter().find(|def| def.id == spec.os).map(|def| def.name),
             "family": boxquell_core::os::family(&self.home, &spec.os),
             "package_hosts": boxquell_core::os::package_hosts(&self.home, &spec.os),
             "mode": spec.network,
@@ -301,6 +304,7 @@ impl Daemon {
             "workdir": spec.workdir,
             "autostart": spec.autostart,
             "env": spec.env,
+            "ssh": spec.ssh,
             "warnings": self.warnings(&spec),
             "disk_gib": spec.disk_gib,
             "recipes": spec.recipes,
@@ -467,7 +471,7 @@ impl Daemon {
 
     /// What keeps the installed agents from working: missing credentials.
     fn warnings(&self, spec: &SandboxSpec) -> Vec<String> {
-        let mut warnings = Vec::new();
+        let mut warnings = crate::keyagent::problems(&self.global_ssh_keys().with(&spec.ssh));
         for name in &spec.secrets {
             if !matches!(self.secrets.get(name), Ok(Some(_))) {
                 warnings.push(format!("The secret {name} is attached but no longer stored."));
@@ -625,6 +629,64 @@ impl Daemon {
         ensure!(entries.iter().all(|entry| !entry.contains(['\n', '\r'])), "a start command must be a single line");
         spec.autostart = entries;
         spec.save(&self.home.sandbox(name))
+    }
+
+    /// The SSH keys every sandbox may sign with.
+    pub fn global_ssh_keys(&self) -> SshKeys {
+        std::fs::read(self.home.root().join("ssh-keys.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+
+    /// The choice for one sandbox, or for all with `None`, with what there is to choose from.
+    pub fn ssh_keys(&self, name: Option<&str>) -> Result<Value> {
+        let global = self.global_ssh_keys();
+        let own = match name {
+            Some(name) => self.spec(name)?.ssh,
+            None => global.clone(),
+        };
+        Ok(json!({
+            "agent": own.agent,
+            "files": own.files,
+            "global": global,
+            "problems": crate::keyagent::problems(&if name.is_some() { global.with(&own) } else { own.clone() }),
+            "available": { "agent": crate::keyagent::host_agent().is_some(), "keys": crate::keyagent::host_keys(), "supported": cfg!(unix) },
+        }))
+    }
+
+    /// Choose the SSH keys for one sandbox, or for all with `None`. Running sandboxes follow at once.
+    pub fn set_ssh_keys(&self, name: Option<&str>, mut keys: SshKeys) -> Result<Value> {
+        keys.files.dedup();
+        for file in &keys.files {
+            ensure!(file.is_absolute(), "{} is not a full path", file.display());
+            ensure!(crate::keyagent::needs_passphrase(file).is_some(), "{} is not a private SSH key", file.display());
+        }
+        match name {
+            Some(name) => {
+                let mut spec = self.spec(name)?;
+                spec.ssh = keys;
+                spec.save(&self.home.sandbox(name))?;
+            }
+            None => std::fs::write(self.home.root().join("ssh-keys.json"), serde_json::to_vec_pretty(&keys)?)?,
+        }
+        let running: Vec<(String, Arc<Running>)> =
+            self.running.lock().unwrap().iter().map(|(name, running)| (name.clone(), running.clone())).collect();
+        for (sandbox, running) in running {
+            if name.is_none_or(|name| name == sandbox) {
+                if let Ok(spec) = self.spec(&sandbox) {
+                    self.connect_ssh_keys(&sandbox, &running, &spec);
+                }
+            }
+        }
+        self.ssh_keys(name)
+    }
+
+    /// (Re)connect a running sandbox's SSH agent socket to the keys chosen for it.
+    fn connect_ssh_keys(&self, name: &str, running: &Running, spec: &SandboxSpec) {
+        let dir = self.home.sandbox(name);
+        let keys = self.global_ssh_keys().with(&spec.ssh);
+        let task = tokio::spawn(crate::keyagent::serve(dir.join("id_ed25519"), running.ssh_port, dir, keys));
+        if let Some(old) = running.key_agent.lock().unwrap().replace(task) {
+            old.abort();
+        }
     }
 
     /// Where shells and agents start in the guest; `None` goes back to `/workspace`.
@@ -864,6 +926,10 @@ impl Daemon {
                 export(var, &secret.placeholder);
             }
         }
+        // Git over SSH signs through a socket that leads to keys on this computer.
+        // A host met for the first time is accepted: no one is there to answer the question.
+        export("SSH_AUTH_SOCK", crate::keyagent::GUEST_SOCKET);
+        export("GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=accept-new");
         for (key, value) in &spec.env {
             export(key, value);
         }
@@ -998,6 +1064,7 @@ impl Daemon {
             gateway: gateway.clone(),
             forwards: Mutex::default(),
             samples: Mutex::default(),
+            key_agent: Mutex::default(),
             allowed: 0.into(),
             blocked: 0.into(),
             pid: child.id(),
@@ -1007,6 +1074,7 @@ impl Daemon {
         });
         self.running.lock().unwrap().insert(name.to_string(), running.clone());
         let sampler = tokio::spawn(sample_load(running.clone(), dir.join("id_ed25519")));
+        self.connect_ssh_keys(name, &running, &spec);
         for port in &spec.ports {
             // A port taken by another program must not keep the sandbox from starting.
             if let Err(err) = open_forward(&running, *port).await {
@@ -1024,6 +1092,9 @@ impl Daemon {
             }
             forward.abort();
             sampler.abort();
+            if let Some(task) = ending.key_agent.lock().unwrap().take() {
+                task.abort();
+            }
             for (_, task) in ending.forwards.lock().unwrap().drain() {
                 task.abort();
             }
