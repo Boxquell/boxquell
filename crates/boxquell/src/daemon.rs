@@ -1818,7 +1818,10 @@ impl Daemon {
     /// Share another directory of this computer with the sandbox, from its next start.
     pub fn add_share(&self, name: &str, mut share: boxquell_core::Share) -> Result<Value> {
         let mut spec = self.spec(name)?;
-        ensure!(spec.backend == Backend::Krun, "the qemu backend cannot share directories yet");
+        ensure!(
+            spec.backend == Backend::Krun || boxquell_vm::qemu::SHARES_FOLDERS,
+            "QEMU cannot share folders with a sandbox on Windows; run Boxquell in WSL 2 there"
+        );
         boxquell_core::spec::validate_guest_path(&share.guest)?;
         ensure!(share.guest != "/workspace", "/workspace is the project folder of the sandbox");
         ensure!(!spec.shares.iter().any(|s| s.guest == share.guest), "{} is already shared into {name}", share.guest);

@@ -45,5 +45,19 @@ pub fn command(spec: &VmSpec, kernel: &Path, initrd: &Path) -> Command {
         .args(["-device", &format!("virtio-blk-{bus},drive=config")])
         .args(["-netdev", &netdev])
         .args(["-device", &format!("virtio-net-{bus},netdev=net0,mac={mac}")]);
+    // Folders of this computer reach the guest through QEMU's own file server (9p), which needs
+    // no helper program. The guest mounts each by its tag.
+    if SHARES_FOLDERS {
+        let folders = spec.workspace.iter().map(|dir| (crate::WORKSPACE_TAG, dir)).chain(spec.shares.iter().map(|(tag, dir)| (tag.as_str(), dir)));
+        for (i, (tag, dir)) in folders.enumerate() {
+            // A comma ends an option; a doubled one stands for itself.
+            let mut fsdev = OsString::from(format!("local,id=fs{i},security_model=none,path="));
+            fsdev.push(dir.to_string_lossy().replace(',', ",,"));
+            cmd.arg("-fsdev").arg(fsdev).args(["-device", &format!("virtio-9p-{bus},fsdev=fs{i},mount_tag={tag}")]);
+        }
+    }
     cmd
 }
+
+/// Whether QEMU can hand folders to a guest on this system. Its file server does not exist in the Windows builds.
+pub const SHARES_FOLDERS: bool = cfg!(not(target_os = "windows"));

@@ -85,14 +85,14 @@ Around that: 13 agents, 17 languages and 65 tools to install with a click, 10 Li
 
 ## Status
 
-Boxquell is in early development. It is built and tested on **Linux** (x86_64, KVM). The code is written for macOS and Windows too, and CI builds it there, but nobody has run a sandbox on those systems yet. Expect rough edges and breaking changes.
+Boxquell is in early development. It is built and tested on **Linux** (x86_64, KVM). The code is written for macOS and Windows too, and CI builds it there, but nobody has run a sandbox on those systems yet. On Windows, use it inside **WSL 2** with the Linux install: the native Windows build cannot give a sandbox your project folder. Expect rough edges and breaking changes.
 
 ## Install
 
 ```sh
-curl -fsSL https://github.com/Boxquell/boxquell/releases/latest/download/install.sh | sh    # Linux, macOS
+curl -fsSL https://github.com/Boxquell/boxquell/releases/latest/download/install.sh | sh    # Linux, macOS, Windows in WSL 2
 brew install boxquell/tap/boxquell                                                           # Homebrew
-irm https://github.com/Boxquell/boxquell/releases/latest/download/install.ps1 | iex          # Windows (PowerShell)
+irm https://github.com/Boxquell/boxquell/releases/latest/download/install.ps1 | iex          # Windows without WSL: no project folder in the sandbox
 ```
 
 The scripts download the latest release, check it against the release's checksums and install the `boxquell` command and the desktop app for your user (application menu on Linux, Applications on macOS, Start menu on Windows); they tell you what else your computer needs. `--no-desktop` (`-NoDesktop` on Windows) installs the command alone. When something is missing (libkrun or QEMU, an SSH client, access to KVM), the script shows the commands for your package manager and asks whether to run them; `--deps` runs them without asking, `--no-deps` never. Then:
@@ -372,8 +372,8 @@ flowchart LR
 
 ## Limits you should know
 
-- macOS and Windows are untested. Pausing works on Linux and macOS only.
-- The `qemu` backend does not share folders yet.
+- macOS and Windows (also WSL 2) are untested. Pausing works on Linux and macOS only.
+- The `qemu` backend shares folders through QEMU's own file server (9p), which needs a system with a kernel that can mount it: Debian 13 and 12 from the catalogue. On Windows QEMU has no such server, so use Boxquell inside WSL 2 there.
 - A read-only shared folder guards against accidents; root inside the sandbox can remount it writable.
 - The web UI can be opened on other network addresses (Settings), but that connection is not encrypted. Use it only in networks you trust.
 - Secrets are stored in a file with owner-only permissions, not in the system keychain yet.

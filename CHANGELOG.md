@@ -7,6 +7,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ### Added
 - The start page shows this computer's swap: as a second line in the memory trend and as a bar of its own.
 - `boxquell doctor` says when libkrun is there but libkrunfw is not.
+- The QEMU backend gives a sandbox its project folder and shared folders, through QEMU's own file server (9p). It needs the current Debian image, whose kernel can mount them: `boxquell os install debian`, then a new sandbox. Not on Windows, where QEMU has no file server; use Boxquell in WSL 2 there.
 - `boxquell daemon --restart` starts the daemon anew, and the install script does so after an update, so the new version is the one that runs. A daemon with running sandboxes is left alone and named; `--force` restarts it anyway, `install.sh --no-restart` never does.
 
 ### Fixed

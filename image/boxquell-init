@@ -62,7 +62,10 @@ mount -t virtiofs workspace /workspace 2>/dev/null \
 # More shared directories: one line per share with tag, path and ro|rw.
 if [ -f /run/boxquell/mounts ]; then
   while read -r tag path mode; do
-    mkdir -p "$path" && mount -t virtiofs -o "$mode" "$tag" "$path" 2>/dev/null
+    mkdir -p "$path" || continue
+    # libkrun hands folders over as virtiofs, QEMU as 9p.
+    mount -t virtiofs -o "$mode" "$tag" "$path" 2>/dev/null \
+      || mount -t 9p -o "trans=virtio,version=9p2000.L,msize=1048576,$mode" "$tag" "$path" 2>/dev/null
   done < /run/boxquell/mounts
 fi
 
