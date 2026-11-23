@@ -611,7 +611,7 @@ impl Daemon {
             jobs.insert(id.to_string(), Job { state: "running", recipes: Vec::new(), log: String::new() });
         }
         let mut child = tokio::process::Command::new(EXE.get().context("daemon executable path is unknown")?)
-            .args(["os", "install", id])
+            .args(["os", "install", "--", id])
             .env("BOXQUELL_HOME", self.home.root())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -1977,9 +1977,11 @@ impl Daemon {
         }
         let mut child = tokio::process::Command::new(EXE.get().context("daemon executable path is unknown")?)
             .arg(verb)
+            .args(again.then_some("--again"))
+            // What follows is taken as names, whatever it starts with.
+            .arg("--")
             .arg(name)
             .args(&ids)
-            .args(again.then_some("--again"))
             .env("BOXQUELL_HOME", self.home.root())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
