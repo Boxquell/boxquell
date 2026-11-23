@@ -233,6 +233,50 @@ pub struct Daemon {
 }
 
 /// Copy a file, leaving all-zero blocks as holes so images stay small on disk.
+/// Copy a disk image. Where the file system can share the data between both
+/// files (btrfs, XFS, APFS) that takes a moment and no space; elsewhere the
+/// file is copied, leaving out its empty stretches.
+fn copy_disk(from: &Path, to: &Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(to);
+    let cloned = if cfg!(target_os = "linux") {
+        // Shares the data where it can, and otherwise skips the empty stretches without reading them.
+        std::process::Command::new("cp")
+            .args(["--reflink=auto", "--sparse=always", "--"])
+            .arg(from)
+            .arg(to)
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("cp").arg("-c").arg(from).arg(to).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    } else {
+        false
+    };
+    if cloned {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(to);
+    sparse_copy(from, to)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// The records (`*.json`) in a directory of snapshots or templates, oldest first.
+fn records(dir: &Path) -> Vec<Value> {
+    let mut all: Vec<Value> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "json"))
+        .filter_map(|path| serde_json::from_slice(&std::fs::read(path).ok()?).ok())
+        .collect();
+    all.sort_by_key(|record: &Value| record["created_ms"].as_u64().unwrap_or(0));
+    all
+}
+
 fn sparse_copy(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::io::{Read, Seek, SeekFrom, Write};
     let mut src = std::fs::File::open(from)?;
@@ -391,6 +435,7 @@ impl Daemon {
             "env": spec.env,
             "ssh": spec.ssh,
             "recipe_updates": self.recipe_updates(&spec),
+            "snapshots": self.snapshots(name),
             "auto_rules": self.auto_rules(&spec).into_iter().map(|(source, name, hosts)| json!({
                 "source": source,
                 "name": name,
@@ -432,7 +477,26 @@ impl Daemon {
         for name in &spec.secrets {
             ensure!(self.secrets.get(name)?.is_some(), "secret {name:?} is not set; run `boxquell secret set {name}` first");
         }
+        // From a template: its system, software and variables, and at the first start its disk.
+        let template = spec.template.take();
+        if let Some(template) = &template {
+            validate_name(template)?;
+            let record: Value = std::fs::read(self.templates_dir().join(format!("{template}.json")))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .with_context(|| format!("there is no template {template:?}"))?;
+            spec.os = record["os"].as_str().unwrap_or(&spec.os).to_string();
+            spec.recipes = serde_json::from_value(record["recipes"].clone()).unwrap_or_default();
+            spec.recipe_revisions = serde_json::from_value(record["recipe_revisions"].clone()).unwrap_or_default();
+            for (key, value) in serde_json::from_value::<std::collections::BTreeMap<String, String>>(record["env"].clone()).unwrap_or_default() {
+                spec.env.entry(key).or_insert(value);
+            }
+            spec.disk_gib = spec.disk_gib.max(record["disk_gib"].as_u64().unwrap_or(0) as u32);
+        }
         spec.save(&dir)?;
+        if let Some(template) = template {
+            std::fs::write(dir.join("template"), template)?;
+        }
         self.info(&spec.name)
     }
 
@@ -629,7 +693,7 @@ impl Daemon {
             let settings = id.ends_with(":claude") && self.claude_settings_file(&spec.name).exists();
             if !(shared || own || settings) {
                 let hint = if id.ends_with(":claude") { ", or give the sandbox Claude settings" } else { "" };
-                warnings.push(format!("{} has no credential: store and attach one of [{}]{hint}.", recipe.name, recipe.secrets.join(", ")));
+                warnings.push(format!("{} has no credential: add one of [{}] under Config{hint}.", recipe.name, recipe.secrets.join(", ")));
             }
         }
         warnings
@@ -753,6 +817,7 @@ impl Daemon {
         self.spec(name)?;
         self.local_secrets(name).set(secret)?;
         self.refresh_secrets()?;
+        self.push_env(name);
         self.info(name)
     }
 
@@ -836,28 +901,7 @@ impl Daemon {
             }
         }
         spec.save(&self.home.sandbox(name))?;
-        // A running sandbox gets the new variables at once; sessions opened from now on see them.
-        if let Some(running) = self.running(name) {
-            let env = guest_env(&spec, &self.sandbox_secrets(&spec).unwrap_or_default());
-            let key = self.home.sandbox(name).join("id_ed25519");
-            tokio::spawn(async move {
-                use tokio::io::AsyncWriteExt;
-                let child = tokio::process::Command::new("ssh")
-                    .args(ssh::base_args(&key, running.ssh_port))
-                    .arg("sudo tee /etc/profile.d/boxquell.sh >/dev/null")
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .kill_on_drop(true)
-                    .spawn();
-                if let Ok(mut child) = child {
-                    if let Some(mut stdin) = child.stdin.take() {
-                        let _ = stdin.write_all(env.as_bytes()).await;
-                    }
-                    let _ = tokio::time::timeout(Duration::from_secs(20), child.wait()).await;
-                }
-            });
-        }
+        self.push_env(name);
         Ok(())
     }
 
@@ -971,6 +1015,125 @@ impl Daemon {
         }
     }
 
+    fn templates_dir(&self) -> PathBuf {
+        self.home.root().join("templates")
+    }
+
+    /// The saved states of a sandbox's disk, oldest first.
+    pub fn snapshots(&self, name: &str) -> Vec<Value> {
+        records(&self.home.sandbox(name).join("snapshots"))
+    }
+
+    /// Sandboxes saved as a starting point for new ones.
+    pub fn templates(&self) -> Vec<Value> {
+        records(&self.templates_dir())
+    }
+
+    /// Stop the sandbox when it runs, do something with its disk, and start it
+    /// again when it ran. A disk is only copied while nothing writes to it.
+    async fn with_disk_at_rest<T: Send + 'static>(
+        self: &Arc<Self>,
+        name: &str,
+        work: impl FnOnce(PathBuf) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        self.spec(name)?;
+        let was_running = self.running(name).is_some();
+        self.stop(name).await?;
+        let dir = self.home.sandbox(name);
+        let outcome = {
+            let _guard = self.lifecycle.lock().await;
+            tokio::task::spawn_blocking(move || work(dir)).await?
+        };
+        if was_running {
+            self.start(name).await?;
+        }
+        outcome
+    }
+
+    /// Save the state of a sandbox's disk, to come back to later.
+    pub async fn take_snapshot(self: &Arc<Self>, name: &str, label: &str) -> Result<Value> {
+        let spec = self.spec(name)?;
+        let label = label.trim().to_string();
+        let record = self
+            .with_disk_at_rest(name, move |dir| {
+                let disk = dir.join("disk.img");
+                ensure!(disk.exists(), "the sandbox has no disk yet: start it once first");
+                let created = now_ms();
+                let id = format!("s{}", created / 1000);
+                let snapshots = dir.join("snapshots");
+                std::fs::create_dir_all(&snapshots)?;
+                copy_disk(&disk, &snapshots.join(format!("{id}.img"))).context("cannot copy the disk")?;
+                let record =
+                    json!({ "id": id, "label": label, "created_ms": created, "recipes": spec.recipes, "recipe_revisions": spec.recipe_revisions });
+                std::fs::write(snapshots.join(format!("{id}.json")), serde_json::to_vec_pretty(&record)?)?;
+                Ok(record)
+            })
+            .await?;
+        Ok(record)
+    }
+
+    /// Put a sandbox's disk back to a saved state. What happened in the
+    /// sandbox since is gone; the snapshot itself stays.
+    pub async fn restore_snapshot(self: &Arc<Self>, name: &str, id: &str) -> Result<Value> {
+        validate_name(id)?;
+        let record = self.snapshots(name).into_iter().find(|record| record["id"] == id).with_context(|| format!("{name} has no snapshot {id}"))?;
+        let image = format!("{id}.img");
+        self.with_disk_at_rest(name, move |dir| {
+            let tmp = dir.join("disk.img.partial");
+            copy_disk(&dir.join("snapshots").join(image), &tmp).context("cannot copy the snapshot")?;
+            Ok(std::fs::rename(&tmp, dir.join("disk.img"))?)
+        })
+        .await?;
+        // The software list goes back with the disk.
+        let mut spec = self.spec(name)?;
+        spec.recipes = serde_json::from_value(record["recipes"].clone()).unwrap_or_default();
+        spec.recipe_revisions = serde_json::from_value(record["recipe_revisions"].clone()).unwrap_or_default();
+        spec.save(&self.home.sandbox(name))?;
+        self.info(name)
+    }
+
+    pub fn delete_snapshot(&self, name: &str, id: &str) -> Result<Value> {
+        validate_name(id)?;
+        let dir = self.home.sandbox(name).join("snapshots");
+        ensure!(dir.join(format!("{id}.json")).exists(), "{name} has no snapshot {id}");
+        for extension in ["img", "json"] {
+            let _ = std::fs::remove_file(dir.join(format!("{id}.{extension}")));
+        }
+        self.info(name)
+    }
+
+    /// Save a sandbox as a template: its disk as it is now, with its system,
+    /// software and variables. New sandboxes can start from it.
+    pub async fn save_template(self: &Arc<Self>, name: &str, template: &str, description: &str) -> Result<Value> {
+        validate_name(template)?;
+        let spec = self.spec(name)?;
+        let templates = self.templates_dir();
+        let (template, description) = (template.to_string(), description.trim().to_string());
+        self.with_disk_at_rest(name, move |dir| {
+            let disk = dir.join("disk.img");
+            ensure!(disk.exists(), "the sandbox has no disk yet: start it once first");
+            std::fs::create_dir_all(&templates)?;
+            copy_disk(&disk, &templates.join(format!("{template}.img"))).context("cannot copy the disk")?;
+            let record = json!({
+                "name": template, "description": description, "created_ms": now_ms(), "from": spec.name,
+                "os": spec.os, "recipes": spec.recipes, "recipe_revisions": spec.recipe_revisions, "env": spec.env, "disk_gib": spec.disk_gib,
+            });
+            std::fs::write(templates.join(format!("{template}.json")), serde_json::to_vec_pretty(&record)?)?;
+            Ok(record)
+        })
+        .await
+    }
+
+    pub fn delete_template(&self, template: &str) -> Result<()> {
+        validate_name(template)?;
+        let dir = self.templates_dir();
+        ensure!(dir.join(format!("{template}.json")).exists(), "there is no template {template:?}");
+        for extension in ["img", "json"] {
+            let _ = std::fs::remove_file(dir.join(format!("{template}.{extension}")));
+        }
+        Ok(())
+    }
+
     /// Blocked destinations the user has dealt with, as `<sandbox> <destination>`
     /// with the time up to which they count as seen. Kept in a file, so they
     /// do not come back when the interface is opened again.
@@ -993,6 +1156,31 @@ impl Daemon {
         handled.retain(|_, until| *until >= month_ago);
         std::fs::write(self.home.root().join("notifications.json"), serde_json::to_vec(&handled)?)?;
         Ok(handled)
+    }
+
+    /// Give a running sandbox its variables anew, after a variable or a
+    /// secret's placeholder changed; sessions opened from now on see them.
+    fn push_env(&self, name: &str) {
+        let (Some(running), Ok(spec)) = (self.running(name), self.spec(name)) else { return };
+        let env = guest_env(&spec, &self.sandbox_secrets(&spec).unwrap_or_default());
+        let key = self.home.sandbox(name).join("id_ed25519");
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let child = tokio::process::Command::new("ssh")
+                .args(ssh::base_args(&key, running.ssh_port))
+                .arg("sudo tee /etc/profile.d/boxquell.sh >/dev/null")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .spawn();
+            if let Ok(mut child) = child {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(env.as_bytes()).await;
+                }
+                let _ = tokio::time::timeout(Duration::from_secs(20), child.wait()).await;
+            }
+        });
     }
 
     /// The SSH keys every sandbox may sign with.
@@ -1273,6 +1461,7 @@ impl Daemon {
             spec.save(&self.home.sandbox(name))?;
         }
         self.refresh_secrets()?;
+        self.push_env(name);
         self.info(name)
     }
 
@@ -1300,9 +1489,18 @@ impl Daemon {
 
         let disk = dir.join("disk.img");
         if !disk.exists() {
+            // A sandbox made from a template starts with the template's disk.
+            let template = std::fs::read_to_string(dir.join("template")).ok().map(|name| self.templates_dir().join(format!("{}.img", name.trim())));
+            let base = match template {
+                Some(template) => {
+                    ensure!(template.exists(), "the template this sandbox was made from is gone ({})", template.display());
+                    template
+                }
+                None => base.clone(),
+            };
             ensure!(base.exists(), "the system {:?} is not on this computer yet; run `boxquell os install {}`", spec.os, spec.os);
             let (from, to, tmp) = (base.clone(), disk.clone(), dir.join("disk.img.partial"));
-            tokio::task::spawn_blocking(move || sparse_copy(&from, &tmp).and_then(|()| std::fs::rename(&tmp, &to)))
+            tokio::task::spawn_blocking(move || copy_disk(&from, &tmp).and_then(|()| std::fs::rename(&tmp, &to)))
                 .await?
                 .context("cannot create the sandbox disk")?;
         }

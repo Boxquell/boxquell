@@ -136,6 +136,9 @@ pub struct SandboxSpec {
     /// Recipes installed into this sandbox.
     #[serde(default)]
     pub recipes: Vec<String>,
+    /// Only when a sandbox is created: the template its disk and software come from.
+    #[serde(default, skip_serializing)]
+    pub template: Option<String>,
     /// The fingerprint each installed recipe had when it was installed, to
     /// notice later that the recipe has changed.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

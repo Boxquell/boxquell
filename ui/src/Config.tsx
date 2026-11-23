@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, type ConfigOption, type Recipe, type Sandbox } from "./api";
+import { ExternalLink } from "lucide-react";
+import { api, type ConfigOption, type Credential, type Recipe, type Sandbox, type Secret } from "./api";
 import { BrandIcon, brandColors } from "./BrandIcon";
 import { recipeName } from "./RecipeCards";
 
@@ -13,11 +14,11 @@ function optionsOf(recipe: Recipe): ConfigOption[] {
 }
 
 /** Settings of the installed software, each one an environment variable of the sandbox, and the variables set by hand. */
-export function Config(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act; openSoftware: () => void }) {
+export function Config(props: { sandbox: Sandbox; recipes: Recipe[]; secrets: Secret[]; act: Act; openSoftware: () => void }) {
   const { sandbox, recipes, act } = props;
   const env = sandbox.env ?? {};
   const installed = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))).filter((r): r is Recipe => !!r);
-  const configurable = installed.filter((recipe) => optionsOf(recipe).length > 0);
+  const configurable = installed.filter((recipe) => optionsOf(recipe).length > 0 || recipe.secrets.length > 0);
   const known = new Set(configurable.flatMap((recipe) => optionsOf(recipe).map((option) => option.env)));
   const others = Object.entries(env).filter(([key]) => !known.has(key));
   const save = (key: string, value: string) => act(() => api.resize(sandbox.name, { env: { [key]: value } }));
@@ -43,6 +44,20 @@ export function Config(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act; o
             </span>
             {recipe.name}
           </h3>
+          {recipe.secrets.length > 0 && (
+            <div className="credentials">
+              {recipe.secrets.length > 1 && <p className="muted">It signs in with one of these; one is enough.</p>}
+              {recipe.secrets.map((name) => (
+                <CredentialField
+                  key={name}
+                  sandbox={sandbox}
+                  credential={recipe.credentials?.find((credential) => credential.name === name) ?? { name }}
+                  shared={props.secrets.some((secret) => secret.name === name)}
+                  act={act}
+                />
+              ))}
+            </div>
+          )}
           {optionsOf(recipe).map((option) => (
             <Field key={option.env} option={option} value={env[option.env] ?? ""} save={(value) => save(option.env, value)} />
           ))}
@@ -68,6 +83,73 @@ export function Config(props: { sandbox: Sandbox; recipes: Recipe[]; act: Act; o
         <NewVariable save={save} />
       </section>
     </>
+  );
+}
+
+/**
+ * A key the software signs in with. Its value is stored on this computer for
+ * this sandbox; the sandbox itself only ever holds a placeholder.
+ */
+function CredentialField(props: { sandbox: Sandbox; credential: Credential; shared: boolean; act: Act }) {
+  const { sandbox, credential, act } = props;
+  const [value, setValue] = useState("");
+  const [changing, setChanging] = useState(false);
+  const own = sandbox.local_secrets.some((secret) => secret.name === credential.name);
+  const attached = own || sandbox.secrets.includes(credential.name);
+  const about = (
+    <span>
+      {credential.label || credential.name}
+      <small className="muted block">
+        {attached ? (own ? "Stored for this sandbox. " : "Uses the shared secret. ") : ""}
+        {credential.help}{" "}
+        {credential.url && (
+          <a href={credential.url} target="_blank" rel="noreferrer">
+            Get one <ExternalLink size={12} aria-hidden="true" />
+          </a>
+        )}
+      </small>
+    </span>
+  );
+  if (attached && !changing) {
+    return (
+      <div className="setting field">
+        <span className="row tight">
+          <span className="chip on">in use</span>
+          <button className="link" onClick={() => setChanging(true)}>
+            change
+          </button>
+          {own && (
+            <button className="link bad" onClick={() => act(() => api.removeLocalSecret(sandbox.name, credential.name))}>
+              remove
+            </button>
+          )}
+        </span>
+        {about}
+      </div>
+    );
+  }
+  return (
+    <form
+      className="setting field"
+      onSubmit={(event) => {
+        event.preventDefault();
+        act(() => api.setLocalSecret(sandbox.name, credential.name, value, credential.hosts?.length ? credential.hosts : undefined, credential.env?.length ? credential.env : undefined)).then(() => {
+          setValue("");
+          setChanging(false);
+        });
+      }}
+    >
+      <span className="row tight">
+        <input type="password" required autoComplete="off" placeholder="paste the key" value={value} onChange={(e) => setValue(e.target.value)} aria-label={credential.label || credential.name} />
+        <button className="primary">Save</button>
+        {props.shared && !attached && (
+          <button type="button" onClick={() => act(() => api.attachSecret(sandbox.name, credential.name))} title="A secret of this name is stored for all sandboxes">
+            Use shared
+          </button>
+        )}
+      </span>
+      {about}
+    </form>
   );
 }
 

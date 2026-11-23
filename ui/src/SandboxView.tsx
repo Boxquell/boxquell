@@ -1,5 +1,6 @@
 import { BrandIcon } from "./BrandIcon";
 import { Config } from "./Config";
+import { Snapshots } from "./Snapshots";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Activity, Bot, Monitor, SlidersHorizontal, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
@@ -102,8 +103,8 @@ export function SandboxView(props: ViewProps) {
           {sandbox.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
           ))}
-          <button className="link" onClick={() => setTab("secrets")}>
-            Open secrets
+          <button className="link" onClick={() => setTab("config")}>
+            Open Config
           </button>
         </div>
       )}
@@ -143,7 +144,7 @@ export function SandboxView(props: ViewProps) {
         </section>
       )}
       {tab === "software" && <Software {...props} />}
-      {tab === "config" && <Config sandbox={sandbox} recipes={recipes} act={act} openSoftware={() => setTab("software")} />}
+      {tab === "config" && <Config sandbox={sandbox} recipes={recipes} secrets={props.secrets} act={act} openSoftware={() => setTab("software")} />}
       {tab === "agent" && <AgentSettings sandbox={sandbox.name} act={act} />}
       {tab === "network" && (
         <>
@@ -161,6 +162,7 @@ export function SandboxView(props: ViewProps) {
           <SshKeys sandbox={sandbox.name} act={act} />
         </>
       )}
+      {tab === "settings" && <Snapshots sandbox={sandbox} act={act} />}
       {tab === "settings" && <Resources sandbox={sandbox} recipes={recipes} act={act} remove={() => run("deleting…", () => api.remove(sandbox.name))} />}
     </>
   );

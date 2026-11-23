@@ -1,7 +1,7 @@
-import { CircleCheck } from "lucide-react";
+import { CircleCheck, LayoutTemplate, Sparkles } from "lucide-react";
 import { BrandIcon, brandColors } from "./BrandIcon";
 import { useEffect, useState, type FormEvent } from "react";
-import { api, type Recipe, type System } from "./api";
+import { api, type Recipe, type System, type Template } from "./api";
 import { FolderField } from "./FolderPicker";
 import { BackendChoice, MachineControls } from "./Machine";
 import { RecipeCards } from "./RecipeCards";
@@ -27,8 +27,12 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [templates, setTemplates] = useState<Template[]>([]);
+  // A template brings its system and software; nothing is built or installed for it.
+  const [template, setTemplate] = useState("");
   useEffect(() => {
     api.systems().then(setSystems, () => {});
+    api.templates().then(setTemplates, () => {});
   }, []);
   const system = systems.find((candidate) => candidate.id === os);
   const [building, setBuilding] = useState<string | null>(null);
@@ -68,6 +72,7 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
         disk_gib: disk,
         backend,
         os,
+        template: template || undefined,
         network: mode,
         rules: hosts.map((entry) => `allow ${entry}`),
       });
@@ -112,7 +117,47 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
           </label>
           <FolderField label="Project folder on this computer" placeholder="/home/me/project" value={workspace} onChange={setWorkspace} />
           <p className="muted">The folder appears in the sandbox as /workspace; nothing else of your files is visible there. Leave it empty for a sandbox without your files.</p>
-          <div className="shelf">
+          {templates.length > 0 && (
+            <div className="shelf">
+              <h3>Start from</h3>
+              <div className="os-tiles" role="radiogroup" aria-label="Start from">
+                <div className={`os-tile ${template === "" ? "picked" : ""}`}>
+                  <button type="button" role="radio" aria-checked={template === ""} className="os-pick" onClick={() => setTemplate("")}>
+                    {template === "" && <CircleCheck className="os-check" size={18} aria-hidden />}
+                    <span className="os-art" aria-hidden="true">
+                      <Sparkles size={30} />
+                    </span>
+                    <strong>A fresh system</strong>
+                    <small>Choose it below</small>
+                  </button>
+                </div>
+                {templates.map((candidate) => (
+                  <div key={candidate.name} className={`os-tile ${template === candidate.name ? "picked" : ""}`}>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={template === candidate.name}
+                      className="os-pick"
+                      onClick={() => {
+                        setTemplate(candidate.name);
+                        setOs(candidate.os);
+                      }}
+                      onDoubleClick={() => confirm(`Delete the template ${candidate.name}?`) && api.deleteTemplate(candidate.name).then(setTemplates, () => {})}
+                      title="Double-click to delete this template"
+                    >
+                      {template === candidate.name && <CircleCheck className="os-check" size={18} aria-hidden />}
+                      <span className="os-art" aria-hidden="true">
+                        <LayoutTemplate size={30} />
+                      </span>
+                      <strong>{candidate.name}</strong>
+                      <small>{candidate.recipes.length > 0 ? `${candidate.recipes.length} pieces of software` : "no software"}</small>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="shelf" style={{ display: template !== "" ? "none" : undefined }}>
             <h3>Operating system</h3>
             <div className="os-tiles" role="radiogroup" aria-label="Operating system">
               {systemGroups(systems).map((members) => {

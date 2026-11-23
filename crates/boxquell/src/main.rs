@@ -89,6 +89,19 @@ enum Cmd {
         /// Recipes to install right away, e.g. `--with claude,python` (see `boxquell recipes`)
         #[arg(long = "with", value_name = "RECIPE", value_delimiter = ',')]
         with: Vec<String>,
+        /// Start from a template saved with `boxquell template save`: its disk, system and software
+        #[arg(long, value_name = "NAME")]
+        template: Option<String>,
+    },
+    /// Save the state of a sandbox's disk and come back to it later
+    Snapshot {
+        #[command(subcommand)]
+        command: SnapshotCmd,
+    },
+    /// Sandboxes saved as a starting point for new ones (`boxquell new --template`)
+    Template {
+        #[command(subcommand)]
+        command: TemplateCmd,
     },
     /// Start a sandbox
     Up { name: String },
@@ -353,6 +366,42 @@ enum GlobalCmd {
 }
 
 #[derive(Subcommand)]
+enum SnapshotCmd {
+    /// `boxquell snapshot take box before the big refactoring`
+    Take {
+        name: String,
+        /// A few words to recognise it by
+        label: Vec<String>,
+    },
+    Ls {
+        name: String,
+    },
+    /// Put the sandbox's disk back to a snapshot; what happened since is gone
+    Restore {
+        name: String,
+        id: String,
+    },
+    Rm {
+        name: String,
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TemplateCmd {
+    /// `boxquell template save box node-project`
+    Save {
+        sandbox: String,
+        name: String,
+        description: Vec<String>,
+    },
+    Ls,
+    Rm {
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum ShareCmd {
     /// `boxquell share add box ~/data /mnt/data --ro`
     Add {
@@ -614,7 +663,7 @@ fn main() -> Result<()> {
             install::install(&client, &choice.name, &catalog, &choice.recipes, false)?;
             println!("{0} is ready; open it with `boxquell shell {0}`", choice.name);
         }
-        Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode, os } => {
+        Cmd::New { name: Some(name), workspace, cpus, ram, backend, allow, secrets, with, disk, mode, os, template } => {
             let backend = match backend {
                 Some(BackendArg::Krun) => Backend::Krun,
                 Some(BackendArg::Qemu) => Backend::Qemu,
@@ -622,7 +671,7 @@ fn main() -> Result<()> {
             };
             let workspace = workspace.map(std::path::absolute).transpose()?;
             let rules: Vec<String> = allow.iter().map(|host| format!("allow {host}")).collect();
-            let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "os": os, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets });
+            let spec = json!({ "name": name, "workspace": workspace, "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "os": os, "network": mode.name(), "backend": backend, "rules": rules, "secrets": secrets, "template": template });
             let catalog = catalog(&home)?;
             catalog.resolve(&with)?;
             let client = Client::connect(&home)?;
@@ -634,6 +683,54 @@ fn main() -> Result<()> {
             } else {
                 install::install(&client, &name, &catalog, &with, false)?;
                 println!("{name} is ready; open it with `boxquell shell {name}`");
+            }
+        }
+        Cmd::Snapshot { command } => {
+            let client = Client::connect(&home)?;
+            let (name, info) = match command {
+                SnapshotCmd::Take { name, label } => {
+                    println!("{name}: saving its disk (a running sandbox is stopped for it and started again)…");
+                    let info = client.post(&format!("/api/sandboxes/{name}/snapshots"), json!({ "label": label.join(" ") }))?;
+                    (name, info)
+                }
+                SnapshotCmd::Restore { name, id } => {
+                    let info = client.post(&format!("/api/sandboxes/{name}/snapshots/{id}"), json!({}))?;
+                    println!("{name}: back at snapshot {id}");
+                    (name, info)
+                }
+                SnapshotCmd::Rm { name, id } => {
+                    let info = client.delete(&format!("/api/sandboxes/{name}/snapshots/{id}"), None)?;
+                    (name, info)
+                }
+                SnapshotCmd::Ls { name } => {
+                    let info = client.get(&format!("/api/sandboxes/{name}"))?;
+                    (name, info)
+                }
+            };
+            let snapshots = info["snapshots"].as_array().cloned().unwrap_or_default();
+            if snapshots.is_empty() {
+                println!("{name} has no snapshots; take one with `boxquell snapshot take {name}`");
+            }
+            for snapshot in snapshots {
+                println!("{:<14} {}", snapshot["id"].as_str().unwrap_or(""), snapshot["label"].as_str().unwrap_or(""));
+            }
+        }
+        Cmd::Template { command } => {
+            let client = Client::connect(&home)?;
+            match command {
+                TemplateCmd::Save { sandbox, name, description } => {
+                    println!("saving {sandbox} as the template {name} (a running sandbox is stopped for it and started again)…");
+                    client.post(&format!("/api/sandboxes/{sandbox}/template"), json!({ "name": name, "description": description.join(" ") }))?;
+                    println!("start from it with `boxquell new <name> --template {name}`");
+                }
+                TemplateCmd::Rm { name } => {
+                    client.delete(&format!("/api/templates/{name}"), None)?;
+                }
+                TemplateCmd::Ls => {}
+            }
+            for template in client.get("/api/templates")?.as_array().into_iter().flatten() {
+                let software: Vec<&str> = template["recipes"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).collect();
+                println!("{:<16} {:<10} {}", template["name"].as_str().unwrap_or(""), template["os"].as_str().unwrap_or(""), software.join(", "));
             }
         }
         Cmd::Up { name } => {

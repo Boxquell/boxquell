@@ -47,6 +47,22 @@ EXAMPLE = "1"
 - `uninstall = '''…'''` is a script that takes the software out again (`boxquell remove <sandbox> <recipe>`, or Remove on its card). Without one, removing a recipe only takes it off the list. Software that something else installed requires cannot be removed first.
 - When a recipe offers a newer version than the one installed, or the recipe file changed since the install, its card offers Update (`boxquell add <sandbox> <recipe> --again`).
 
+### Credentials
+
+A recipe names the secrets it can use with `secrets = ["gitlab"]`. Describe each one, and the Config tab offers a field for its value:
+
+```toml
+[[credential]]
+name = "gitlab"
+label = "GitLab access token"
+help = "A personal access token with the api scope."
+url = "https://gitlab.com/-/user_settings/personal_access_tokens"
+hosts = ["gitlab.com"]                 # where the real value may be sent
+env = ["GITLAB_TOKEN"]                 # variables that hold the placeholder in the sandbox
+```
+
+The names `anthropic`, `claude-oauth`, `openai`, `openrouter` and `github` are built in; for them `hosts` and `env` can be left out. A credential works where the software sends the variable's value in a request header to those hosts.
+
 ### Settings
 
 Software that is configured through environment variables can describe them, and the sandbox's **Config** tab shows a field for each:

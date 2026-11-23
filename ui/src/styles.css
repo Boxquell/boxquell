@@ -476,3 +476,8 @@ code.faint { color: var(--muted); background: none; padding: 0; font-size: 11.5p
 /* Installed software steps back, but what can be done with it stays readable. */
 .card.installed .card-foot { gap: 10px; justify-content: flex-start; flex-wrap: wrap; }
 .card.installed .card-foot .version { margin-left: auto; }
+
+.credentials { border-bottom: 0.5px solid var(--line); }
+.setting.field > .row.tight { flex: none; width: min(320px, 45%); gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; }
+.setting.field > .row.tight input { flex: 1; min-width: 0; }
+.notices.plain li > .grow { box-shadow: none; padding-left: 0; }

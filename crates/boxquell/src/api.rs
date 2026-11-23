@@ -335,6 +335,45 @@ struct HandledItem {
     until: u64,
 }
 
+#[derive(Deserialize)]
+struct SnapshotBody {
+    #[serde(default)]
+    label: String,
+}
+
+async fn take_snapshot(State(daemon): App, Path(name): Path<String>, Json(body): Json<SnapshotBody>) -> ApiResult {
+    daemon.take_snapshot(&name, &body.label).await?;
+    Ok(Json(daemon.info(&name)?))
+}
+
+async fn restore_snapshot(State(daemon): App, Path((name, id)): Path<(String, String)>) -> ApiResult {
+    Ok(Json(daemon.restore_snapshot(&name, &id).await?))
+}
+
+async fn delete_snapshot(State(daemon): App, Path((name, id)): Path<(String, String)>) -> ApiResult {
+    Ok(Json(daemon.delete_snapshot(&name, &id)?))
+}
+
+#[derive(Deserialize)]
+struct TemplateBody {
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+
+async fn templates(State(daemon): App) -> ApiResult {
+    Ok(Json(daemon.templates().into()))
+}
+
+async fn save_template(State(daemon): App, Path(name): Path<String>, Json(body): Json<TemplateBody>) -> ApiResult {
+    Ok(Json(daemon.save_template(&name, &body.name, &body.description).await?))
+}
+
+async fn delete_template(State(daemon): App, Path(name): Path<String>) -> ApiResult {
+    daemon.delete_template(&name)?;
+    Ok(Json(daemon.templates().into()))
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -830,6 +869,11 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/secrets", post(attach_secret))
         .route("/api/sandboxes/{name}/recipes", post(install_recipes).delete(remove_recipes))
         .route("/api/sandboxes/{name}/forgotten", post(forget_recipes))
+        .route("/api/sandboxes/{name}/snapshots", post(take_snapshot))
+        .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
+        .route("/api/sandboxes/{name}/template", post(save_template))
+        .route("/api/templates", get(templates))
+        .route("/api/templates/{name}", delete(delete_template))
         .route("/api/sandboxes/{name}/installed", post(record_recipes))
         .route("/api/recipes", get(recipes))
         .route("/api/repos", get(list_repos).post(add_repo))

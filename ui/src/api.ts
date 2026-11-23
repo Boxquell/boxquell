@@ -49,6 +49,8 @@ export interface Sandbox {
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
+  /** Saved states of the disk, oldest first */
+  snapshots?: Snapshot[];
   /** Installed software for which there is something newer */
   recipe_updates?: { id: string; kind: "version" | "recipe"; to: string; note: string }[];
   /** What the system and installed software open by themselves, each destination with whether it is on */
@@ -71,7 +73,37 @@ export interface ConfigOption {
   on?: string;
 }
 
+/** A saved state of a sandbox's disk. */
+export interface Snapshot {
+  id: string;
+  label: string;
+  created_ms: number;
+  recipes: string[];
+}
+
+/** A sandbox saved as a starting point for new ones. */
+export interface Template {
+  name: string;
+  description: string;
+  created_ms: number;
+  from: string;
+  os: string;
+  recipes: string[];
+}
+
+/** A secret a recipe can use, described so that it can be stored from the Config tab. */
+export interface Credential {
+  name: string;
+  label?: string;
+  help?: string;
+  url?: string;
+  hosts?: string[];
+  env?: string[];
+}
+
 export interface Recipe {
+  /** What the secrets named in `secrets` are */
+  credentials?: Credential[];
   /** Settings shown on a sandbox's Config tab */
   config?: ConfigOption[];
   /** Script that removes the software again; without one, removing only forgets it */
@@ -293,7 +325,7 @@ export const api = {
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
   removePort: (name: string, host: number) => call<Sandbox>("DELETE", `${box(name)}/ports/${host}`),
-  setLocalSecret: (name: string, secret: string, value: string, hosts: string[], env: string[]) =>
+  setLocalSecret: (name: string, secret: string, value: string, hosts?: string[], env?: string[]) =>
     call<Sandbox>("PUT", `${box(name)}/secrets/${encodeURIComponent(secret)}`, { value, hosts, env }),
   removeLocalSecret: (name: string, secret: string) => call<Sandbox>("DELETE", `${box(name)}/secrets/${encodeURIComponent(secret)}`),
   setClaudeSettings: (name: string, settings: string) => call<Sandbox>("PUT", `${box(name)}/claude-settings`, { settings }),
@@ -352,6 +384,12 @@ export const api = {
   setAutoRule: (name: string, source: string, host: string | null, enabled: boolean) => call<Sandbox>("POST", `${box(name)}/auto-rules`, { source, host, enabled }),
   removeRule: (name: string, rule: string) => call<Sandbox>("DELETE", `${box(name)}/rules`, { rule }),
   install: (name: string, recipes: string[], again = false) => call<Sandbox>("POST", `${box(name)}/recipes`, { recipes, again }),
+  takeSnapshot: (name: string, label: string) => call<Sandbox>("POST", `${box(name)}/snapshots`, { label }),
+  restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
+  deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
+  templates: () => call<Template[]>("GET", "/api/templates"),
+  saveTemplate: (name: string, template: string, description: string) => call<Template>("POST", `${box(name)}/template`, { name: template, description }),
+  deleteTemplate: (template: string) => call<Template[]>("DELETE", `/api/templates/${encodeURIComponent(template)}`),
   /** Take software out of a sandbox again; like an install, it runs in the background. */
   uninstall: (name: string, recipes: string[]) => call<Sandbox>("DELETE", `${box(name)}/recipes`, { recipes }),
   attachSecret: (name: string, secret: string) => call<Sandbox>("POST", `${box(name)}/secrets`, { secret }),

@@ -70,6 +70,11 @@ pub struct Recipe {
     /// For agents: the command that starts it.
     #[serde(default)]
     pub command: Option<String>,
+    /// What the secrets named in `secrets` are: where each may be sent and
+    /// which variable holds its placeholder. With this, the Config tab can
+    /// take the value and nothing else has to be known. Written as `[[credential]]`.
+    #[serde(default, rename = "credential")]
+    pub credentials: Vec<Credential>,
     /// Settings of the software that are environment variables. The UI shows
     /// a field for each on the sandbox's Config tab.
     #[serde(default)]
@@ -83,6 +88,28 @@ pub struct Recipe {
     pub env: BTreeMap<String, String>,
     /// Shell script run in the guest as the `dev` user (with passwordless sudo).
     pub install: String,
+}
+
+/// A secret a recipe can use, described so that it can be stored from the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Credential {
+    /// The secret's name, one of the recipe's `secrets`.
+    pub name: String,
+    /// What it is called for the user, e.g. `GitLab access token`.
+    #[serde(default)]
+    pub label: String,
+    /// Where to get it, in a sentence.
+    #[serde(default)]
+    pub help: String,
+    /// A page where it is created.
+    #[serde(default)]
+    pub url: String,
+    /// Hosts it may be sent to.
+    #[serde(default)]
+    pub hosts: Vec<String>,
+    /// Variables that hold its placeholder in the sandbox.
+    #[serde(default)]
+    pub env: Vec<String>,
 }
 
 /// One setting of a piece of software, kept as an environment variable of the sandbox.

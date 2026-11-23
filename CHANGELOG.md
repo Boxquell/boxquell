@@ -5,6 +5,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Snapshots: save the state of a sandbox's disk and go back to it (`boxquell snapshot take|ls|restore|rm`, and under a sandbox's Settings).
+- Templates: save a sandbox as a starting point and create new ones from it, with its system and software already there (`boxquell template save|ls|rm`, `boxquell new --template`, and "Start from" when creating a sandbox).
+- Keys for installed software are entered on the Config tab, next to its settings; recipes describe them with `[[credential]]`.
 - Software can be removed again (`boxquell remove`, or Remove on its card) and updated when its recipe offers a newer version or has changed (`boxquell add --again`, or Update on its card).
 - A recipe can require a version of another: `requires = ["node>=22"]`.
 - A Config tab per sandbox: installed software shows its settings as fields (recipes describe them with `[[config]]`), next to the variables set by hand. Changes reach a running sandbox at once.
