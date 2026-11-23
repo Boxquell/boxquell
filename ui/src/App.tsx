@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
+import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
 import { NewSandbox } from "./NewSandbox";
@@ -13,15 +13,21 @@ export function App() {
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [secrets, setSecrets] = useState<Secret[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  // `?box=name&tab=network` opens a sandbox and tab directly, e.g. from a bookmark.
+  const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.search).get("box"));
   const [dialog, setDialog] = useState<"new" | "secrets" | "plugins" | "settings" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lockdown, setLockdown] = useState(false);
+  const [outdated, setOutdated] = useState(false);
   const [settings, setSettings] = useState<Settings>({ notify_blocked: true, toast_blocked: true, listen: [], listen_port: 7878 });
   // Terminals live here so they stay connected while another sandbox is shown.
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Record<string, number>>({});
-  const [tabs, setTabs] = useState<Record<string, Tab>>({});
+  const [tabs, setTabs] = useState<Record<string, Tab>>(() => {
+    const query = new URLSearchParams(location.search);
+    const [box, tab] = [query.get("box"), query.get("tab")];
+    return box && tab ? { [box]: tab as Tab } : {};
+  });
   const nextSession = useRef(1);
   const openTerminal = useCallback((sandbox: string, title: string, cmd?: string) => {
     const id = nextSession.current++;
@@ -45,6 +51,7 @@ export function App() {
 
   useEffect(() => {
     if (!token) return;
+    api.level().then((level) => setOutdated(level < API_LEVEL), () => {});
     api.recipes().then(setRecipes, () => {});
     api.settings().then(setSettings, () => {});
     refresh();
@@ -96,6 +103,7 @@ export function App() {
               </span>
             </button>
           </div>
+          <span className="nav-label">Sandboxes</span>
           {sandboxes.map((s) => (
             <div key={s.name} className={s.name === current?.name ? "item active" : "item"}>
               <button className="grow" onClick={() => setSelected(s.name)}>
@@ -132,6 +140,15 @@ export function App() {
         <button onClick={() => setDialog("settings")}>Settings</button>
       </aside>
       <main>
+        {outdated && (
+          <div className="warning" role="alert">
+            <strong>The running daemon is older than this page.</strong>
+            <span>
+              Some buttons will not work until it is restarted: run <code>boxquell daemon --stop</code>, then open the page again with <code>boxquell ui</code>.
+              Stopping the daemon also stops running sandboxes.
+            </span>
+          </div>
+        )}
         {lockdown && (
           <div className="error lockdown-banner" role="alert">
             <span>
@@ -157,10 +174,10 @@ export function App() {
               secrets={secrets}
               act={act}
               openTerminal={openTerminal}
-              tab={tabs[current.name] ?? "terminal"}
+              tab={tabs[current.name] ?? "overview"}
               setTab={(tab) => setTabs((all) => ({ ...all, [current.name]: tab }))}
             />
-            <section className={(tabs[current.name] ?? "terminal") === "terminal" && sessions.some((s) => s.sandbox === current.name) ? "" : "hidden"}>
+            <section className={(tabs[current.name] ?? "overview") === "terminal" && sessions.some((s) => s.sandbox === current.name) ? "" : "hidden"}>
               <div className="tabs">
                 {sessions
                   .filter((s) => s.sandbox === current.name)

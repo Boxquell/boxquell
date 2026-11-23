@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type NetEvent, type Recipe, type Sandbox, type Secret } from "./api";
+import { Tile, VmLoad, useStats } from "./Overview";
 import { RecipeCards } from "./RecipeCards";
 import { recipeName } from "./RecipePicker";
 
@@ -7,8 +8,9 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "terminal" | "software" | "network" | "secrets" | "settings";
+export type Tab = "overview" | "terminal" | "software" | "network" | "secrets" | "settings";
 const TABS: [Tab, string][] = [
+  ["overview", "Overview"],
   ["terminal", "Terminal"],
   ["software", "Software"],
   ["network", "Network"],
@@ -90,6 +92,7 @@ export function SandboxView(props: ViewProps) {
         ))}
       </div>
 
+      {tab === "overview" && <Status sandbox={sandbox} recipes={recipes} start={() => run("starting…", () => api.start(sandbox.name))} setTab={setTab} />}
       {tab === "terminal" && (
       <section>
           <h3>Terminal</h3>
@@ -694,5 +697,45 @@ function Folders(props: { sandbox: Sandbox; act: Act }) {
       )}
       {sandbox.running && <p className="muted">Folder changes apply the next time the sandbox starts.</p>}
     </section>
+  );
+}
+
+/** The first thing shown for a sandbox: is it running, how busy is it, what did the network do. */
+function Status(props: { sandbox: Sandbox; recipes: Recipe[]; start: () => void; setTab: (tab: Tab) => void }) {
+  const { sandbox, recipes } = props;
+  const stats = useStats()[sandbox.name];
+  const installed = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))?.name ?? recipeName(id));
+  if (!sandbox.running) {
+    return (
+      <section className="centered">
+        <h3>This sandbox is stopped</h3>
+        <p className="muted">Start it to see its load and network activity here. Opening a terminal starts it too.</p>
+        <div className="actions">
+          <button className="primary" onClick={props.start}>
+            Start {sandbox.name}
+          </button>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <>
+      <div className="kpis">
+        <Tile label="Connections allowed" value={`${stats?.allowed ?? 0}`} note="since it started" />
+        <Tile label="Connections blocked" value={`${stats?.blocked ?? 0}`} note="since it started">
+          {(stats?.blocked ?? 0) > 0 && (
+            <button className="link" onClick={() => props.setTab("network")}>
+              Show in the network log
+            </button>
+          )}
+        </Tile>
+        <Tile label="Network mode" value={sandbox.mode === "blacklist" ? "Blacklist" : "Whitelist"} note={`${sandbox.rules.length} rules`} />
+        <Tile label="Software" value={`${installed.length}`} note={installed.slice(0, 4).join(", ") || "nothing installed yet"} />
+      </div>
+      <section className="vm">
+        <h3>Load</h3>
+        <VmLoad sandbox={sandbox} samples={stats?.samples ?? []} />
+      </section>
+    </>
   );
 }

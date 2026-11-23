@@ -201,6 +201,11 @@ async fn remove_repo(State(daemon): App, Path(name): Path<String>) -> ApiResult 
 struct Ui;
 
 async fn ui(uri: axum::http::Uri) -> Response {
+    // An API path this version does not know must not be answered with the page.
+    if uri.path().starts_with("/api/") {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "this daemon does not know that request; it may be older than the page" })))
+            .into_response();
+    }
     let path = uri.path().trim_start_matches('/');
     let (path, file) = match Ui::get(path) {
         Some(file) => (path, Some(file)),
@@ -395,8 +400,13 @@ async fn stats(State(daemon): App) -> ApiResult {
     Ok(Json(daemon.stats()))
 }
 
+/// Raised whenever the web UI starts to need something new from the API, so a
+/// page served next to an older daemon can say so instead of failing quietly.
+/// Keep in step with `API_LEVEL` in `ui/src/api.ts`.
+const API_LEVEL: u32 = 1;
+
 async fn ping() -> ApiResult {
-    Ok(Json(json!({ "version": env!("CARGO_PKG_VERSION") })))
+    Ok(Json(json!({ "version": env!("CARGO_PKG_VERSION"), "api": API_LEVEL })))
 }
 
 async fn shutdown(State(daemon): App) -> ApiResult {

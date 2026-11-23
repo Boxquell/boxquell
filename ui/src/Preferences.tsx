@@ -18,24 +18,24 @@ export function Preferences(props: { settings: Settings; onChange: (settings: Se
       <div className="dialog">
         <h2>Settings</h2>
         <h3>When a connection is blocked</h3>
-        <label className="check">
-          <input type="checkbox" checked={settings.notify_blocked} onChange={() => toggle("notify_blocked")} />
+        <label className="check setting">
+          <input type="checkbox" className="switch" checked={settings.notify_blocked} onChange={() => toggle("notify_blocked")} />
           Show a notification on this computer
         </label>
-        <label className="check">
-          <input type="checkbox" checked={settings.toast_blocked} onChange={() => toggle("toast_blocked")} />
+        <label className="check setting">
+          <input type="checkbox" className="switch" checked={settings.toast_blocked} onChange={() => toggle("toast_blocked")} />
           Show a message on this page, with a button to allow the destination
         </label>
         <p className="muted">Each destination is announced at most once a minute. Every attempt is in the network log either way.</p>
 
         <h3>Where this page can be opened</h3>
-        <label className="check">
-          <input type="checkbox" checked disabled />
+        <label className="check setting">
+          <input type="checkbox" className="switch" checked disabled />
           This computer only (127.0.0.1), always on
         </label>
         {known.map((a) => (
-          <label key={a.address} className="check">
-            <input type="checkbox" checked={settings.listen.includes(a.address)} onChange={() => toggleAddress(a.address)} />
+          <label key={a.address} className="check setting">
+            <input type="checkbox" className="switch" checked={settings.listen.includes(a.address)} onChange={() => toggleAddress(a.address)} />
             <code>{a.address}</code> <span className="muted">{a.interface}</span>
           </label>
         ))}

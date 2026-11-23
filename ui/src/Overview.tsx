@@ -63,7 +63,29 @@ function Tile(props: { label: string; value: string; note?: string; children?: R
   );
 }
 
-export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
+/** CPU, network, memory and disk of one running sandbox. */
+export function VmLoad(props: { sandbox: Sandbox; samples: Sample[] }) {
+  const { sandbox: s, samples } = props;
+  const now = samples.at(-1);
+  if (!now) return <p className="muted">{s.paused ? "Paused: no measurements while the sandbox is frozen." : "Waiting for the first measurements…"}</p>;
+  return (
+    <div className="vm-body">
+      <Tile label="CPU" value={`${Math.round(now.cpu)} %`} note={`of ${s.cpus} CPUs`}>
+        <Sparkline samples={samples} value={(x) => x.cpu} max={100} label={(x) => `${Math.round(x.cpu)} %`} />
+      </Tile>
+      <Tile label="Network" value={`${bytes(now.rx_rate + now.tx_rate)}/s`} note={`↓ ${bytes(now.rx_rate)}/s  ↑ ${bytes(now.tx_rate)}/s`}>
+        <Sparkline samples={samples} value={(x) => x.rx_rate + x.tx_rate} label={(x) => `${bytes(x.rx_rate + x.tx_rate)}/s`} />
+      </Tile>
+      <div className="tile meters">
+        <Meter label="Memory" used={now.mem_used_mib} total={now.mem_total_mib} figure={`${now.mem_used_mib} / ${now.mem_total_mib} MiB`} />
+        <Meter label="Disk" used={now.disk_used_gib} total={now.disk_total_gib} figure={`${now.disk_used_gib.toFixed(1)} / ${now.disk_total_gib.toFixed(0)} GiB`} />
+      </div>
+    </div>
+  );
+}
+
+/** Polls the load and connection counts of all running sandboxes. */
+export function useStats(): Stats {
   const [stats, setStats] = useState<Stats>({});
   useEffect(() => {
     const load = () => api.stats().then(setStats, () => {});
@@ -71,6 +93,13 @@ export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => 
     const timer = setInterval(load, 2000);
     return () => clearInterval(timer);
   }, []);
+  return stats;
+}
+
+export { Tile };
+
+export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
+  const stats = useStats();
 
   const running = props.sandboxes.filter((s) => s.running);
   const stopped = props.sandboxes.filter((s) => !s.running);
@@ -83,7 +112,7 @@ export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => 
       <header className="hero">
         <div className="grow">
           <h2>Overview</h2>
-          <p className="muted">Load and network activity of your sandboxes, updated every two seconds.</p>
+          <p className="muted">Load and network activity of your sandboxes.</p>
         </div>
       </header>
 
@@ -96,7 +125,6 @@ export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => 
 
       {running.map((s) => {
         const samples = stats[s.name]?.samples ?? [];
-        const now = samples.at(-1);
         return (
           <section key={s.name} className="vm">
             <div className="vm-head">
@@ -106,22 +134,7 @@ export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => 
               <span className={stats[s.name]?.blocked ? "chip blocked" : "chip"}>✕ {stats[s.name]?.blocked ?? 0} blocked</span>
               <button onClick={() => props.open(s.name)}>Open</button>
             </div>
-            {now ? (
-              <div className="vm-body">
-                <Tile label="CPU" value={`${Math.round(now.cpu)} %`} note={`of ${s.cpus} CPUs`}>
-                  <Sparkline samples={samples} value={(x) => x.cpu} max={100} label={(x) => `${Math.round(x.cpu)} %`} />
-                </Tile>
-                <Tile label="Network" value={`${bytes(now.rx_rate + now.tx_rate)}/s`} note={`↓ ${bytes(now.rx_rate)}/s  ↑ ${bytes(now.tx_rate)}/s`}>
-                  <Sparkline samples={samples} value={(x) => x.rx_rate + x.tx_rate} label={(x) => `${bytes(x.rx_rate + x.tx_rate)}/s`} />
-                </Tile>
-                <div className="meters">
-                  <Meter label="Memory" used={now.mem_used_mib} total={now.mem_total_mib} figure={`${now.mem_used_mib} / ${now.mem_total_mib} MiB`} />
-                  <Meter label="Disk" used={now.disk_used_gib} total={now.disk_total_gib} figure={`${now.disk_used_gib.toFixed(1)} / ${now.disk_total_gib.toFixed(0)} GiB`} />
-                </div>
-              </div>
-            ) : (
-              <p className="muted">{s.paused ? "Paused: no measurements while the sandbox is frozen." : "Waiting for the first measurements…"}</p>
-            )}
+            <VmLoad sandbox={s} samples={samples} />
           </section>
         );
       })}

@@ -4,7 +4,7 @@
 const fromHash = new URLSearchParams(location.hash.slice(1)).get("token");
 if (fromHash) {
   sessionStorage.setItem("boxquell-token", fromHash);
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);
 }
 export const token = sessionStorage.getItem("boxquell-token") ?? "";
 
@@ -135,7 +135,12 @@ function withDefaults(sandbox: Sandbox): Sandbox {
 
 const box = (name: string) => `/api/sandboxes/${encodeURIComponent(name)}`;
 
+/** What this page needs from the daemon; see `API_LEVEL` in `crates/boxquell/src/api.rs`. */
+export const API_LEVEL = 1;
+
 export const api = {
+  /** The API level of the running daemon; 0 for one that predates levels. */
+  level: () => call<{ api?: number }>("GET", "/api/ping").then((ping) => ping.api ?? 0),
   sandboxes: () => call<Sandbox[]>("GET", "/api/sandboxes").then((list) => list.map(withDefaults)),
   recipes: () =>
     call<Recipe[]>("GET", "/api/recipes").then((list) => list.map((r) => ({ ...r, versions: r.versions ?? [], install_allow: r.install_allow ?? [] }))),

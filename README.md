@@ -65,11 +65,11 @@ boxquell ui
 
 | | |
 |---|---|
-| **Sandboxes** | `new`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk` |
-| **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `logs -f --blocked` |
+| **Sandboxes** | `new`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir` |
+| **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
 | **Software** | `recipes`, `add <sandbox> claude node@22 …`, `repo add\|ls\|update\|rm` |
-| **Access** | `port add <sandbox> 8080:3000`, `ui`, `claude-settings` |
+| **Access** | `port add <sandbox> 8080:3000`, `share add <sandbox> ~/data /mnt/data`, `ui`, `claude-settings`, `config` |
 
 ### Network rules
 
@@ -84,6 +84,19 @@ boxquell logs mybox -f --blocked            # watch what gets refused
 ```
 
 The first matching rule wins, and address rules are checked before name rules. Private and local addresses (your LAN, the host itself) stay closed in both modes until a rule names them. In whitelist mode a connection must go to an address that an allowed name resolved to, and the name a client presents (TLS SNI, HTTP Host) must match, so an allowed address cannot be used to reach a different site.
+
+### Emergency stop
+
+```sh
+boxquell lockdown on     # every sandbox loses the network at once; open connections stop carrying data
+boxquell lockdown off
+```
+
+The web UI has the same switch in its sidebar. A lockdown survives a restart of the daemon.
+
+### Monitoring and notifications
+
+The web UI opens on an overview of all sandboxes: CPU, memory, disk, network throughput and the number of allowed and blocked connections. Each sandbox shows the same for itself. When a connection is blocked you get a desktop notification and a message in the UI with a button to allow the destination; both can be switched off (`boxquell config`). Boxquell also warns when an installed agent has no credential.
 
 ### Secrets
 
@@ -151,10 +164,16 @@ flowchart LR
 ## Limits you should know
 
 - macOS and Windows are untested. Pausing works on Linux and macOS only.
-- The `qemu` backend does not share the project folder yet.
+- The `qemu` backend does not share folders yet.
+- A read-only shared folder guards against accidents; root inside the sandbox can remount it writable.
+- The web UI can be opened on other network addresses (Settings), but that connection is not encrypted. Use it only in networks you trust.
 - Secrets are stored in a file with owner-only permissions, not in the system keychain yet.
 - The guest is IPv4-only, and UDP other than DNS is refused (so no QUIC; clients fall back to TCP).
 - Recipes target the Debian guest image.
+
+## Releases
+
+Release binaries are built by GitHub Actions from version tags, with a `SHA256SUMS` file and build provenance (`gh attestation verify <file> --repo ToBee94/boxquell`). The macOS and Windows binaries are signed once the certificates are configured; see [docs/release-signing.md](docs/release-signing.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## Development
 
