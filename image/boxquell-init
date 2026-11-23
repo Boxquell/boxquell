@@ -50,6 +50,11 @@ elif [ -f /etc/claude-code/.boxquell ]; then
   rm -f /etc/claude-code/managed-settings.json /etc/claude-code/.boxquell
 fi
 [ -f /run/boxquell/env.sh ] && install -m 644 /run/boxquell/env.sh /etc/profile.d/boxquell.sh
+# Earlier versions named a recipe's variables file with a colon, which Debian's
+# /etc/profile skips.
+for file in /etc/profile.d/boxquell-recipe-*:*.sh; do
+  [ -e "$file" ] && mv "$file" "$(echo "$file" | tr : -)"
+done
 
 mount -t virtiofs workspace /workspace 2>/dev/null \
   || mount -t 9p -o trans=virtio,version=9p2000.L,msize=1048576 workspace /workspace 2>/dev/null

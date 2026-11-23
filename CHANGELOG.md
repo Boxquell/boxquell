@@ -16,6 +16,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Icons for software and systems, taken from their repositories, and a search field in the software catalogue.
 - Choosing the operating system of a new sandbox from cards instead of a list.
 
+### Fixed
+- Environment variables of a recipe (`[env]`) were not set in login shells on Debian.
+
 ## [0.0.1] - 2026-11-23
 
 First public version, for testing. Built and tested on Linux; the macOS and Windows binaries are untested and not signed yet.

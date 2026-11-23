@@ -23,7 +23,8 @@ fn guest_script(pick: &Pick) -> String {
         script += &format!("export BOXQUELL_VERSION={}\n", shell_quote(version));
     }
     if !recipe.env.is_empty() {
-        let profile = format!("/etc/profile.d/boxquell-recipe-{}.sh", recipe.id);
+        // Debian reads only profile files whose names are letters, digits, `.`, `_` and `-`.
+        let profile = format!("/etc/profile.d/boxquell-recipe-{}.sh", recipe.id.replace(':', "-"));
         let exports: String = recipe.env.iter().map(|(k, v)| format!("export {k}={}\n", shell_quote(v))).collect();
         script += &format!("printf %s {} | sudo tee {profile} >/dev/null\n. {profile}\n", shell_quote(&exports));
     }
