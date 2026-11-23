@@ -14,4 +14,4 @@ RUN useradd -m -s /bin/bash dev \
  && mkdir -p /workspace && chown dev:dev /workspace \
  && cp /etc/ssl/certs/ca-certificates.crt /etc/ssl/boxquell-base-ca.crt \
  && printf '%s\n' 'PasswordAuthentication no' 'PermitRootLogin no' > /etc/ssh/sshd_config.d/boxquell.conf
-COPY boxquell-init boxquell-shutdown /usr/local/sbin/
+COPY boxquell-init boxquell-shutdown boxquell-agent-config /usr/local/sbin/

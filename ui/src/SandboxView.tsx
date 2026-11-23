@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type NetEvent, type Recipe, type Sandbox, type Secret } from "./api";
 import { Tile, VmLoad, useStats } from "./Overview";
+import { AgentSettings } from "./AgentSettings";
 import { RecipeCards } from "./RecipeCards";
 import { recipeName } from "./RecipePicker";
 
@@ -8,11 +9,12 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 type OpenTerminal = (sandbox: string, title: string, cmd?: string) => void;
 
-export type Tab = "overview" | "terminal" | "software" | "network" | "secrets" | "settings";
+export type Tab = "overview" | "terminal" | "software" | "agent" | "network" | "secrets" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["terminal", "Terminal"],
   ["software", "Software"],
+  ["agent", "Agent"],
   ["network", "Network"],
   ["secrets", "Secrets"],
   ["settings", "Settings"],
@@ -111,12 +113,13 @@ export function SandboxView(props: ViewProps) {
           <div className="commands">
             <Command text={`boxquell shell ${sandbox.name}`} />
             {agents.map((r) => (
-              <Command key={r!.id} text={`boxquell run ${sandbox.name} ${r!.command}`} />
+              <Command key={r!.id} text={`boxquell run ${sandbox.name} ${r!.id.split(":").pop()}`} />
             ))}
           </div>
         </section>
       )}
       {tab === "software" && <Software {...props} />}
+      {tab === "agent" && <AgentSettings sandbox={sandbox.name} act={act} />}
       {tab === "network" && (
         <>
           <Rules sandbox={sandbox} act={act} />

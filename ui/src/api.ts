@@ -84,6 +84,15 @@ export interface Sample {
 /** Per running sandbox: recent load samples and connection counts since its start. */
 export type Stats = Record<string, { samples: Sample[]; allowed: number; blocked: number }>;
 
+/** Instructions, MCP servers and skills for the agents: for all sandboxes, or for one. */
+export interface AgentConfig {
+  instructions: string;
+  /** JSON text: name → server */
+  mcp: string;
+  skills: string[];
+  path: string;
+}
+
 export interface Settings {
   notify_blocked: boolean;
   toast_blocked: boolean;
@@ -135,6 +144,7 @@ function withDefaults(sandbox: Sandbox): Sandbox {
   return { ...sandbox, mode: sandbox.mode ?? "whitelist", recipes: sandbox.recipes ?? [], local_secrets: sandbox.local_secrets ?? [], ports: sandbox.ports ?? [], shares: sandbox.shares ?? [], workdir: sandbox.workdir ?? null, warnings: sandbox.warnings ?? [] };
 }
 
+const agentPath = (sandbox: string | null) => (sandbox ? `/api/sandboxes/${encodeURIComponent(sandbox)}/agent-config` : "/api/agent-config");
 const box = (name: string) => `/api/sandboxes/${encodeURIComponent(name)}`;
 
 /** What this page needs from the daemon; see `API_LEVEL` in `crates/boxquell/src/api.rs`. */
@@ -167,6 +177,10 @@ export const api = {
   removeLocalSecret: (name: string, secret: string) => call<Sandbox>("DELETE", `${box(name)}/secrets/${encodeURIComponent(secret)}`),
   setClaudeSettings: (name: string, settings: string) => call<Sandbox>("PUT", `${box(name)}/claude-settings`, { settings }),
   clearClaudeSettings: (name: string) => call<Sandbox>("DELETE", `${box(name)}/claude-settings`),
+  agentConfig: (sandbox: string | null) => call<AgentConfig>("GET", agentPath(sandbox)),
+  setAgentConfig: (sandbox: string | null, instructions: string, mcp: string) => call<AgentConfig>("PUT", agentPath(sandbox), { instructions, mcp }),
+  addSkill: (sandbox: string | null, path: string) => call<AgentConfig>("POST", `${agentPath(sandbox)}/skills`, { path }),
+  removeSkill: (sandbox: string | null, skill: string) => call<AgentConfig>("DELETE", `${agentPath(sandbox)}/skills/${encodeURIComponent(skill)}`),
   stats: () => call<Stats>("GET", "/api/stats"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),

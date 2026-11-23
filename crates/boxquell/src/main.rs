@@ -145,6 +145,11 @@ enum Cmd {
     Deny { name: String, host: String },
     /// Remove a rule, e.g. `boxquell unrule box "allow example.com"`
     Unrule { name: String, rule: String },
+    /// Instructions (CLAUDE.md / AGENTS.md), skills and MCP servers for the agents, for all sandboxes or one
+    Agent {
+        #[command(subcommand)]
+        command: AgentCmd,
+    },
     /// Emergency stop: block every connection of every sandbox at once, and end open ones
     Lockdown {
         /// `on`, `off`, or nothing to show the state
@@ -177,6 +182,9 @@ enum Cmd {
         /// Directory in the sandbox where shells and agents start, e.g. /workspace/backend (`default` for /workspace)
         #[arg(long)]
         workdir: Option<String>,
+        /// Environment variable for sessions in the sandbox, `KEY=value`; `KEY=` removes it (repeatable)
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env: Vec<String>,
     },
     /// Share more directories of this computer with a sandbox (libkrun backend)
     Share {
@@ -231,6 +239,39 @@ enum Cmd {
     /// Internal: become the VM process
     #[command(hide = true)]
     VmRun { library: PathBuf, spec: String },
+}
+
+#[derive(Subcommand)]
+enum AgentCmd {
+    /// Show what is configured and where it is stored
+    Show {
+        /// For this sandbox only (default: for all sandboxes)
+        #[arg(long)]
+        sandbox: Option<String>,
+    },
+    /// Set instructions and MCP servers from files; an empty file removes them
+    Set {
+        /// Markdown file with instructions; agents get it as CLAUDE.md / AGENTS.md
+        #[arg(long)]
+        instructions: Option<PathBuf>,
+        /// JSON file with MCP servers: { "name": { "command": "...", "args": [...] } }
+        #[arg(long)]
+        mcp: Option<PathBuf>,
+        #[arg(long)]
+        sandbox: Option<String>,
+    },
+    /// Add a skill: a directory with a SKILL.md, e.g. ~/.claude/skills/my-skill
+    SkillAdd {
+        dir: PathBuf,
+        #[arg(long)]
+        sandbox: Option<String>,
+    },
+    /// Remove a skill
+    SkillRm {
+        name: String,
+        #[arg(long)]
+        sandbox: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -341,6 +382,17 @@ fn catalog(home: &Home) -> Result<Catalog> {
         eprintln!("warning: {problem}");
     }
     Catalog::of(home)
+}
+
+/// The start command of the agent `word` names, if a recipe of that name is installed in the sandbox.
+fn installed_agent_command(home: &Home, client: &Client, sandbox: &str, word: &str) -> Option<String> {
+    let info = client.get(&format!("/api/sandboxes/{sandbox}")).ok()?;
+    let catalog = Catalog::of(home).ok()?;
+    info["recipes"].as_array()?.iter().filter_map(|entry| entry.as_str()).find_map(|entry| {
+        let id = entry.split('@').next()?;
+        let short = id.rsplit(':').next()?;
+        (short == word).then(|| catalog.get(id)?.command.clone()).flatten()
+    })
 }
 
 fn ssh_config(home: &Home, client: &Client) -> Result<String> {
@@ -608,9 +660,18 @@ fn main() -> Result<()> {
         Cmd::Shell { name } => ssh_into(&Client::connect(&home)?, &name, None)?,
         Cmd::Run { name, command } => {
             // A login shell loads the sandbox environment (placeholders, CA paths) first.
-            let words: Vec<String> = command.iter().map(|word| shell_quote(word)).collect();
-            let script = format!("exec {}", words.join(" "));
-            ssh_into(&Client::connect(&home)?, &name, Some(format!("bash -lc {}", shell_quote(&script))))?;
+            let client = Client::connect(&home)?;
+            // The name of an installed agent starts it the way its recipe says, e.g. `boxquell run box orca`.
+            let agent = match command.as_slice() {
+                [word] => installed_agent_command(&home, &client, &name, word),
+                _ => None,
+            };
+            let script = match agent {
+                // Recipe commands are shell text: they may refer to variables of the sandbox.
+                Some(recipe_command) => format!("exec {recipe_command}"),
+                None => format!("exec {}", command.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ")),
+            };
+            ssh_into(&client, &name, Some(format!("bash -lc {}", shell_quote(&script))))?;
         }
         Cmd::Allow { name, host } => {
             Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/rules"), rule("allow", &host))?;
@@ -631,6 +692,42 @@ fn main() -> Result<()> {
         Cmd::Resume { name } => {
             Client::connect(&home)?.post(&format!("/api/sandboxes/{name}/resume"), json!({}))?;
             println!("{name} resumed");
+        }
+        Cmd::Agent { command } => {
+            let client = Client::connect(&home)?;
+            let base = |sandbox: &Option<String>| match sandbox {
+                Some(name) => format!("/api/sandboxes/{name}/agent-config"),
+                None => "/api/agent-config".to_string(),
+            };
+            let config = match command {
+                AgentCmd::Show { sandbox } => client.get(&base(&sandbox))?,
+                AgentCmd::Set { instructions, mcp, sandbox } => {
+                    let current = client.get(&base(&sandbox))?;
+                    let read = |file: &Option<PathBuf>, key: &str| -> Result<String> {
+                        match file {
+                            Some(file) => std::fs::read_to_string(file).with_context(|| format!("cannot read {}", file.display())),
+                            None => Ok(current[key].as_str().unwrap_or_default().to_string()),
+                        }
+                    };
+                    client.put(&base(&sandbox), json!({ "instructions": read(&instructions, "instructions")?, "mcp": read(&mcp, "mcp")? }))?
+                }
+                AgentCmd::SkillAdd { dir, sandbox } => {
+                    client.post(&format!("{}/skills", base(&sandbox)), json!({ "path": std::path::absolute(dir)? }))?
+                }
+                AgentCmd::SkillRm { name, sandbox } => client.delete(&format!("{}/skills/{name}", base(&sandbox)), None)?,
+            };
+            let lines = config["instructions"].as_str().unwrap_or_default().lines().count();
+            let servers: Vec<String> = serde_json::from_str::<Value>(config["mcp"].as_str().unwrap_or("{}"))
+                .ok()
+                .and_then(|v| v.as_object().map(|m| m.keys().cloned().collect()))
+                .unwrap_or_default();
+            let skills: Vec<&str> = config["skills"].as_array().into_iter().flatten().filter_map(|s| s.as_str()).collect();
+            let none = |list: String| if list.is_empty() { "none".to_string() } else { list };
+            println!("instructions  {}", if lines == 0 { "none".to_string() } else { format!("{lines} lines") });
+            println!("mcp servers   {}", none(servers.join(", ")));
+            println!("skills        {}", none(skills.join(", ")));
+            println!("stored in     {}", config["path"].as_str().unwrap_or_default());
+            println!("A sandbox picks changes up the next time it starts.");
         }
         Cmd::Lockdown { state } => {
             let client = Client::connect(&home)?;
@@ -684,11 +781,24 @@ fn main() -> Result<()> {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
         }
-        Cmd::Set { name, cpus, ram, disk, workdir } => {
-            let info = Client::connect(&home)?
-                .patch(&format!("/api/sandboxes/{name}"), json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir }))?;
+        Cmd::Set { name, cpus, ram, disk, workdir, env } => {
+            let env: serde_json::Map<String, Value> = env
+                .iter()
+                .map(|pair| {
+                    pair.split_once('=')
+                        .map(|(key, value)| (key.to_string(), Value::from(value)))
+                        .with_context(|| format!("expected KEY=value, got {pair:?}"))
+                })
+                .collect::<Result<_>>()?;
+            let info = Client::connect(&home)?.patch(
+                &format!("/api/sandboxes/{name}"),
+                json!({ "cpus": cpus, "ram_mib": ram, "disk_gib": disk, "workdir": workdir, "env": env }),
+            )?;
             let hint = if info["running"] == true { " (from its next start)" } else { "" };
             println!("{name}: {} CPUs, {} MiB memory, {} GiB disk{hint}", info["cpus"], info["ram_mib"], info["disk_gib"]);
+            for (key, value) in info["env"].as_object().into_iter().flatten() {
+                println!("  {key}={}", value.as_str().unwrap_or_default());
+            }
         }
         Cmd::Share { command } => {
             let client = Client::connect(&home)?;

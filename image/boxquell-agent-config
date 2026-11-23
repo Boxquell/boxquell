@@ -1,0 +1,47 @@
+#!/bin/sh
+# Runs as the user `dev` at every boot: puts the agent configuration chosen on
+# the host (instructions, skills, MCP servers) where the agents look for it,
+# and takes away again what the host no longer provides.
+source=/run/boxquell/agent
+state="$HOME/.config/boxquell"
+mkdir -p "$state"
+
+# The same instructions for every agent, under the name each one reads.
+targets=".claude/CLAUDE.md .codex/AGENTS.md .config/opencode/AGENTS.md .pi/agent/AGENTS.md"
+if [ -f "$source/instructions.md" ]; then
+  for target in $targets; do
+    mkdir -p "$HOME/$(dirname "$target")"
+    cp "$source/instructions.md" "$HOME/$target"
+  done
+  touch "$state/managed-instructions"
+elif [ -f "$state/managed-instructions" ]; then
+  for target in $targets; do rm -f "$HOME/$target"; done
+  rm -f "$state/managed-instructions"
+fi
+
+# Skills: Claude Code reads ~/.claude/skills, other agents ~/.agents/skills.
+if [ -f "$state/managed-skills" ]; then
+  while read -r name; do
+    [ -n "$name" ] && rm -rf "$HOME/.claude/skills/$name" "$HOME/.agents/skills/$name"
+  done < "$state/managed-skills"
+  rm -f "$state/managed-skills"
+fi
+if [ -d "$source/skills" ]; then
+  mkdir -p "$HOME/.claude/skills" "$HOME/.agents/skills"
+  for skill in "$source"/skills/*/; do
+    [ -d "$skill" ] || continue
+    name=$(basename "$skill")
+    rm -rf "$HOME/.claude/skills/$name" "$HOME/.agents/skills/$name"
+    cp -r "$skill" "$HOME/.claude/skills/$name"
+    cp -r "$skill" "$HOME/.agents/skills/$name"
+    echo "$name" >> "$state/managed-skills"
+  done
+fi
+
+# MCP servers: the merged list for any agent to read, and registered with Claude Code.
+if [ -f "$source/mcp.json" ]; then
+  cp "$source/mcp.json" "$state/mcp.json"
+  [ -x "$source/mcp-claude.sh" ] && "$source/mcp-claude.sh" &
+else
+  rm -f "$state/mcp.json"
+fi

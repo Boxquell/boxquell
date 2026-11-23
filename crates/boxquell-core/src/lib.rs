@@ -1,6 +1,7 @@
 //! State shared by the boxquell daemon and CLI: where things live on disk, what a
 //! sandbox is made of, the event log and the secrets kept on the host.
 
+pub mod agentcfg;
 pub mod claude;
 pub mod drive;
 pub mod home;

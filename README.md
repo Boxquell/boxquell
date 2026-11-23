@@ -79,6 +79,7 @@ boxquell completions bash > ~/.local/share/bash-completion/completions/boxquell
 | **Sandboxes** | `new`, `up`, `down`, `pause`, `resume`, `rm`, `ls`, `shell`, `run`, `set --cpus --ram --disk --workdir` |
 | **Network** | `allow`, `deny`, `unrule`, `policy`, `mode whitelist\|blacklist`, `global allow\|deny`, `lockdown on\|off`, `logs -f --blocked` |
 | **Secrets** | `secret set\|ls\|rm\|attach`, per sandbox with `--sandbox` |
+| **Agents** | `run <sandbox> claude`, `agent set\|show\|skill-add\|skill-rm`, `set --env KEY=value` |
 | **Software** | `recipes`, `add <sandbox> claude node@22 …`, `repo add\|ls\|update\|rm` |
 | **Access** | `ssh-config --install`, `port add <sandbox> 8080:3000`, `share add <sandbox> ~/data /mnt/data`, `ui`, `claude-settings`, `config` |
 
@@ -126,6 +127,16 @@ boxquell secret set my-api --sandbox mybox --host api.example.com --env MY_API_K
 ```
 
 Inside the sandbox `MY_API_KEY` holds a placeholder. Boxquell terminates TLS for exactly the hosts that have a secret, replaces the placeholder in the request headers and forwards the request. Every other connection passes through untouched.
+
+### Instructions, skills and MCP servers for the agents
+
+```sh
+boxquell agent set --instructions rules.md --mcp servers.json      # for every sandbox
+boxquell agent skill-add ~/.claude/skills/my-skill
+boxquell agent set --sandbox mybox --instructions project-rules.md # on top, for one sandbox
+```
+
+A sandbox gets the global set with its own on top. Instructions arrive as `CLAUDE.md` for Claude Code and `AGENTS.md` for Codex, opencode and pi; skills go to `~/.claude/skills` and `~/.agents/skills`; MCP servers are registered with Claude Code and written to `~/.config/boxquell/mcp.json` for other agents. The web UI has the same under Settings → Agents and in each sandbox's Agent tab.
 
 ### LLM gateways such as LiteLLM
 

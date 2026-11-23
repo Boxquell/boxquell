@@ -286,6 +286,7 @@ impl Daemon {
             "addresses": json!({ "sandbox": boxquell_net::GUEST_IP, "host": boxquell_net::GATEWAY_IP, "dns": boxquell_net::DNS_IP }),
             "shares": spec.shares,
             "workdir": spec.workdir,
+            "env": spec.env,
             "warnings": self.warnings(&spec),
             "disk_gib": spec.disk_gib,
             "recipes": spec.recipes,
@@ -524,6 +525,24 @@ impl Daemon {
         }
         spec.save(&self.home.sandbox(name))?;
         self.info(name)
+    }
+
+    /// Set or remove (empty value) environment variables for sessions in the guest, from its next start.
+    pub fn set_env(&self, name: &str, changes: std::collections::BTreeMap<String, String>) -> Result<()> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let mut spec = self.spec(name)?;
+        for (key, value) in changes {
+            let valid = !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') && !key.as_bytes()[0].is_ascii_digit();
+            ensure!(valid, "invalid variable name {key:?}: use letters, digits and '_'");
+            if value.is_empty() {
+                spec.env.remove(&key);
+            } else {
+                spec.env.insert(key, value);
+            }
+        }
+        spec.save(&self.home.sandbox(name))
     }
 
     /// Where shells and agents start in the guest; `None` goes back to `/workspace`.
@@ -778,11 +797,20 @@ impl Daemon {
             .map(|(i, share)| format!("share{i} {} {}\n", share.guest, if share.read_only { "ro" } else { "rw" }))
             .collect();
         let claude_settings = std::fs::read(self.claude_settings_file(name)).ok();
+        // Instructions, skills and MCP servers for the agents: the global set with this sandbox's on top.
+        let agent_files = boxquell_core::agentcfg::guest_files(
+            &boxquell_core::agentcfg::dir(&self.home, None),
+            &boxquell_core::agentcfg::dir(&self.home, Some(name)),
+        );
+        let agent_paths: Vec<String> = agent_files.iter().map(|(path, _, _)| format!("agent/{path}")).collect();
         let mut drive_files = vec![
             DriveFile { path: "ca.crt", contents: self.ca.cert_pem().as_bytes(), mode: 0o644 },
             DriveFile { path: "authorized_keys", contents: &public_key, mode: 0o600 },
             DriveFile { path: "env.sh", contents: env.as_bytes(), mode: 0o644 },
         ];
+        for ((_, contents, executable), path) in agent_files.iter().zip(&agent_paths) {
+            drive_files.push(DriveFile { path, contents, mode: if *executable { 0o755 } else { 0o644 } });
+        }
         if !mounts.is_empty() {
             drive_files.push(DriveFile { path: "mounts", contents: mounts.as_bytes(), mode: 0o644 });
         }
@@ -1000,9 +1028,10 @@ pub struct DaemonFile {
 }
 
 /// Scripts every guest needs, as they are in this version.
-const GUEST_SCRIPTS: [(&str, &str); 2] = [
+const GUEST_SCRIPTS: [(&str, &str); 3] = [
     ("/usr/local/sbin/boxquell-init", include_str!("../../../image/boxquell-init")),
     ("/usr/local/sbin/boxquell-shutdown", include_str!("../../../image/boxquell-shutdown")),
+    ("/usr/local/sbin/boxquell-agent-config", include_str!("../../../image/boxquell-agent-config")),
 ];
 
 /// Bring the guest's start and stop scripts on a stopped sandbox disk up to

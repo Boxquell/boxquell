@@ -285,6 +285,9 @@ struct ResizeBody {
     disk_gib: Option<u32>,
     /// `default` or an empty text goes back to /workspace.
     workdir: Option<String>,
+    /// Variables to set; an empty value removes the variable.
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
 }
 
 async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<ResizeBody>) -> ApiResult {
@@ -292,6 +295,7 @@ async fn resize(State(daemon): App, Path(name): Path<String>, Json(body): Json<R
         let workdir = Some(workdir.trim().to_string()).filter(|w| !w.is_empty() && w != "default");
         daemon.set_workdir(&name, workdir)?;
     }
+    daemon.set_env(&name, body.env)?;
     Ok(Json(daemon.resize(&name, body.cpus, body.ram_mib, body.disk_gib)?))
 }
 
@@ -398,6 +402,74 @@ async fn set_settings(State(daemon): App, Json(body): Json<crate::daemon::Settin
     Ok(Json(serde_json::to_value(daemon.settings())?))
 }
 
+#[derive(Deserialize)]
+struct AgentConfigBody {
+    instructions: String,
+    mcp: String,
+}
+
+#[derive(Deserialize)]
+struct SkillBody {
+    /// Directory on this computer that holds the skill (with its SKILL.md).
+    path: std::path::PathBuf,
+}
+
+/// The agent configuration for all sandboxes (`None`) or for one.
+fn agent_dir(daemon: &Daemon, sandbox: Option<&str>) -> Result<std::path::PathBuf, ApiError> {
+    if let Some(name) = sandbox {
+        daemon.info(name)?;
+    }
+    Ok(boxquell_core::agentcfg::dir(&daemon.home, sandbox))
+}
+
+fn agent_config(dir: &std::path::Path) -> ApiResult {
+    Ok(Json(serde_json::to_value(boxquell_core::agentcfg::load(dir))?))
+}
+
+async fn global_agent_config(State(daemon): App) -> ApiResult {
+    agent_config(&agent_dir(&daemon, None)?)
+}
+
+async fn set_global_agent_config(State(daemon): App, Json(body): Json<AgentConfigBody>) -> ApiResult {
+    let dir = agent_dir(&daemon, None)?;
+    boxquell_core::agentcfg::save(&dir, &body.instructions, &body.mcp)?;
+    agent_config(&dir)
+}
+
+async fn add_global_skill(State(daemon): App, Json(body): Json<SkillBody>) -> ApiResult {
+    let dir = agent_dir(&daemon, None)?;
+    boxquell_core::agentcfg::add_skill(&dir, &body.path)?;
+    agent_config(&dir)
+}
+
+async fn remove_global_skill(State(daemon): App, Path(skill): Path<String>) -> ApiResult {
+    let dir = agent_dir(&daemon, None)?;
+    boxquell_core::agentcfg::remove_skill(&dir, &skill)?;
+    agent_config(&dir)
+}
+
+async fn sandbox_agent_config(State(daemon): App, Path(name): Path<String>) -> ApiResult {
+    agent_config(&agent_dir(&daemon, Some(&name))?)
+}
+
+async fn set_sandbox_agent_config(State(daemon): App, Path(name): Path<String>, Json(body): Json<AgentConfigBody>) -> ApiResult {
+    let dir = agent_dir(&daemon, Some(&name))?;
+    boxquell_core::agentcfg::save(&dir, &body.instructions, &body.mcp)?;
+    agent_config(&dir)
+}
+
+async fn add_sandbox_skill(State(daemon): App, Path(name): Path<String>, Json(body): Json<SkillBody>) -> ApiResult {
+    let dir = agent_dir(&daemon, Some(&name))?;
+    boxquell_core::agentcfg::add_skill(&dir, &body.path)?;
+    agent_config(&dir)
+}
+
+async fn remove_sandbox_skill(State(daemon): App, Path((name, skill)): Path<(String, String)>) -> ApiResult {
+    let dir = agent_dir(&daemon, Some(&name))?;
+    boxquell_core::agentcfg::remove_skill(&dir, &skill)?;
+    agent_config(&dir)
+}
+
 async fn stats(State(daemon): App) -> ApiResult {
     Ok(Json(daemon.stats()))
 }
@@ -428,6 +500,12 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/ports", post(add_port))
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
         .route("/api/stats", get(stats))
+        .route("/api/agent-config", get(global_agent_config).put(set_global_agent_config))
+        .route("/api/agent-config/skills", post(add_global_skill))
+        .route("/api/agent-config/skills/{skill}", delete(remove_global_skill))
+        .route("/api/sandboxes/{name}/agent-config", get(sandbox_agent_config).put(set_sandbox_agent_config))
+        .route("/api/sandboxes/{name}/agent-config/skills", post(add_sandbox_skill))
+        .route("/api/sandboxes/{name}/agent-config/skills/{skill}", delete(remove_sandbox_skill))
         .route("/api/lockdown", get(lockdown).post(set_lockdown))
         .route("/api/settings", get(settings).put(set_settings))
         .route("/api/addresses", get(addresses))

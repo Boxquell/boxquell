@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { API_LEVEL, api, token, type Recipe, type Sandbox, type Secret, type Settings } from "./api";
 import { Preferences } from "./Preferences";
 import { Toasts } from "./Toasts";
+import { AgentSettings } from "./AgentSettings";
 import { NewSandbox } from "./NewSandbox";
 import { Overview } from "./Overview";
 import { GlobalRules, SandboxView, type Tab } from "./SandboxView";
@@ -294,6 +295,7 @@ export function App() {
                 }}
               />
             )}
+            {settingsTab === "agents" && <AgentSettings sandbox={null} act={act} />}
             {settingsTab === "plugins" && <Plugins onChange={() => api.recipes().then(setRecipes, () => {})} />}
             {settingsTab === "secrets" && <Secrets secrets={secrets} act={act} />}
             {settingsTab === "network" && <GlobalRules act={act} />}
@@ -355,9 +357,10 @@ export function App() {
 }
 
 type Page = "overview" | "terminals" | "settings" | "new" | "sandbox";
-type SettingsTab = "general" | "plugins" | "secrets" | "network";
+type SettingsTab = "general" | "agents" | "plugins" | "secrets" | "network";
 const SETTINGS_TABS: [SettingsTab, string][] = [
   ["general", "General"],
+  ["agents", "Agents"],
   ["plugins", "Plugins"],
   ["secrets", "Secrets"],
   ["network", "Network"],

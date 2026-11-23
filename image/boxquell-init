@@ -64,6 +64,9 @@ if [ -f /run/boxquell/mounts ]; then
   done < /run/boxquell/mounts
 fi
 
+# Agent configuration from the host, installed as the user the agents run as.
+[ -x /usr/local/sbin/boxquell-agent-config ] && runuser -l dev -c /usr/local/sbin/boxquell-agent-config >/dev/null 2>&1
+
 # Services that installed software wants running, e.g. a container daemon:
 # every executable file in /etc/boxquell/boot.d is started in the background.
 for service in /etc/boxquell/boot.d/*; do
