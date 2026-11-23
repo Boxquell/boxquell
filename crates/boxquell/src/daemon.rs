@@ -221,6 +221,8 @@ pub struct Daemon {
     /// `<sandbox>/<secret>`, and what went wrong the last time, if anything.
     helper_runs: Mutex<HashMap<String, (std::time::Instant, Option<String>)>>,
     handled_lock: Mutex<()>,
+    /// Recent load of this computer itself, oldest first: (CPU percent, memory used and total in MiB, disk used and total in GiB).
+    host_load: Mutex<std::collections::VecDeque<[f64; 5]>>,
     /// What the last look for a newer release found.
     pub release: Mutex<Option<Value>>,
     jobs: Mutex<HashMap<String, Job>>,
@@ -308,6 +310,7 @@ impl Daemon {
             running: Mutex::new(HashMap::new()),
             helper_runs: Mutex::default(),
             handled_lock: Mutex::default(),
+            host_load: Mutex::default(),
             release: Mutex::default(),
             jobs: Mutex::new(HashMap::new()),
             os_jobs: Mutex::new(HashMap::new()),
@@ -847,6 +850,61 @@ impl Daemon {
         if changed {
             let _ = self.refresh_secrets();
         }
+    }
+
+    /// Measure this computer's own load every few seconds, for the overview:
+    /// how busy it is besides, and because of, the sandboxes.
+    pub async fn sample_host(self: Arc<Self>) {
+        // Without a way to measure on this system there is nothing to show.
+        let Ok(mut system) = sysinfo::System::new() else { return };
+        let home = std::fs::canonicalize(self.home.root()).unwrap_or_else(|_| self.home.root().to_path_buf());
+        let mut disk = [0.0, 0.0];
+        let mut round = 0u64;
+        loop {
+            system.refresh_cpu_usage();
+            system.refresh_memory();
+            // The disk that holds the sandboxes; it changes slowly, so look once a minute.
+            if round.is_multiple_of(30) {
+                if let Ok(disks) = sysinfo::Disks::new_with_refreshed_list() {
+                    if let Some(found) = disks.iter().filter(|d| home.starts_with(d.mount_point())).max_by_key(|d| d.mount_point().as_os_str().len())
+                    {
+                        const GIB: f64 = (1u64 << 30) as f64;
+                        disk = [(found.total_space() - found.available_space()) as f64 / GIB, found.total_space() as f64 / GIB];
+                    }
+                }
+            }
+            round += 1;
+            const MIB: f64 = (1u64 << 20) as f64;
+            // The first reading has nothing to compare with and says nothing.
+            if round > 1 {
+                let mut load = self.host_load.lock().unwrap();
+                load.push_back([
+                    system.global_cpu_usage() as f64,
+                    system.used_memory() as f64 / MIB,
+                    system.total_memory() as f64 / MIB,
+                    disk[0],
+                    disk[1],
+                ]);
+                while load.len() > SAMPLES_KEPT {
+                    load.pop_front();
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(SAMPLE_EVERY)).await;
+        }
+    }
+
+    /// This computer's recent load, in the shape of a sandbox's measurements.
+    pub fn host_stats(&self) -> Value {
+        let samples: Vec<Value> = self
+            .host_load
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|[cpu, used, total, disk_used, disk_total]| {
+                json!({ "cpu": cpu, "mem_used_mib": used.round(), "mem_total_mib": total.round(), "disk_used_gib": disk_used, "disk_total_gib": disk_total, "rx_rate": 0, "tx_rate": 0 })
+            })
+            .collect();
+        json!({ "cpus": std::thread::available_parallelism().map_or(1, |n| n.get()), "samples": samples })
     }
 
     /// Keep the keys of running sandboxes fresh for as long as the daemon lives.
@@ -1581,9 +1639,11 @@ pub async fn serve(home: Home) -> Result<()> {
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
     let upkeep = tokio::spawn(daemon.clone().keep_current());
     let helpers = tokio::spawn(daemon.clone().keep_helpers());
+    let host = tokio::spawn(daemon.clone().sample_host());
     shutdown.await;
     upkeep.abort();
     helpers.abort();
+    host.abort();
     daemon.stop_all().await;
     let _ = std::fs::remove_file(&path);
     server.abort();

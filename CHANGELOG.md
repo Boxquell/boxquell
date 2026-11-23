@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- The overview shows the load of this computer itself: CPU, memory and the disk that holds the sandboxes.
 - What installed software and the system's package manager need is open by itself, shown under Network and to be switched off per destination; before an install, a sheet lists what comes along and which destinations it opens.
 - A Block button for allowed connections in the network log.
 - The software catalogue in the interface follows changes to the repositories without a reload.

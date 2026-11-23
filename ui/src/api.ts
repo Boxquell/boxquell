@@ -303,6 +303,8 @@ export const api = {
   buildSystem: (id: string) => call<unknown>("POST", `/api/os/${encodeURIComponent(id)}/build`, {}),
   systems: () => call<System[]>("GET", "/api/os"),
   stats: () => call<Stats>("GET", "/api/stats"),
+  /** The load of this computer itself, shaped like a sandbox's measurements. */
+  hostStats: () => call<{ cpus: number; samples: Sample[] }>("GET", "/api/host-load"),
   lockdown: () => call<{ on: boolean }>("GET", "/api/lockdown"),
   setLockdown: (on: boolean) => call<{ on: boolean }>("POST", "/api/lockdown", { on }),
   sshKeys: (sandbox: string | null) => call<SshKeyChoice>("GET", sandbox ? `${box(sandbox)}/ssh-keys` : "/api/ssh-keys"),

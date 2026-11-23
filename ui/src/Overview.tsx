@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Cpu } from "lucide-react";
 import { api, type Sandbox, type Sample, type Stats } from "./api";
 
 function bytes(n: number): string {
@@ -96,6 +97,41 @@ export function useStats(): Stats {
   return stats;
 }
 
+/** How busy this computer itself is, sandboxes included. */
+function HostLoad() {
+  const [host, setHost] = useState<{ cpus: number; samples: Sample[] } | null>(null);
+  useEffect(() => {
+    const load = () => api.hostStats().then(setHost, () => {});
+    load();
+    const timer = setInterval(load, 2000);
+    return () => clearInterval(timer);
+  }, []);
+  // An older daemon does not know this question; then there is nothing to show.
+  const now = host?.samples?.at(-1);
+  if (!host || !now) return null;
+  return (
+    <section className="vm">
+      <div className="vm-head">
+        <Cpu size={16} aria-hidden />
+        <strong className="grow">This computer</strong>
+        <span className="muted">everything running on it, sandboxes included</span>
+      </div>
+      <div className="vm-body">
+        <Tile label="CPU" value={`${Math.round(now.cpu)} %`} note={`of ${host.cpus} CPUs`}>
+          <Sparkline samples={host.samples} value={(x) => x.cpu} max={100} label={(x) => `${Math.round(x.cpu)} %`} />
+        </Tile>
+        <Tile label="Memory" value={`${(now.mem_used_mib / 1024).toFixed(1)} GiB`} note={`of ${(now.mem_total_mib / 1024).toFixed(1)} GiB in use`}>
+          <Sparkline samples={host.samples} value={(x) => x.mem_used_mib} max={now.mem_total_mib} label={(x) => `${(x.mem_used_mib / 1024).toFixed(1)} GiB`} />
+        </Tile>
+        <div className="tile meters">
+          <Meter label="Memory" used={now.mem_used_mib} total={now.mem_total_mib} figure={`${Math.round((100 * now.mem_used_mib) / Math.max(1, now.mem_total_mib))} %`} />
+          <Meter label="Disk" used={now.disk_used_gib} total={now.disk_total_gib} figure={`${now.disk_used_gib.toFixed(0)} / ${now.disk_total_gib.toFixed(0)} GiB`} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export { Tile };
 
 export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
@@ -123,6 +159,7 @@ export function Overview(props: { sandboxes: Sandbox[]; open: (name: string) => 
         <Tile label="Network traffic now" value={`${bytes(traffic)}/s`} note="all sandboxes, both directions" />
       </div>
 
+      <HostLoad />
       {running.map((s) => {
         const samples = stats[s.name]?.samples ?? [];
         return (

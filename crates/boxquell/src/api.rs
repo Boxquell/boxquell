@@ -332,6 +332,10 @@ async fn mark_handled(State(daemon): App, Json(body): Json<HandledBody>) -> ApiR
     Ok(Json(serde_json::to_value(daemon.mark_handled(body.items.into_iter().map(|item| (item.key, item.until)).collect())?)?))
 }
 
+async fn host_stats(State(daemon): App) -> ApiResult {
+    Ok(Json(daemon.host_stats()))
+}
+
 /// Whether this computer has managed Claude Code settings to take over.
 async fn host_claude_settings() -> ApiResult {
     Ok(Json(json!({ "path": boxquell_core::claude::host_managed_settings(), "present": boxquell_core::claude::host_managed_text().is_ok() })))
@@ -785,6 +789,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/about", get(about))
         .route("/api/notices", get(notices))
         .route("/api/claude-settings/host", get(host_claude_settings))
+        .route("/api/host-load", get(host_stats))
         .route("/api/notifications/handled", get(handled_notifications).post(mark_handled))
         .route("/api/update-check", get(update_check))
         .route("/api/update-status", get(update_status))
