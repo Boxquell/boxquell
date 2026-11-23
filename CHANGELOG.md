@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- Actions: a recipe can offer commands of its software as buttons on the Config tab, with fields for the values they need, for example the Jira CLI's first setup (`[[action]]`).
 - MCP: a Settings › MCP page that connects Claude Code with one button and has the lines to copy for other assistants, switches for what assistants may do (also `boxquell config mcp-…`), and new tools for tasks, snapshots and review mode.
 - Keys in HTTP Basic sign-in (user name plus token, as Jira and Bitbucket use it) are put in on the way out like keys in other headers.
 - Speed limits per sandbox for sending and receiving (`boxquell set box --download-speed 2000`, in kbit per second, and under Network); they apply at once, also to open connections.
@@ -43,6 +44,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - Software that is installed already is greyed out in the catalogue.
 
 ### Fixed
+- The Config tab showed the names of secrets instead of the labels, help texts and links their recipes give.
 - Notifications that were dismissed or allowed no longer come back when the interface is opened again.
 - Environment variables of a recipe (`[env]`) were not set in login shells on Debian.
 

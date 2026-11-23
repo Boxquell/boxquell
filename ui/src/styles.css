@@ -585,3 +585,12 @@ section.notice { flex-direction: row; text-align: left; }
 .snippet-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; font-size: 13px; }
 .snippet pre { margin: 0; padding: 8px 12px 12px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; background: none; }
 .snippet .link { display: inline-flex; align-items: center; gap: 5px; }
+
+/* An action of installed software: its button, the values it asks for, and what it printed. */
+.action { border-bottom: 0.5px solid var(--line); padding-bottom: 8px; }
+.action .setting.field { border-bottom: 0; }
+.action-inputs { margin: 0 0 8px; }
+.action-output { margin: 0 0 6px; max-height: 240px; overflow: auto; background: var(--fill); border-radius: var(--radius-control); padding: 10px 12px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.action-output.failed { box-shadow: inset 3px 0 0 var(--bad); }
+
+.action-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 12px; }

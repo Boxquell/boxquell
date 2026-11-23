@@ -63,6 +63,30 @@ env = ["GITLAB_TOKEN"]                 # variables that hold the placeholder in 
 
 The names `anthropic`, `claude-oauth`, `openai`, `openrouter` and `github` are built in; for them `hosts` and `env` can be left out. A credential works where the software sends the variable's value in a request header to those hosts.
 
+### Actions
+
+A command of the installed software can be offered as a button on the Config tab, for example a first setup:
+
+```toml
+[[action]]
+label = "Set up Jira"
+help = "Writes the Jira CLI's configuration: your site, your account and a default project."
+command = "jira init --installation cloud --server {server} --login {login} --project {project} --force"
+# terminal = true                      # for a command that asks questions: it opens in a terminal
+
+[[action.input]]
+name = "server"                        # {server} in the command
+label = "Site"
+placeholder = "https://example.atlassian.net"
+
+[[action.input]]
+name = "project"
+label = "Default project key"
+default = "ABC"                        # used when the field is left empty; without a default the field must be filled in
+```
+
+The command runs in a login shell in the project root, with the sandbox's variables. Each `{name}` is replaced by the field's value, quoted for the shell. Without `terminal`, the command must finish on its own within three minutes; what it prints is shown under the button.
+
 ### Settings
 
 Software that is configured through environment variables can describe them, and the sandbox's **Config** tab shows a field for each:

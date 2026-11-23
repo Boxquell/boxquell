@@ -154,7 +154,7 @@ export function SandboxView(props: ViewProps) {
       {tab === "software" && <Software {...props} />}
       {tab === "tasks" && <Tasks sandbox={sandbox} recipes={recipes} act={act} openSoftware={() => setTab("software")} openSettings={() => setTab("settings")} />}
       {tab === "review" && <Review sandbox={sandbox} act={act} />}
-      {tab === "config" && <Config sandbox={sandbox} recipes={recipes} secrets={props.secrets} act={act} openSoftware={() => setTab("software")} />}
+      {tab === "config" && <Config sandbox={sandbox} recipes={recipes} secrets={props.secrets} act={act} openSoftware={() => setTab("software")} openTerminal={openTerminal} />}
       {tab === "agent" && <AgentSettings sandbox={sandbox.name} act={act} />}
       {tab === "network" && (
         <>

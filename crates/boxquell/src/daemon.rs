@@ -1543,6 +1543,39 @@ impl Daemon {
         Ok(json!({ "done": done, "project": project, "changes": crate::review::changes(&project, &work, &base) }))
     }
 
+    /// Run an action of an installed recipe in the sandbox and return what it
+    /// printed. Actions that need a terminal are opened by the interface instead.
+    pub async fn run_action(
+        self: &Arc<Self>,
+        name: &str,
+        recipe: &str,
+        index: usize,
+        values: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Value> {
+        let spec = self.spec(name)?;
+        let catalog = boxquell_core::recipe::Catalog::of(&self.home)?;
+        let recipe = catalog.find(recipe)?;
+        ensure!(spec.recipes.iter().any(|entry| entry.split('@').next() == Some(recipe.id.as_str())), "{} is not installed in {name}", recipe.name);
+        let action = recipe.actions.get(index).with_context(|| format!("{} has no such action", recipe.name))?;
+        let command = action.command_with(values)?;
+        let info = self.start(name).await?;
+        let port = info["ssh_port"].as_u64().context("the sandbox has no ssh port")? as u16;
+        let run = tokio::process::Command::new("ssh")
+            .args(ssh::base_args(&self.home.sandbox(name).join("id_ed25519"), port))
+            .arg(format!("bash -lc {}", shell_quote(&format!("{command} 2>&1"))))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .output();
+        let output = tokio::time::timeout(Duration::from_secs(180), run)
+            .await
+            .context("it did not finish within three minutes; a command that asks questions needs a terminal")??;
+        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+        Ok(json!({ "ok": output.status.success(), "output": text.trim_end() }))
+    }
+
     fn templates_dir(&self) -> PathBuf {
         self.home.root().join("templates")
     }

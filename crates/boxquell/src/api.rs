@@ -565,6 +565,19 @@ async fn mcp_connect(Json(body): Json<McpConnect>) -> ApiResult {
     mcp_info().await
 }
 
+#[derive(Deserialize)]
+struct ActionBody {
+    recipe: String,
+    /// Which of the recipe's actions, counted from 0.
+    action: usize,
+    #[serde(default)]
+    values: std::collections::BTreeMap<String, String>,
+}
+
+async fn run_action(State(daemon): App, Path(name): Path<String>, Json(body): Json<ActionBody>) -> ApiResult {
+    Ok(Json(daemon.run_action(&name, &body.recipe, body.action, &body.values).await?))
+}
+
 async fn handled_notifications(State(daemon): App) -> ApiResult {
     Ok(Json(serde_json::to_value(daemon.handled_notifications())?))
 }
@@ -1079,6 +1092,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/snapshots/{id}", post(restore_snapshot).delete(delete_snapshot))
         .route("/api/sandboxes/{name}/template", post(save_template))
         .route("/api/templates", get(templates))
+        .route("/api/sandboxes/{name}/actions", post(run_action))
         .route("/api/mcp", get(mcp_info).post(mcp_connect))
         .route("/api/sandboxes/{name}/review", get(review_changes).put(set_review).post(review_settle))
         .route("/api/sandboxes/{name}/review/diff", get(review_diff))

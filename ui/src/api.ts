@@ -207,7 +207,19 @@ export interface Credential {
   env?: string[];
 }
 
+/** A command of installed software that the Config tab offers as a button. */
+export interface RecipeAction {
+  label: string;
+  help?: string;
+  command: string;
+  /** It asks questions, so it runs in a terminal */
+  terminal?: boolean;
+  inputs?: { name: string; label: string; help?: string; placeholder?: string; default?: string | null }[];
+}
+
 export interface Recipe {
+  /** Things to do with the software from the Config tab */
+  actions?: RecipeAction[];
   /** What the secrets named in `secrets` are */
   credentials?: Credential[];
   /** Settings shown on a sandbox's Config tab */
@@ -506,6 +518,9 @@ export const api = {
   restoreSnapshot: (name: string, id: string) => call<Sandbox>("POST", `${box(name)}/snapshots/${encodeURIComponent(id)}`, {}),
   deleteSnapshot: (name: string, id: string) => call<Sandbox>("DELETE", `${box(name)}/snapshots/${encodeURIComponent(id)}`),
   templates: () => call<Template[]>("GET", "/api/templates"),
+  /** Run an action of an installed recipe in the sandbox and get what it printed. */
+  runAction: (name: string, recipe: string, action: number, values: Record<string, string>) =>
+    call<{ ok: boolean; output: string }>("POST", `${box(name)}/actions`, { recipe, action, values }),
   /** Where the Boxquell program is, and whether Claude Code is here and connected. */
   mcp: () => call<{ exe: string | null; claude: boolean; claude_connected: boolean }>("GET", "/api/mcp"),
   connectMcp: (connect: boolean) => call<{ exe: string | null; claude: boolean; claude_connected: boolean }>("POST", "/api/mcp", { connect }),

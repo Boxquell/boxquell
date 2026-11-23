@@ -73,8 +73,13 @@ pub struct Recipe {
     /// What the secrets named in `secrets` are: where each may be sent and
     /// which variable holds its placeholder. With this, the Config tab can
     /// take the value and nothing else has to be known. Written as `[[credential]]`.
-    #[serde(default, rename = "credential")]
+    #[serde(default, rename(deserialize = "credential"))]
     pub credentials: Vec<Credential>,
+    /// Things to do with the installed software from the Config tab, such as
+    /// a first setup: a button each, with fields where the command needs
+    /// values. Written as `[[action]]`.
+    #[serde(default, rename(deserialize = "action"))]
+    pub actions: Vec<Action>,
     /// Settings of the software that are environment variables. The UI shows
     /// a field for each on the sandbox's Config tab.
     #[serde(default)]
@@ -116,6 +121,56 @@ pub struct Credential {
     /// Variables that hold its placeholder in the sandbox.
     #[serde(default)]
     pub env: Vec<String>,
+}
+
+/// A command of the installed software that the Config tab offers as a button.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Action {
+    /// What the button says, e.g. `Set up Jira`.
+    pub label: String,
+    /// One or two sentences on what it does.
+    #[serde(default)]
+    pub help: String,
+    /// The command, run in a login shell in the project root. `{name}` stands
+    /// for the value of the input of that name, quoted for the shell.
+    pub command: String,
+    /// Open the command in a terminal, because it asks questions.
+    #[serde(default)]
+    pub terminal: bool,
+    /// Values to ask for first. Written as `[[action.input]]`.
+    #[serde(default, rename(deserialize = "input"))]
+    pub inputs: Vec<ActionInput>,
+}
+
+/// One value an action asks for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionInput {
+    pub name: String,
+    pub label: String,
+    #[serde(default)]
+    pub help: String,
+    #[serde(default)]
+    pub placeholder: String,
+    /// Used when the field is left empty; without it the field must be filled in.
+    #[serde(default)]
+    pub default: Option<String>,
+}
+
+impl Action {
+    /// The command with the values put in, each quoted for the shell.
+    pub fn command_with(&self, values: &BTreeMap<String, String>) -> Result<String> {
+        let mut command = self.command.clone();
+        for input in &self.inputs {
+            let given = values.get(&input.name).map(|value| value.trim()).filter(|value| !value.is_empty());
+            let value = match (given, &input.default) {
+                (Some(value), _) => value.to_string(),
+                (None, Some(default)) => default.clone(),
+                (None, None) => bail!("{} is missing", input.label),
+            };
+            command = command.replace(&format!("{{{}}}", input.name), &crate::drive::shell_quote(&value));
+        }
+        Ok(command)
+    }
 }
 
 /// One setting of a piece of software, kept as an environment variable of the sandbox.

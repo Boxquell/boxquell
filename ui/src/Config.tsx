@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { api, type ConfigOption, type Credential, type Recipe, type Sandbox, type Secret } from "./api";
+import { api, type ConfigOption, type Credential, type Recipe, type RecipeAction, type Sandbox, type Secret } from "./api";
 import { BrandIcon, brandColors } from "./BrandIcon";
 import { recipeName } from "./RecipeCards";
 
@@ -14,11 +14,18 @@ function optionsOf(recipe: Recipe): ConfigOption[] {
 }
 
 /** Settings of the installed software, each one an environment variable of the sandbox, and the variables set by hand. */
-export function Config(props: { sandbox: Sandbox; recipes: Recipe[]; secrets: Secret[]; act: Act; openSoftware: () => void }) {
+export function Config(props: {
+  sandbox: Sandbox;
+  recipes: Recipe[];
+  secrets: Secret[];
+  act: Act;
+  openSoftware: () => void;
+  openTerminal: (sandbox: string, title: string, command?: string) => void;
+}) {
   const { sandbox, recipes, act } = props;
   const env = sandbox.env ?? {};
   const installed = sandbox.recipes.map((id) => recipes.find((r) => r.id === recipeName(id))).filter((r): r is Recipe => !!r);
-  const configurable = installed.filter((recipe) => optionsOf(recipe).length > 0 || recipe.secrets.length > 0);
+  const configurable = installed.filter((recipe) => optionsOf(recipe).length > 0 || recipe.secrets.length > 0 || (recipe.actions?.length ?? 0) > 0);
   const known = new Set(configurable.flatMap((recipe) => optionsOf(recipe).map((option) => option.env)));
   const others = Object.entries(env).filter(([key]) => !known.has(key));
   const save = (key: string, value: string) => act(() => api.resize(sandbox.name, { env: { [key]: value } }));
@@ -58,6 +65,9 @@ export function Config(props: { sandbox: Sandbox; recipes: Recipe[]; secrets: Se
               ))}
             </div>
           )}
+          {(recipe.actions ?? []).map((action, index) => (
+            <ActionRow key={action.label} sandbox={sandbox.name} recipe={recipe.id} index={index} action={action} openTerminal={props.openTerminal} />
+          ))}
           {optionsOf(recipe).map((option) => (
             <Field key={option.env} option={option} value={env[option.env] ?? ""} save={(value) => save(option.env, value)} />
           ))}
@@ -149,6 +159,79 @@ function CredentialField(props: { sandbox: Sandbox; credential: Credential; shar
         )}
       </span>
       {about}
+    </form>
+  );
+}
+
+/** Quote a value for the shell, as the daemon does for commands it runs itself. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** A command of the software as a button, with fields for the values it needs and its output below. */
+function ActionRow(props: { sandbox: string; recipe: string; index: number; action: RecipeAction; openTerminal: (sandbox: string, title: string, command?: string) => void }) {
+  const { action } = props;
+  const inputs = action.inputs ?? [];
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; output: string } | null>(null);
+  const run = () => {
+    if (action.terminal) {
+      // Questions are answered in a terminal; the values typed here are put in first.
+      const command = inputs.reduce((text, input) => text.replaceAll(`{${input.name}}`, shellQuote(values[input.name]?.trim() || input.default || "")), action.command);
+      props.openTerminal(props.sandbox, action.label, command);
+      return;
+    }
+    setBusy(true);
+    setResult(null);
+    api
+      .runAction(props.sandbox, props.recipe, props.index, values)
+      .then(setResult, (err) => setResult({ ok: false, output: String(err.message ?? err) }))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <form
+      className="action"
+      onSubmit={(event) => {
+        event.preventDefault();
+        run();
+      }}
+    >
+      <div className="setting field">
+        <span className="row tight">
+          <button className="primary" disabled={busy}>
+            {busy ? "Working…" : action.label}
+          </button>
+        </span>
+        <span>
+          {action.label}
+          <small className="muted block">
+            {action.help} {action.terminal ? "Opens in a terminal." : ""}
+          </small>
+        </span>
+      </div>
+      {inputs.length > 0 && (
+        <div className="row action-inputs">
+          {inputs.map((input) => (
+            <label key={input.name} className="grow">
+              {input.label}
+              <input
+                required={input.default == null}
+                spellCheck={false}
+                placeholder={input.placeholder || input.default || ""}
+                value={values[input.name] ?? ""}
+                onChange={(e) => setValues((all) => ({ ...all, [input.name]: e.target.value }))}
+                title={input.help}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      {result && (
+        <pre className={`action-output ${result.ok ? "" : "failed"}`} role="status">
+          {result.output || (result.ok ? "Done." : "It ended with an error and printed nothing.")}
+        </pre>
+      )}
     </form>
   );
 }
