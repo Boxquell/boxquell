@@ -2,17 +2,76 @@ import { Bug, ExternalLink, Lightbulb, RefreshCw, ShieldAlert } from "lucide-rea
 import { useEffect, useState } from "react";
 import { api, type AboutInfo, type UpdateInfo } from "./api";
 
-/** Shows text the way it is written, with headings and lists of a changelog made readable. */
-function Changelog(props: { text: string }) {
+interface Release {
+  version: string;
+  date: string | null;
+  intro: string[];
+  groups: { title: string; items: string[] }[];
+}
+
+/** Read a changelog in the "Keep a Changelog" form into releases, groups and entries. */
+function parseChangelog(text: string): Release[] {
+  const releases: Release[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const release = releases[releases.length - 1];
+    if (line.startsWith("## ")) {
+      const [version, date] = line.slice(3).split(" - ");
+      releases.push({ version: version.replace(/[[\]]/g, "").trim(), date: date?.trim() ?? null, intro: [], groups: [] });
+    } else if (!release || !line) {
+      continue;
+    } else if (line.startsWith("### ")) {
+      release.groups.push({ title: line.slice(4), items: [] });
+    } else if (line.startsWith("- ")) {
+      if (release.groups.length === 0) release.groups.push({ title: "", items: [] });
+      release.groups[release.groups.length - 1].items.push(line.slice(2));
+    } else {
+      release.intro.push(line);
+    }
+  }
+  // An empty "Unreleased" heading says nothing.
+  return releases.filter((release) => release.intro.length > 0 || release.groups.some((group) => group.items.length > 0));
+}
+
+/** Inline code in changelog text. */
+function Inline(props: { text: string }) {
+  const parts = props.text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").split("`");
+  return <>{parts.map((part, index) => (index % 2 === 1 ? <code key={index}>{part}</code> : part))}</>;
+}
+
+function Changelog(props: { text: string; current?: string }) {
+  const releases = parseChangelog(props.text);
+  if (releases.length === 0) return <p className="muted">No changes are recorded yet.</p>;
   return (
-    <div className="prose">
-      {props.text.split("\n").map((line, index) => {
-        if (line.startsWith("### ")) return <h4 key={index}>{line.slice(4)}</h4>;
-        if (line.startsWith("## ")) return <h3 key={index}>{line.slice(3)}</h3>;
-        if (line.startsWith("# ")) return null;
-        if (line.startsWith("- ")) return <li key={index}>{line.slice(2)}</li>;
-        return line.trim() ? <p key={index}>{line.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")}</p> : null;
-      })}
+    <div className="changelog">
+      {releases.map((release, index) => (
+        <details key={release.version} open={index === 0} className="release">
+          <summary>
+            <strong>{release.version === "Unreleased" ? "Coming next" : `Version ${release.version}`}</strong>
+            {release.version === props.current && <span className="chip on">installed</span>}
+            {release.date && <span className="muted">{new Date(release.date).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</span>}
+          </summary>
+          {release.intro.map((line) => (
+            <p key={line}>
+              <Inline text={line} />
+            </p>
+          ))}
+          <div className="release-groups">
+            {release.groups.map((group) => (
+              <div key={group.title}>
+                {group.title && <h4>{group.title}</h4>}
+                <ul>
+                  {group.items.map((item) => (
+                    <li key={item}>
+                      <Inline text={item} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
     </div>
   );
 }
@@ -94,7 +153,7 @@ export function About() {
 
       <section>
         <h3>What is new</h3>
-        {about ? <Changelog text={about.changelog} /> : <p className="muted">Loading…</p>}
+        {about ? <Changelog text={about.changelog} current={about.version} /> : <p className="muted">Loading…</p>}
       </section>
 
       <section>

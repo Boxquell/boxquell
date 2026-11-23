@@ -1,8 +1,9 @@
 name: Release
 
-# Builds, signs and publishes the binaries for a version tag.
-# Signing is set up in the `release` environment (docs/release-signing.md). A
-# platform whose secrets are missing is built unsigned, with a warning.
+# A version tag builds, signs and drafts a release; a maintainer publishes it.
+# The process is described in RELEASING.md. Signing is set up in the `release`
+# environment (docs/release-signing.md); a platform whose secrets are missing
+# is built unsigned, with a warning.
 
 on:
   push:
@@ -12,8 +13,29 @@ permissions:
   contents: read
 
 jobs:
+  guard:
+    name: Check tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: tag
+        run: |
+          version=$(scripts/release-tag.sh "$GITHUB_REF_NAME")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case $version in *-rc.*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+          # The version must be writable everywhere before anything is built.
+          scripts/set-version.sh "$version"
+          # A release needs something to say.
+          test -n "$(scripts/changelog-section.sh "$version" | tr -d '[:space:]')" || { echo "::error::CHANGELOG.md has no entries for $version or Unreleased"; exit 1; }
+
   build:
     name: ${{ matrix.target }}
+    needs: guard
     runs-on: ${{ matrix.os }}
     environment: release
     strategy:
@@ -31,6 +53,10 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: ui/package-lock.json
+      # The tag decides the version; the repository is synced afterwards (post-release.yml).
+      - name: Set the version
+        shell: bash
+        run: scripts/set-version.sh "${{ needs.guard.outputs.version }}"
       - name: Build the web UI
         working-directory: ui
         run: |
@@ -42,7 +68,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }} -p boxquell
+        run: cargo build --release --target ${{ matrix.target }} -p boxquell
 
       # ---- macOS: Developer ID signature with the hardened runtime, then notarization ----
       - name: Sign and notarize (macOS)
@@ -179,27 +205,58 @@ jobs:
             boxquell-*.zip
           if-no-files-found: error
 
-  publish:
-    name: Publish release
-    needs: build
+  release:
+    name: Draft release
+    needs: [guard, build]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
+          path: dist
           merge-multiple: true
       - name: Checksums
-        run: sha256sum boxquell-* > SHA256SUMS
+        run: |
+          cp scripts/install.sh scripts/install.ps1 dist/
+          cd dist
+          sha256sum boxquell-* install.sh install.ps1 > SHA256SUMS
+          cat SHA256SUMS
       # A signed statement that these files were built by this workflow from this commit.
       - uses: actions/attest-build-provenance@v4
         with:
-          subject-path: "boxquell-*"
-      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
-        with:
-          files: |
-            boxquell-*
-            SHA256SUMS
-          generate_release_notes: true
+          subject-path: dist/SHA256SUMS
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          {
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.sh | sh"
+            echo "# or: brew install boxquell/tap/boxquell"
+            echo "# Windows (PowerShell): irm https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.ps1 | iex"
+            echo '```'
+            echo
+            echo "Check a download with \`SHA256SUMS\`, and where it was built with \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`."
+            echo
+            echo "## What's new"
+            echo
+            scripts/changelog-section.sh "$VERSION"
+          } > notes.md
+          cat notes.md
+      # A draft first: a maintainer looks at the files and publishes.
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          PRERELEASE: ${{ needs.guard.outputs.prerelease }}
+        run: |
+          flags="--draft --verify-tag --notes-file notes.md --title \"Boxquell $VERSION\""
+          if [ "$PRERELEASE" = true ]; then flags="$flags --prerelease --latest=false"; fi
+          eval gh release create "$GITHUB_REF_NAME" dist/boxquell-* dist/install.sh dist/install.ps1 dist/SHA256SUMS $flags

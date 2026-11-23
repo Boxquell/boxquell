@@ -37,7 +37,23 @@ Coding agents such as Claude Code, Codex, opencode or pi run commands on your ma
 
 Boxquell is in early development. It is built and tested on **Linux** (x86_64, KVM). The code is written for macOS and Windows too, and CI builds it there, but nobody has run a sandbox on those systems yet. Expect rough edges and breaking changes.
 
-## Quick start (Linux)
+## Install
+
+```sh
+curl -fsSL https://github.com/Boxquell/boxquell/releases/latest/download/install.sh | sh    # Linux, macOS
+brew install boxquell/tap/boxquell                                                           # Homebrew
+irm https://github.com/Boxquell/boxquell/releases/latest/download/install.ps1 | iex          # Windows (PowerShell)
+```
+
+The scripts download the latest release, check it against the release's checksums and install the `boxquell` command for your user; they tell you what else your computer needs. Then:
+
+```sh
+boxquell doctor
+boxquell os build debian
+boxquell new mybox --workspace .
+```
+
+## Build from source (Linux)
 
 You need KVM, an OpenSSH client, git, Docker (only to build the guest image), Rust and Node.js. For the default backend install [libkrun and libkrunfw](https://github.com/containers/libkrun); the `qemu` backend needs `qemu-system-x86_64` instead.
 

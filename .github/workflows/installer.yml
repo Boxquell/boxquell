@@ -1,0 +1,92 @@
+name: Installer
+
+# The install scripts are what most people run first: check them on every
+# change, against a pretend release served from the runner.
+
+on:
+  push:
+    branches: [main]
+    paths: ["scripts/install.sh", "scripts/install.ps1", ".github/workflows/installer.yml"]
+  pull_request:
+    paths: ["scripts/install.sh", "scripts/install.ps1", ".github/workflows/installer.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    name: install.sh on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint
+        if: runner.os == 'Linux'
+        run: shellcheck -s sh scripts/*.sh
+      - name: Pretend release
+        run: |
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) target=x86_64-unknown-linux-gnu ;;
+            Darwin-arm64) target=aarch64-apple-darwin ;;
+            Darwin-x86_64) target=x86_64-apple-darwin ;;
+          esac
+          mkdir -p release/pack/boxquell-v9.9.9-$target
+          printf '#!/bin/sh\necho "boxquell 9.9.9"\n' > release/pack/boxquell-v9.9.9-$target/boxquell
+          chmod +x release/pack/boxquell-v9.9.9-$target/boxquell
+          tar -czf release/boxquell-v9.9.9-$target.tar.gz -C release/pack .
+          rm -rf release/pack
+          (cd release && shasum -a 256 boxquell-* > SHA256SUMS)
+          (cd release && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 1
+      - name: Install, update, refuse a bad download, uninstall
+        env:
+          BOXQUELL_RELEASE_URL: http://127.0.0.1:8765
+        run: |
+          sh scripts/install.sh --dir "$PWD/bin"
+          test "$("$PWD/bin/boxquell" --version)" = "boxquell 9.9.9"
+          sh scripts/install.sh --dir "$PWD/bin"
+          echo tampered >> release/boxquell-v9.9.9-*.tar.gz
+          if sh scripts/install.sh --dir "$PWD/bin2"; then echo "a tampered download was installed"; exit 1; fi
+          test ! -e "$PWD/bin2/boxquell"
+          sh scripts/install.sh --dir "$PWD/bin" --uninstall
+          test ! -e "$PWD/bin/boxquell"
+
+  windows:
+    name: install.ps1 on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint
+        shell: pwsh
+        run: |
+          $problems = Invoke-ScriptAnalyzer -Path scripts/install.ps1 -Severity Error
+          $problems | Format-Table -AutoSize
+          if ($problems) { exit 1 }
+      - name: Pretend release
+        shell: pwsh
+        run: |
+          $target = 'x86_64-pc-windows-msvc'
+          New-Item -ItemType Directory -Path "release/pack/boxquell-v9.9.9-$target" -Force | Out-Null
+          # A stand-in program that answers --version like the real one.
+          Copy-Item "$env:SystemRoot\System32\where.exe" "release/pack/boxquell-v9.9.9-$target/boxquell.exe"
+          Compress-Archive -Path "release/pack/*" -DestinationPath "release/boxquell-v9.9.9-$target.zip"
+          Remove-Item release/pack -Recurse -Force
+          $hash = (Get-FileHash "release/boxquell-v9.9.9-$target.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  boxquell-v9.9.9-$target.zip" | Set-Content -Encoding ascii release/SHA256SUMS
+          Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', 'release' -WindowStyle Hidden
+          Start-Sleep 2
+      - name: Install, refuse a bad download, uninstall
+        shell: pwsh
+        env:
+          BOXQUELL_RELEASE_URL: http://127.0.0.1:8765
+        run: |
+          ./scripts/install.ps1 -Dir "$PWD\bin"
+          if (-not (Test-Path "$PWD\bin\boxquell.exe")) { throw 'boxquell.exe was not installed' }
+          Add-Content -Path (Get-ChildItem release/*.zip).FullName -Value 'tampered'
+          pwsh -NoProfile -File scripts/install.ps1 -Dir "$PWD\bin2"
+          if ($LASTEXITCODE -eq 0 -or (Test-Path "$PWD\bin2\boxquell.exe")) { throw 'a tampered download was installed' }
+          ./scripts/install.ps1 -Dir "$PWD\bin" -Uninstall
+          if (Test-Path "$PWD\bin\boxquell.exe") { throw 'boxquell.exe was not removed' }

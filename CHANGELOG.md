@@ -2,9 +2,9 @@
 
 All notable changes to Boxquell. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [Unreleased]
 
-## 0.0.1 - 2026-11-23
+## [0.0.1] - 2026-11-23
 
 First public version, for testing. Built and tested on Linux; the macOS and Windows binaries are untested and not signed yet.
 
@@ -34,3 +34,5 @@ First public version, for testing. Built and tested on Linux; the macOS and Wind
 - A notifications page for blocked connections: allow, ignore or dismiss them.
 - Logs, version, update check, changelog and third-party notices inside the interface.
 - Shell completion for bash, zsh, fish and PowerShell.
+
+[0.0.1]: https://github.com/Boxquell/boxquell/releases/tag/v0.0.1
