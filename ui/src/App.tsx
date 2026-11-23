@@ -122,23 +122,24 @@ export function App() {
       <aside>
         <h1 className="brand">
           <img src="/icon.svg" alt="" width="28" height="28" />
-          <span className="grow">Boxquell</span>
-          <button className="fold" title="Hide the sidebar" aria-label="Hide the sidebar" onClick={toggleSidebar}>
-            ‹
+          <span className="grow label">Boxquell</span>
+          <button className="fold" title={collapsed ? "Show the sidebar" : "Fold the sidebar"} aria-label={collapsed ? "Show the sidebar" : "Fold the sidebar"} onClick={toggleSidebar}>
+            {collapsed ? "›" : "‹"}
           </button>
         </h1>
         <nav>
-          <NavItem active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
+          <NavItem icon="◔" active={page === "overview"} title="Overview" note="load and network" onClick={() => go("overview")} />
           <NavItem
+            icon=">_"
             active={page === "terminals"}
             title="Terminals"
             note={sessions.length === 0 ? "none open" : `${sessions.length} open`}
             badge={sessions.length || undefined}
             onClick={() => go("terminals")}
           />
-          <NavItem active={page === "settings"} title="Settings" note="plugins, secrets, network" onClick={() => go("settings")} />
+          <NavItem icon="⚙" active={page === "settings"} title="Settings" note="plugins, secrets, network" onClick={() => go("settings")} />
           <span className="nav-label">
-            Sandboxes
+            <span className="label">Sandboxes</span>
             <button className="add" title="New sandbox" aria-label="New sandbox" onClick={() => go("new")}>
               +
             </button>
@@ -146,9 +147,12 @@ export function App() {
           {sandboxes.map((s) => (
             <Fragment key={s.name}>
             <div className={s.name === current?.name ? "item active" : "item"}>
-              <button className="grow" onClick={() => go("sandbox", s.name)}>
+              <button className="grow" onClick={() => go("sandbox", s.name)} title={s.name}>
                 <span className={s.paused ? "dot paused" : s.running ? "dot on" : "dot"} />
-                <span className="grow">
+                <span className="initials" aria-hidden="true">
+                  {s.name.slice(0, 2)}
+                </span>
+                <span className="grow label">
                   <strong>{s.name}</strong>
                   <small>{s.job?.state === "running" ? "installing…" : s.paused ? "paused" : agentsOf(s, recipes) || (s.running ? "running" : "stopped")}</small>
                 </span>
@@ -178,7 +182,7 @@ export function App() {
                     <span className="prompt" aria-hidden="true">
                       &gt;_
                     </span>
-                    {t.title}
+                    <span className="label">{t.title}</span>
                   </button>
                   <button className="power" title="Close this terminal" aria-label={`Close ${t.title} in ${s.name}`} onClick={() => closeTerminal(t.id)}>
                     ×
@@ -194,15 +198,13 @@ export function App() {
           title="Blocks every connection of every sandbox at once and stops open ones"
           onClick={() => act(() => api.setLockdown(!lockdown))}
         >
-          {lockdown ? "Lift network lockdown" : "Emergency stop"}
+          <span className="glyph" aria-hidden="true">
+            ⏻
+          </span>
+          <span className="label">{lockdown ? "Lift network lockdown" : "Emergency stop"}</span>
         </button>
       </aside>
       <main>
-        {collapsed && (
-          <button className="unfold" title="Show the sidebar" aria-label="Show the sidebar" onClick={toggleSidebar}>
-            ›
-          </button>
-        )}
         {outdated && (
           <div className="warning" role="alert">
             <strong>The running daemon is older than this page.</strong>
@@ -361,11 +363,14 @@ const SETTINGS_TABS: [SettingsTab, string][] = [
   ["network", "Network"],
 ];
 
-function NavItem(props: { active: boolean; title: string; note: string; badge?: number; onClick: () => void }) {
+function NavItem(props: { icon: string; active: boolean; title: string; note: string; badge?: number; onClick: () => void }) {
   return (
     <div className={props.active ? "item active" : "item"}>
-      <button className="grow" onClick={props.onClick}>
-        <span className="grow">
+      <button className="grow" onClick={props.onClick} title={props.title}>
+        <span className="glyph" aria-hidden="true">
+          {props.icon}
+        </span>
+        <span className="grow label">
           <strong>{props.title}</strong>
           <small>{props.note}</small>
         </span>
