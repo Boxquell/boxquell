@@ -7,6 +7,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ### Added
 - The start page shows this computer's swap: as a second line in the memory trend and as a bar of its own.
 - `boxquell doctor` says when libkrun is there but libkrunfw is not.
+- `boxquell daemon --restart` starts the daemon anew, and the install script does so after an update, so the new version is the one that runs. A daemon with running sandboxes is left alone and named; `--force` restarts it anyway, `install.sh --no-restart` never does.
 
 ### Fixed
 - macOS: a sandbox did not start with "Couldn't find or load libkrunfw". The signed program could not see the folder libkrun and its kernel are installed in; it now may.

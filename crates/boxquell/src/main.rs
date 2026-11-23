@@ -388,6 +388,12 @@ enum Cmd {
         /// Stop the running daemon and all sandboxes
         #[arg(long)]
         stop: bool,
+        /// Start the daemon anew, for example after an update. Left alone while sandboxes run, unless --force is given
+        #[arg(long, conflicts_with = "stop")]
+        restart: bool,
+        /// With --restart: also when sandboxes are running; they are stopped
+        #[arg(long, requires = "restart")]
+        force: bool,
     },
     /// Internal: become the VM process
     #[command(hide = true)]
@@ -879,11 +885,45 @@ fn main() -> Result<()> {
     match cli.command {
         Cmd::Completions { .. } => unreachable!("handled above"),
         Cmd::VmRun { .. } => unreachable!("handled above"),
-        Cmd::Daemon { stop: true } => match Client::existing(&home) {
+        Cmd::Daemon { restart: true, force, .. } => {
+            let Some(client) = Client::existing(&home) else {
+                println!("the daemon is not running; the next command starts it");
+                return Ok(());
+            };
+            let running: Vec<String> = client
+                .get("/api/sandboxes")?
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|sandbox| sandbox["running"].as_bool().unwrap_or(false))
+                .filter_map(|sandbox| sandbox["name"].as_str().map(str::to_string))
+                .collect();
+            if !running.is_empty() && !force {
+                println!(
+                    "the daemon keeps running as it is, because {} running: {}. Restart it when they can stop: `boxquell daemon --restart --force`",
+                    if running.len() == 1 { "a sandbox is" } else { "sandboxes are" },
+                    running.join(", ")
+                );
+                return Ok(());
+            }
+            client.post("/api/shutdown", json!({})).map(drop)?;
+            // It answers until everything is stopped and saved.
+            let gone = (0..300).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Client::existing(&home).is_none()
+            });
+            anyhow::ensure!(gone, "the daemon did not stop within a minute; look at `boxquell daemon --stop`");
+            Client::connect(&home)?;
+            println!(
+                "the daemon is restarted{}",
+                if running.is_empty() { String::new() } else { format!("; stopped with it: {}", running.join(", ")) }
+            );
+        }
+        Cmd::Daemon { stop: true, .. } => match Client::existing(&home) {
             Some(client) => client.post("/api/shutdown", json!({})).map(drop)?,
             None => println!("the daemon is not running"),
         },
-        Cmd::Daemon { stop: false } => {
+        Cmd::Daemon { stop: false, .. } => {
             if Client::existing(&home).is_some() {
                 bail!("the boxquell daemon is already running");
             }

@@ -11,6 +11,7 @@
 # Options:
 #   --dir <path>     install the command into this directory instead of ~/.local/bin
 #   --no-desktop     install the command only, without the desktop app
+#   --no-restart     leave a running boxquell daemon as it is (it keeps the old version until restarted)
 #   --deps           install what boxquell needs with the system's package
 #                    manager without asking; --no-deps never does (default: ask)
 #   --uninstall      remove the command and the app again (sandboxes and settings stay)
@@ -25,6 +26,7 @@ release_url=${BOXQUELL_RELEASE_URL:-https://github.com/Boxquell/boxquell/release
 install_dir=${BOXQUELL_INSTALL_DIR:-$HOME/.local/bin}
 uninstall=0
 desktop=1
+restart=1
 deps=ask
 [ -z "${BOXQUELL_NO_DESKTOP:-}" ] || desktop=0
 # Where the desktop app lives on Linux: unpacked, with a menu entry and an icon.
@@ -65,6 +67,7 @@ Install the boxquell command on Linux or macOS.
 Options:
   --dir <path>     install the command into this directory instead of ~/.local/bin
   --no-desktop     install the command only, without the desktop app
+  --no-restart     leave a running boxquell daemon as it is (it keeps the old version until restarted)
   --deps           install what boxquell needs with the system's package
                    manager without asking; --no-deps never does (default: ask)
   --uninstall      remove the command and the app again (sandboxes and settings stay)
@@ -81,6 +84,7 @@ while [ $# -gt 0 ]; do
     --dir) [ $# -ge 2 ] || die "--dir needs a path"; install_dir=$2; shift ;;
     --uninstall) uninstall=1 ;;
     --no-desktop) desktop=0 ;;
+    --no-restart) restart=0 ;;
     --deps) deps=yes ;;
     --no-deps) deps=no ;;
     --help | -h) usage; exit 0 ;;
@@ -187,6 +191,19 @@ if [ -n "$previous" ] && [ "$previous" != "$version" ]; then
   ok "Updated boxquell $previous → ${bold}$version${reset} in $install_dir"
 else
   ok "Installed boxquell ${bold}$version${reset} to $install_dir"
+fi
+
+# A daemon that is running still is the previous version. It is started anew, unless
+# sandboxes are running: those are not stopped behind your back.
+if [ "$restart" = 1 ]; then
+  if answer=$("$install_dir/boxquell" daemon --restart 2>&1); then
+    case $answer in
+      *"is restarted"*) ok "Restarted the boxquell daemon, so it runs the new version" ;;
+      *"keeps running"*) note "$answer" ;;
+    esac
+  else
+    note "The running daemon could not be restarted ($answer). Run ${bold}boxquell daemon --restart${reset} yourself."
+  fi
 fi
 
 # The desktop app, when this release has one for this computer. The command
