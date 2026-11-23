@@ -1,3 +1,6 @@
+import { Search } from "lucide-react";
+import { useState } from "react";
+import { BrandIcon } from "./BrandIcon";
 import type { Recipe } from "./api";
 
 const TITLES: Record<Recipe["category"], [string, string]> = {
@@ -23,10 +26,19 @@ function hue(id: string): number {
  */
 export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; picked: string[]; busy: boolean; onChange: (ids: string[]) => void }) {
   const without = (id: string) => props.picked.filter((p) => recipeName(p) !== id);
+  const [query, setQuery] = useState("");
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (r: Recipe) => words.every((word) => `${r.name} ${r.id} ${r.description} ${r.category}`.toLowerCase().includes(word));
+  const found = props.recipes.filter(matches);
   return (
     <>
+      <label className="search wide">
+        <Search size={15} aria-hidden />
+        <input type="search" placeholder="Search agents, languages and tools…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search the software" />
+      </label>
+      {found.length === 0 && <p className="muted">Nothing matches “{query}”. More software comes from repositories, under Settings › Plugins.</p>}
       {(Object.keys(TITLES) as Recipe["category"][]).map((category) => {
-        const list = props.recipes.filter((r) => r.category === category);
+        const list = found.filter((r) => r.category === category);
         if (list.length === 0) return null;
         const [title, about] = TITLES[category];
         return (
@@ -45,8 +57,8 @@ export function RecipeCards(props: { recipes: Recipe[]; installed: string[]; pic
                 return (
                   <div key={r.id} className={`card ${state}`}>
                     <button type="button" className="card-main" onClick={toggle} aria-pressed={!!picked} disabled={props.busy || (!!installed && !picked)}>
-                      <span className="avatar" style={{ background: `hsl(${hue(r.id)} 55% 42%)` }} aria-hidden="true">
-                        {r.name.replace(/[^A-Za-z0-9+#]/g, "").slice(0, 2)}
+                      <span className={`avatar ${r.icon ? "brand" : ""}`} style={r.icon ? undefined : { background: `hsl(${hue(r.id)} 55% 42%)` }} aria-hidden="true">
+                        <BrandIcon svg={r.icon}>{r.name.replace(/[^A-Za-z0-9+#]/g, "").slice(0, 2)}</BrandIcon>
                       </span>
                       <span className="grow">
                         <strong>{r.name}</strong>

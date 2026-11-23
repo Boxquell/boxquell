@@ -679,7 +679,7 @@ async fn systems(State(daemon): App) -> ApiResult {
     // The setup scripts are long and of no use to a listing.
     let list: Vec<Value> = list
         .iter()
-        .map(|def| json!({ "id": def.id, "name": def.name, "description": def.description, "family": def.family, "source": def.source, "built": def.built, "job": daemon.os_job(&def.id) }))
+        .map(|def| json!({ "id": def.id, "name": def.name, "description": def.description, "icon": def.icon, "family": def.family, "source": def.source, "built": def.built, "job": daemon.os_job(&def.id) }))
         .collect();
     Ok(Json(list.into()))
 }

@@ -1,3 +1,4 @@
+import { BrandIcon } from "./BrandIcon";
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Recipe, type System } from "./api";
 import { FolderField } from "./FolderPicker";
@@ -110,18 +111,24 @@ export function NewSandbox(props: { recipes: Recipe[]; onClose: () => void; onCr
           </label>
           <FolderField label="Project folder on this computer" placeholder="/home/me/project" value={workspace} onChange={setWorkspace} />
           <p className="muted">The folder appears in the sandbox as /workspace; nothing else of your files is visible there. Leave it empty for a sandbox without your files.</p>
-          <label>
-            Operating system
-            <select value={os} onChange={(e) => setOs(e.target.value)}>
+          <div className="shelf">
+            <h3>Operating system</h3>
+            <div className="cards" role="radiogroup" aria-label="Operating system">
               {systems.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                  {candidate.built ? "" : " (built when the sandbox is created)"}
-                </option>
+                <div key={candidate.id} className={`card ${candidate.id === os ? "picked" : ""}`}>
+                  <button type="button" role="radio" aria-checked={candidate.id === os} className="card-main" onClick={() => setOs(candidate.id)}>
+                    <span className={`avatar ${candidate.icon ? "brand" : ""}`} style={candidate.icon ? undefined : { background: "var(--accent)" }} aria-hidden="true">
+                      <BrandIcon svg={candidate.icon}>{candidate.name.slice(0, 2)}</BrandIcon>
+                    </span>
+                    <span className="grow">
+                      <strong>{candidate.name}</strong>
+                      <small>{candidate.built ? "ready" : "set up when the sandbox is created"}</small>
+                    </span>
+                  </button>
+                </div>
               ))}
-              {systems.length === 0 && <option value="debian">Debian</option>}
-            </select>
-          </label>
+            </div>
+          </div>
           {system && <p className="muted">{system.description}</p>}
           {system && !system.built && <p className="muted">Its image is built once, the first time it is used. That needs Docker on this computer and takes a few minutes.</p>}
         </section>

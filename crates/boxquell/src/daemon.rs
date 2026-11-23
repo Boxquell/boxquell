@@ -279,6 +279,7 @@ impl Daemon {
     pub fn info(&self, name: &str) -> Result<Value> {
         let spec = self.spec(name)?;
         let running = self.running(name);
+        let system = boxquell_core::os::definitions(&self.home).into_iter().find(|def| def.id == spec.os);
         Ok(json!({
             "name": spec.name,
             "running": running.is_some(),
@@ -290,7 +291,8 @@ impl Daemon {
             "ram_mib": spec.ram_mib,
             "backend": spec.backend,
             "os": spec.os,
-            "os_name": boxquell_core::os::definitions(&self.home).into_iter().find(|def| def.id == spec.os).map(|def| def.name),
+            "os_name": system.as_ref().map(|def| &def.name),
+            "os_icon": system.as_ref().and_then(|def| def.icon.as_ref()),
             "family": boxquell_core::os::family(&self.home, &spec.os),
             "package_hosts": boxquell_core::os::package_hosts(&self.home, &spec.os),
             "mode": spec.network,

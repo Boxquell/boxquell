@@ -28,6 +28,7 @@ export interface Sandbox {
   os?: string;
   /** The system's name as its definition gives it, e.g. "Debian 13". */
   os_name?: string | null;
+  os_icon?: string | null;
   family?: string;
   mode: "whitelist" | "blacklist";
   rules: string[];
@@ -51,6 +52,8 @@ export interface Sandbox {
 }
 
 export interface Recipe {
+  /** A single-colour SVG drawing, when the definition has one. */
+  icon?: string | null;
   id: string;
   /** The repository's name, or `local` */
   source: string;
@@ -119,6 +122,8 @@ export interface Suggestions {
 }
 
 export interface System {
+  /** A single-colour SVG drawing, when the definition has one. */
+  icon?: string | null;
   id: string;
   name: string;
   description: string;

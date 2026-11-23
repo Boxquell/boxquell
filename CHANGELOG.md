@@ -11,6 +11,8 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - A tray icon for the desktop app.
 - SSH keys for git: sandboxes can sign with keys of this computer, chosen for all sandboxes or for one, without the keys entering a sandbox (`boxquell ssh-keys`, and under Secrets in the UI).
 - The overview of a sandbox names the system it runs.
+- Icons for software and systems, taken from their repositories, and a search field in the software catalogue.
+- Choosing the operating system of a new sandbox from cards instead of a list.
 
 ## [0.0.1] - 2026-11-23
 

@@ -29,6 +29,10 @@ pub struct Recipe {
     pub name: String,
     pub category: Category,
     pub description: String,
+    /// A picture for the UI. Written as the name of an SVG file in the
+    /// repository's `icons` directory; read back as the drawing itself.
+    #[serde(default)]
+    pub icon: Option<String>,
     /// Versions on offer, the default first. The install script gets the chosen
     /// one as `BOXQUELL_VERSION`; select it with `<recipe>@<version>`.
     #[serde(default)]
@@ -132,6 +136,7 @@ impl Catalog {
                 let id = format!("{repo}:{stem}");
                 if let Ok(mut recipe) = std::fs::read_to_string(&path).map_err(anyhow::Error::from).and_then(|text| parse(&id, repo, &text)) {
                     recipe.official = crate::repo::is_official(repo);
+                    recipe.icon = recipe.icon.as_deref().and_then(|name| crate::repo::icon(&path, name));
                     // Dependencies name recipes of the same repository first, then any other.
                     for dep in &mut recipe.requires {
                         if !dep.contains(':') && recipe_files(&repo_recipe_dir(&checkout)).iter().any(|(s, _)| s == dep) {
@@ -143,7 +148,9 @@ impl Catalog {
             }
         }
         for (id, path) in recipe_files(user_dir) {
-            all.insert(id.clone(), parse(&id, "local", &std::fs::read_to_string(&path)?).with_context(|| path.display().to_string())?);
+            let mut recipe = parse(&id, "local", &std::fs::read_to_string(&path)?).with_context(|| path.display().to_string())?;
+            recipe.icon = recipe.icon.as_deref().and_then(|name| crate::repo::icon(&path, name));
+            all.insert(id.clone(), recipe);
         }
         Ok(Self(all))
     }

@@ -400,3 +400,8 @@ a.button:hover { background: var(--fill-strong); text-decoration: none; }
 
 /* A second line under a label. */
 small.block { display: block; font-weight: 400; }
+
+/* Pictures of software and systems: one colour, taken from the text. */
+.brand-icon { display: inline-block; background: currentColor; flex: none; vertical-align: -2px; }
+.avatar.brand { background: var(--fill); color: var(--text); }
+.search.wide { align-self: stretch; margin-bottom: 4px; }

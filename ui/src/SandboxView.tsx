@@ -1,3 +1,4 @@
+import { BrandIcon } from "./BrandIcon";
 import { SshKeys } from "./SshKeys";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Activity, Bot, Monitor, Network, Package, Pause, Play, ScrollText, Settings2, Square, SquareTerminal, KeyRound, type LucideIcon } from "lucide-react";
@@ -66,7 +67,9 @@ export function SandboxView(props: ViewProps) {
           </h2>
           <p className="muted">
             <span className={`chip ${sandbox.paused ? "paused" : sandbox.running ? "on" : ""}`}>{busy ?? (sandbox.paused ? "paused" : sandbox.running ? "running" : "stopped")}</span>{" "}
-            <span className="chip">{sandbox.os ?? "debian"}</span> {sandbox.backend} · {sandbox.cpus} CPUs · {sandbox.ram_mib} MiB · {sandbox.disk_gib} GiB disk
+            <span className="chip">
+              <BrandIcon svg={sandbox.os_icon} size={12} /> {sandbox.os_name ?? sandbox.os ?? "debian"}
+            </span> {sandbox.backend} · {sandbox.cpus} CPUs · {sandbox.ram_mib} MiB · {sandbox.disk_gib} GiB disk
             {sandbox.workspace && <> · {sandbox.workspace}</>}
           </p>
         </div>

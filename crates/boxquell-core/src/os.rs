@@ -44,6 +44,10 @@ pub struct OsDef {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// A picture for the UI. Written as the name of an SVG file in the
+    /// repository's `icons` directory; read back as the drawing itself.
+    #[serde(default)]
+    pub icon: Option<String>,
     /// Which recipes fit: they name the families they support.
     pub family: String,
     /// Hosts of the system's package manager. Recipes ask for them as `@packages`.
@@ -115,6 +119,7 @@ pub fn definitions(home: &Home) -> Vec<OsDef> {
             if let Ok(mut def) = std::fs::read_to_string(&file).map_err(anyhow::Error::from).and_then(|text| Ok(toml::from_str::<OsDef>(&text)?)) {
                 def.built = image(home, &id).exists();
                 def.id = id;
+                def.icon = def.icon.as_deref().and_then(|name| crate::repo::icon(&file, name));
                 def.source = source.clone();
                 all.push(def);
             }

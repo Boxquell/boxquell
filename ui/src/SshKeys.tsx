@@ -46,7 +46,7 @@ export function SshKeys(props: { sandbox: string | null; act: Act }) {
           <small className="muted block">
             {choice.available.agent
               ? "All keys loaded in this computer's SSH agent, including ones with a passphrase or on a security key."
-              : "No SSH agent was running when Boxquell started."}
+              : "No SSH agent is running on this computer. You only need one for keys with a passphrase; a key without one can be switched on below."}
           </small>
         </span>
       </label>

@@ -165,6 +165,27 @@ pub fn remove(home: &Home, name: &str) -> Result<()> {
     Ok(std::fs::remove_dir_all(checkout(home, name)?)?)
 }
 
+/// The picture a recipe or system names with `icon = "<file>.svg"`, as SVG text.
+/// The file lives in an `icons` directory next to the definition or one level up.
+/// Only small, self-contained drawings pass: the UI paints them in one colour.
+pub fn icon(definition: &std::path::Path, name: &str) -> Option<String> {
+    let plain = !name.is_empty()
+        && name.ends_with(".svg")
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && !name.contains("..");
+    if !plain {
+        return None;
+    }
+    let dir = definition.parent()?;
+    let file = [dir.join("icons").join(name), dir.parent()?.join("icons").join(name)].into_iter().find(|file| file.is_file())?;
+    if std::fs::metadata(&file).ok()?.len() > 16 * 1024 {
+        return None;
+    }
+    let svg = std::fs::read_to_string(file).ok()?;
+    let lower = svg.to_ascii_lowercase();
+    (lower.contains("<svg") && !lower.contains("<script") && !lower.contains("href")).then_some(svg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,10 +12,14 @@ use serde_json::{json, Value};
 /// Where the socket appears in the guest; `boxquell-init` creates the directory.
 pub const GUEST_SOCKET: &str = "/run/boxquell-ssh/agent.sock";
 
-/// The socket of this computer's SSH agent, when one is running.
+/// The socket of this computer's SSH agent, when one is running: the one
+/// this process was started with, or one in the usual places of the desktop's
+/// session, so an agent started later is found without a restart.
 pub fn host_agent() -> Option<PathBuf> {
-    let socket = PathBuf::from(std::env::var_os("SSH_AUTH_SOCK")?);
-    socket.exists().then_some(socket)
+    let named = std::env::var_os("SSH_AUTH_SOCK").map(PathBuf::from);
+    let session = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    let usual = ["ssh-agent.socket", "gcr/ssh", "keyring/ssh", "openssh_agent"].into_iter().filter_map(|name| Some(session.as_ref()?.join(name)));
+    named.into_iter().chain(usual).find(|socket| socket.exists())
 }
 
 /// Whether a private key file asks for a passphrase. `None` when it is no readable key.
@@ -66,7 +70,7 @@ pub fn problems(keys: &SshKeys) -> Vec<String> {
     }
     if keys.agent && host_agent().is_none() {
         let fallback = if keys.files.is_empty() { "" } else { " The chosen key files are used instead." };
-        problems.push(format!("This computer's SSH agent is shared with the sandbox, but none is running (SSH_AUTH_SOCK is not set).{fallback}"));
+        problems.push(format!("This computer's SSH agent is shared with the sandbox, but none is running.{fallback}"));
     }
     if !keys.agent || host_agent().is_none() {
         for file in &keys.files {

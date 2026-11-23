@@ -19,6 +19,7 @@ A recipe repository is any git repository with `*.toml` files in a `recipes` dir
 name = "Node.js"                       # shown in lists
 category = "language"                  # agent, language, tool or ide
 description = "Node.js with npm"
+icon = "nodedotjs.svg"                 # optional; a file in the repository's icons/ directory
 
 versions = ["24", "22"]                # optional; first is the default, chosen as node@22
 os = ["debian", "ubuntu"]             # optional; systems the script works on, debian when left out
@@ -44,6 +45,7 @@ Rules of thumb:
 - List every host the install script contacts in `install_allow`. Anything else is blocked, and `boxquell logs <sandbox> --blocked` shows what was refused.
 - Keep `allow` as small as possible: these destinations stay open for the sandbox.
 - The guest is Debian. Install to system paths (`/usr/local`) so every session finds the software.
+- An icon is a small single-colour SVG (under 16 KB, no scripts or links); the UI paints it in the text colour. System definitions in `os/` take the same `icon` line.
 - Never put credentials into a recipe. Name a secret instead; its value stays on the host.
 
 Recipes run their own scripts inside the sandbox and open the destinations they list. Users are told so when they add a repository, and should add only repositories they trust.
