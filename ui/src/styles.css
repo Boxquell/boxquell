@@ -443,3 +443,8 @@ select.version { padding: 1px 24px 1px 8px; background-position: right 7px cente
    how an engine lays out the square's content. */
 .avatar, .os-art { position: relative; }
 .avatar .brand-icon, .os-art .brand-icon { display: block; position: absolute; inset: 0; margin: auto; vertical-align: baseline; }
+
+/* What is installed already steps back: grey, flat and not to be picked again. */
+.card.installed { background: transparent; box-shadow: inset 0 0 0 0.5px var(--line); }
+.card.installed:hover { background: transparent; }
+.card.installed .card-main { opacity: 0.5; filter: grayscale(1); cursor: default; }
