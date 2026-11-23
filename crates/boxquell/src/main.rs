@@ -1049,6 +1049,13 @@ fn main() -> Result<()> {
             for rule in info["rules"].as_array().into_iter().flatten() {
                 println!("{}", rule.as_str().unwrap_or(""));
             }
+            // What the system and installed software open by themselves.
+            for group in info["auto_rules"].as_array().into_iter().flatten() {
+                for entry in group["hosts"].as_array().into_iter().flatten() {
+                    let state = if entry["enabled"] == true { "allow" } else { "off  " };
+                    println!("{state} {}   (opened by {})", entry["host"].as_str().unwrap_or(""), group["name"].as_str().unwrap_or(""));
+                }
+            }
             let global = Client::connect(&home)?.get("/api/rules")?;
             for rule in global.as_array().into_iter().flatten() {
                 println!("{}   (global)", rule.as_str().unwrap_or(""));

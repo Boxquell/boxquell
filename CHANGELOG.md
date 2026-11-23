@@ -5,6 +5,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- What installed software and the system's package manager need is open by itself, shown under Network and to be switched off per destination; before an install, a sheet lists what comes along and which destinations it opens.
 - A Block button for allowed connections in the network log.
 - The software catalogue in the interface follows changes to the repositories without a reload.
 - Claude Code settings with a key helper (`apiKeyHelper`), as used for sign-in through a company account: the helper keeps running on this computer and its key is put into the sandbox's requests, refreshed before it runs out. This computer's managed settings are taken over with their drop-in files (`managed-settings.d`), in the UI with one button.

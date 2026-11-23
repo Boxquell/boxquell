@@ -257,6 +257,10 @@ fn tail(path: &Path, lines: usize) -> String {
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 
+/// One source of destinations that open by themselves: its id, its name, and
+/// each destination with whether it is on.
+pub type AutoRules = (String, String, Vec<(String, bool)>);
+
 /// Run a secret's helper command on this computer and return what it prints.
 fn run_helper(command: &str) -> Result<String> {
     let mut shell = if cfg!(windows) { std::process::Command::new("cmd") } else { std::process::Command::new("/bin/sh") };
@@ -355,6 +359,11 @@ impl Daemon {
             "autostart": spec.autostart,
             "env": spec.env,
             "ssh": spec.ssh,
+            "auto_rules": self.auto_rules(&spec).into_iter().map(|(source, name, hosts)| json!({
+                "source": source,
+                "name": name,
+                "hosts": hosts.into_iter().map(|(host, enabled)| json!({ "host": host, "enabled": enabled })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
             "warnings": self.warnings(&spec),
             "disk_gib": spec.disk_gib,
             "recipes": spec.recipes,
@@ -601,10 +610,83 @@ impl Daemon {
 
     /// Global denies come first so no sandbox can undo them; global allows
     /// come last so a sandbox can still deny what is allowed everywhere.
+    /// What the sandbox's system and installed software open by themselves:
+    /// per source its name and its destinations, each with whether it is on.
+    /// The system's package servers come first, then the software in the order it was installed.
+    pub fn auto_rules(&self, spec: &SandboxSpec) -> Vec<AutoRules> {
+        let on = |source: &str, host: &str| !spec.auto_off.iter().any(|off| off == source || *off == format!("{source} {host}"));
+        let package_hosts = boxquell_core::os::package_hosts(&self.home, &spec.os);
+        let mut groups = Vec::new();
+        if !package_hosts.is_empty() {
+            let name =
+                boxquell_core::os::definitions(&self.home).into_iter().find(|def| def.id == spec.os).map_or_else(|| spec.os.clone(), |def| def.name);
+            groups.push(("os".to_string(), format!("{name} packages"), package_hosts.iter().map(|host| (host.clone(), on("os", host))).collect()));
+        }
+        let Ok(catalog) = boxquell_core::recipe::Catalog::of(&self.home) else { return groups };
+        for entry in &spec.recipes {
+            let id = entry.split('@').next().unwrap_or(entry);
+            let Some(recipe) = catalog.get(id) else { continue };
+            let mut hosts: Vec<String> = Vec::new();
+            for host in &recipe.allow {
+                // `@packages` stands for the system's package servers, which have their own entry.
+                if host != "@packages" && !hosts.contains(host) {
+                    hosts.push(host.clone());
+                }
+            }
+            if !hosts.is_empty() {
+                groups.push((id.to_string(), recipe.name.clone(), hosts.iter().map(|host| (host.clone(), on(id, host))).collect()));
+            }
+        }
+        groups
+    }
+
+    /// Switch a destination that software or the system opens, or all of a source's, on or off.
+    pub fn set_auto_rule(&self, name: &str, source: &str, host: Option<&str>, enabled: bool) -> Result<Value> {
+        let mut spec = self.spec(name)?;
+        let groups = self.auto_rules(&spec);
+        let group = groups.iter().find(|(id, _, _)| id == source).with_context(|| format!("{source} opens nothing in {name}"))?;
+        match host {
+            Some(host) => {
+                ensure!(group.2.iter().any(|(known, _)| known == host), "{source} does not open {host}");
+                let entry = format!("{source} {host}");
+                spec.auto_off.retain(|off| *off != entry);
+                if enabled {
+                    // Switching one on again while the whole source is off: the rest stays off.
+                    if spec.auto_off.iter().any(|off| off == source) {
+                        spec.auto_off.retain(|off| off != source);
+                        spec.auto_off.extend(group.2.iter().filter(|(other, _)| other != host).map(|(other, _)| format!("{source} {other}")));
+                    }
+                } else {
+                    spec.auto_off.push(entry);
+                }
+            }
+            None => {
+                spec.auto_off.retain(|off| off != source && !off.starts_with(&format!("{source} ")));
+                if !enabled {
+                    spec.auto_off.push(source.to_string());
+                }
+            }
+        }
+        spec.save(&self.home.sandbox(name))?;
+        if let Some(running) = self.running(name) {
+            running.policy.write().unwrap().rules = self.effective_rules(&spec);
+        }
+        self.info(name)
+    }
+
+    /// The rules in force, first match wins: what is denied for all sandboxes,
+    /// the sandbox's own rules, what its software and system open, and last
+    /// what is allowed for all sandboxes.
     fn effective_rules(&self, spec: &SandboxSpec) -> Vec<Rule> {
         let global = self.global_rules();
         let (denies, allows): (Vec<Rule>, Vec<Rule>) = global.into_iter().partition(|rule| rule.action == boxquell_net::Action::Deny);
-        denies.into_iter().chain(spec.rules.iter().cloned()).chain(allows).collect()
+        let opened = self
+            .auto_rules(spec)
+            .into_iter()
+            .flat_map(|(_, _, hosts)| hosts)
+            .filter(|(_, on)| *on)
+            .filter_map(|(host, _)| Rule::new(boxquell_net::Action::Allow, &host).ok());
+        denies.into_iter().chain(spec.rules.iter().cloned()).chain(opened).chain(allows).collect()
     }
 
     /// Change the global rules and push the result into every running sandbox.
@@ -968,6 +1050,10 @@ impl Daemon {
             spec.recipes.push(id.clone());
         }
         spec.save(&self.home.sandbox(name))?;
+        // What the new software opens applies from now on.
+        if let Some(running) = self.running(name) {
+            running.policy.write().unwrap().rules = self.effective_rules(&spec);
+        }
         self.info(name)
     }
 

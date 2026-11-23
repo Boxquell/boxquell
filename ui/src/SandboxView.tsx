@@ -149,6 +149,7 @@ export function SandboxView(props: ViewProps) {
       {tab === "network" && (
         <>
           <Rules sandbox={sandbox} act={act} />
+          <AutoRules sandbox={sandbox} act={act} />
           <Ports sandbox={sandbox} act={act} />
           <GlobalRules act={act} />
         </>
@@ -185,9 +186,65 @@ function Command(props: { text: string }) {
   );
 }
 
+/** Destinations the system's package manager and installed software open by themselves, to switch off one by one. */
+function AutoRules(props: { sandbox: Sandbox; act: Act }) {
+  const { sandbox, act } = props;
+  const groups = sandbox.auto_rules ?? [];
+  if (groups.length === 0) return null;
+  return (
+    <section>
+      <h3>Opened by the system and installed software</h3>
+      <p className="muted">
+        What is installed in this sandbox needs these destinations to work, so they are open without a rule of yours. Switch off what you do not want;
+        a rule of your own above always wins.
+      </p>
+      {groups.map((group) => {
+        const on = group.hosts.filter((entry) => entry.enabled).length;
+        return (
+          <div key={group.source} className="auto-group">
+            <label className="check setting">
+              <input type="checkbox" className="switch" checked={on > 0} onChange={() => act(() => api.setAutoRule(sandbox.name, group.source, null, on === 0))} />
+              <span>
+                <strong>{group.name}</strong>
+                <small className="muted block">{on === group.hosts.length ? "all open" : on === 0 ? "all closed" : `${on} of ${group.hosts.length} open`}</small>
+              </span>
+            </label>
+            <ul className="auto-hosts">
+              {group.hosts.map((entry) => (
+                <li key={entry.host}>
+                  <label className="check">
+                    <input type="checkbox" checked={entry.enabled} onChange={() => act(() => api.setAutoRule(sandbox.name, group.source, entry.host, !entry.enabled))} />
+                    <code className={entry.enabled ? "" : "off"}>{entry.host}</code>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/** The picked recipes with everything they require, in the order it gets installed. */
+function withRequired(picked: string[], recipes: Recipe[]): Recipe[] {
+  const all: Recipe[] = [];
+  const visit = (id: string) => {
+    const recipe = recipes.find((r) => r.id === id) ?? recipes.find((r) => r.id.endsWith(`:${id}`));
+    if (!recipe || all.includes(recipe)) return;
+    (recipe.requires ?? []).forEach(visit);
+    all.push(recipe);
+  };
+  picked.map(recipeName).forEach(visit);
+  return all;
+}
+
 function Software(props: ViewProps) {
   const { sandbox, recipes, secrets, act } = props;
   const [picked, setPicked] = useState<string[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  // What an install brings: the picked software, what it requires, and the destinations each opens.
+  const coming = withRequired(picked, recipes).filter((recipe) => !sandbox.recipes.some((id) => recipeName(id) === recipe.id));
   const job = sandbox.job;
   const log = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -220,11 +277,46 @@ function Software(props: ViewProps) {
         <button
           className="primary"
           disabled={picked.length === 0 || job?.state === "running"}
-          onClick={() => act(() => api.install(sandbox.name, picked)).then(() => setPicked([]))}
+          onClick={() => setConfirming(true)}
         >
           {job?.state === "running" ? "Installing…" : picked.length > 0 ? `Install ${picked.length}` : "Install"}
         </button>
       </div>
+      {confirming && (
+        <div className="sheet-backdrop" role="presentation" onClick={() => setConfirming(false)}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" onClick={(event) => event.stopPropagation()}>
+            <h3 id="install-title">Install into {sandbox.name}</h3>
+            <ul className="sheet-list">
+              {coming.map((recipe) => {
+                const opens = recipe.allow.filter((host) => host !== "@packages");
+                const chosen = picked.some((entry) => recipeName(entry) === recipe.id);
+                return (
+                  <li key={recipe.id}>
+                    <strong>{recipe.name}</strong> {!chosen && <span className="chip">needed by your choice</span>}
+                    <small className="muted block">{opens.length > 0 ? <>opens {opens.map((host) => <code key={host}>{host}</code>)}</> : "opens no destinations"}</small>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="muted">
+              These destinations open for this sandbox as soon as the software is installed. You can switch each of them off afterwards under Network.
+            </p>
+            <div className="actions">
+              <button onClick={() => setConfirming(false)}>Cancel</button>
+              <button
+                className="primary"
+                autoFocus
+                onClick={() => {
+                  setConfirming(false);
+                  act(() => api.install(sandbox.name, picked)).then(() => setPicked([]));
+                }}
+              >
+                Install
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {needsSecret.map((r) => (
         <p key={r!.id} className="muted">
           {r!.name} has no credential here. Store one of [{r!.secrets.join(", ")}] under Secrets, then attach it.

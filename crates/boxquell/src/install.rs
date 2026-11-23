@@ -79,9 +79,11 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
     for pick in &picks {
         let recipe = pick.recipe;
         println!("==> {} ({})", recipe.name, pick.label());
-        if !recipe.official && !(recipe.allow.is_empty() && recipe.install_allow.is_empty()) {
-            let hosts: Vec<String> = expand(&recipe.allow).into_iter().chain(expand(&recipe.install_allow)).collect();
-            println!("    from {}: opens {}", recipe.source, hosts.join(", "));
+        if !recipe.allow.is_empty() {
+            println!("    opens for this sandbox: {} (switch off under Network, or with `boxquell deny`)", expand(&recipe.allow).join(", "));
+        }
+        if !recipe.official && !recipe.install_allow.is_empty() {
+            println!("    from {}: opens while installing: {}", recipe.source, expand(&recipe.install_allow).join(", "));
         }
         let existing = rules_of(&client.get(&path)?);
         let add = |host: &String| client.post(&format!("{path}/rules"), json!({ "rule": format!("allow {host}") })).map(drop);
@@ -89,13 +91,19 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
         let (install_allow, allow) = (expand(&recipe.install_allow), expand(&recipe.allow));
         for host in &install_allow {
             let rule = format!("allow {host}");
-            if !existing.contains(&rule) && !allow.contains(host) {
+            if !existing.contains(&rule) {
                 add(host)?;
                 temporary.push(rule);
             }
         }
+        // What the software needs later opens by itself once it is recorded as
+        // installed, and can be switched off there. Until then it is open like the rest.
         for host in &allow {
-            add(host)?;
+            let rule = format!("allow {host}");
+            if !existing.contains(&rule) && !temporary.contains(&rule) {
+                add(host)?;
+                temporary.push(rule);
+            }
         }
 
         let outcome = run_script(&key, port, &guest_script(pick));

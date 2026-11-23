@@ -49,12 +49,16 @@ export interface Sandbox {
   warnings: string[];
   /** Present in the answer to changing the Claude settings. */
   notes?: string[];
+  /** What the system and installed software open by themselves, each destination with whether it is on */
+  auto_rules?: { source: string; name: string; hosts: { host: string; enabled: boolean }[] }[];
   /** Environment variables for sessions in the sandbox */
   env?: Record<string, string>;
   job: Job | null;
 }
 
 export interface Recipe {
+  /** Recipes that are installed first */
+  requires?: string[];
   /** For agents: the variable that names the model it starts with */
   model_env?: string | null;
   /** A single-colour SVG drawing, when the definition has one. */
@@ -323,6 +327,8 @@ export const api = {
   removeGlobalRule: (rule: string) => call<string[]>("DELETE", "/api/rules", { rule }),
   setMode: (name: string, mode: string) => call<Sandbox>("POST", `${box(name)}/mode`, { mode }),
   addRule: (name: string, rule: string) => call<Sandbox>("POST", `${box(name)}/rules`, { rule }),
+  /** Switch a destination that software or the system opens, or all of a source's, on or off. */
+  setAutoRule: (name: string, source: string, host: string | null, enabled: boolean) => call<Sandbox>("POST", `${box(name)}/auto-rules`, { source, host, enabled }),
   removeRule: (name: string, rule: string) => call<Sandbox>("DELETE", `${box(name)}/rules`, { rule }),
   install: (name: string, recipes: string[]) => call<Sandbox>("POST", `${box(name)}/recipes`, { recipes }),
   attachSecret: (name: string, secret: string) => call<Sandbox>("POST", `${box(name)}/secrets`, { secret }),

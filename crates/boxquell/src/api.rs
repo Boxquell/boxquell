@@ -117,6 +117,18 @@ async fn add_rule(State(daemon): App, Path(name): Path<String>, Json(body): Json
     })?))
 }
 
+#[derive(Deserialize)]
+struct AutoRuleBody {
+    source: String,
+    /// One destination; left out for all of the source's.
+    host: Option<String>,
+    enabled: bool,
+}
+
+async fn set_auto_rule(State(daemon): App, Path(name): Path<String>, Json(body): Json<AutoRuleBody>) -> ApiResult {
+    Ok(Json(daemon.set_auto_rule(&name, &body.source, body.host.as_deref(), body.enabled)?))
+}
+
 async fn remove_rule(State(daemon): App, Path(name): Path<String>, Json(body): Json<RuleBody>) -> ApiResult {
     Ok(Json(daemon.update_rules(&name, |rules| rules.retain(|r| *r != body.rule))?))
 }
@@ -794,6 +806,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/start", post(start))
         .route("/api/sandboxes/{name}/stop", post(stop))
         .route("/api/sandboxes/{name}/rules", post(add_rule).delete(remove_rule))
+        .route("/api/sandboxes/{name}/auto-rules", post(set_auto_rule))
         .route("/api/sandboxes/{name}/pause", post(pause))
         .route("/api/sandboxes/{name}/resume", post(resume))
         .route("/api/sandboxes/{name}/mode", post(set_mode))

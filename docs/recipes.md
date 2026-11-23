@@ -44,7 +44,7 @@ EXAMPLE = "1"
 Rules of thumb:
 
 - List every host the install script contacts in `install_allow`. Anything else is blocked, and `boxquell logs <sandbox> --blocked` shows what was refused.
-- Keep `allow` as small as possible: these destinations stay open for the sandbox.
+- Keep `allow` as small as possible: these destinations are open for a sandbox for as long as the recipe is installed. Users see them before the install and can switch each one off under Network.
 - The guest is Debian. Install to system paths (`/usr/local`) so every session finds the software.
 - An icon is a small single-colour SVG (under 64 KB, no scripts or links); the UI paints it in the text colour. System definitions in `os/` take the same `icon` line.
 - An agent recipe can name the variable that selects its model, `model_env = "ANTHROPIC_MODEL"`; the UI then offers a model field for it.

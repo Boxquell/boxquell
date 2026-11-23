@@ -136,6 +136,11 @@ pub struct SandboxSpec {
     /// Recipes installed into this sandbox.
     #[serde(default)]
     pub recipes: Vec<String>,
+    /// Destinations that installed software and the system open by themselves
+    /// and that the user switched off: a source such as `tools:gh` or `os` for
+    /// all of its destinations, or `<source> <destination>` for one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auto_off: Vec<String>,
     /// Extra environment variables for sessions in the guest.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
