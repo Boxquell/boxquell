@@ -1,7 +1,7 @@
 //! Drives the gateway with a second smoltcp stack playing the guest, so the
 //! policy, DNS and proxy paths are covered without booting a VM.
 
-use boxquell_net::{GatewayHandle, Mode, NetEvent, Phase, Policy, Upstream, DNS_IP, GATEWAY_IP, GUEST_IP};
+use boxquell_net::{EventKind, GatewayHandle, Mode, NetEvent, Phase, Policy, Upstream, DNS_IP, GATEWAY_IP, GUEST_IP};
 use hickory_proto::op::{Message, Query, ResponseCode};
 use hickory_proto::rr::{Name, RData, RecordType};
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
@@ -277,7 +277,14 @@ async fn http_host_must_match_resolved_name() {
 #[tokio::test]
 async fn private_addresses_need_an_explicit_rule() {
     let mut w = world(&["allow *"]).await;
-    assert!(addresses(&w.guest.lookup("lan.test.").await).is_empty());
+    let reply = w.guest.lookup("lan.test.").await;
+    assert!(addresses(&reply).is_empty());
+    assert_eq!(reply.metadata.response_code, ResponseCode::NXDomain);
+    let event = next_event(&mut w.events).await;
+    assert_eq!((event.kind, event.allowed, event.host.as_deref()), (EventKind::Dns, false, Some("lan.test")));
+    assert_eq!(event.ip, Some(Ipv4Addr::new(192, 168, 1, 1)));
+    assert!(event.reason.contains("explicit address rule"));
+
     assert!(w.guest.request(Ipv4Addr::new(192, 168, 1, 1), 80, b"x").await.is_none());
 
     let mut w = world(&["allow 192.168.1.1:8080"]).await;

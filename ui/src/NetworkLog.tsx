@@ -123,7 +123,7 @@ export function NetworkLog(props: { sandbox: Sandbox; act: Act }) {
                         Block
                       </button>
                     )}
-                    {!e.allowed && e.host && (
+                    {!e.allowed && e.host && !(e.kind === "dns" && e.ip) && (
                       <button className="link" onClick={() => act(() => api.addRule(sandbox.name, `allow ${e.host}`))}>
                         allow
                       </button>

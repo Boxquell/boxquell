@@ -677,6 +677,16 @@ function ClaudeSettings(props: { sandbox: Sandbox; act: Act }) {
         rules. A key helper (<code>apiKeyHelper</code>), as used for sign-in through a company account, keeps running on this computer; the sandbox only
         gets what it prints put into its requests. Applies from the next start.
       </p>
+      {sandbox.running && sandbox.claude_settings && (
+        <div className="notice" role="status">
+          <div>
+            <strong>Sandbox is running — settings apply after restart.</strong>
+            <div className="muted">
+              “In use” means saved in Boxquell, not confirmed loaded in this VM. Stop and start {sandbox.name} after saving changes.
+            </div>
+          </div>
+        </div>
+      )}
       {host?.present && (
         <div className="actions left">
           <button
