@@ -269,7 +269,7 @@ DESKTOP
 }
 [ "$desktop" = 0 ] || install_desktop
 
-# What boxquell needs around it. Nothing here is installed for you.
+# What boxquell needs around it. --deps can install available packages below.
 say ""
 say "${bold}What boxquell needs${reset}"
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -278,6 +278,12 @@ found_lib() {
     ls "$dir"/libkrun.* >/dev/null 2>&1 && return 0
   done
   return 1
+}
+have_debugfs() {
+  have debugfs && return 0
+  have brew || return 1
+  prefix=$(brew --prefix e2fsprogs 2>/dev/null) || return 1
+  [ -x "$prefix/sbin/debugfs" ]
 }
 missing=0
 check() {
@@ -303,12 +309,22 @@ fix() {
 plan_fixes() {
   fixes=''
   if [ "$system" = macOS ]; then
-    if ! found_lib; then
+    brew_packages=''
+    if [ "$cpu" = aarch64 ]; then
+      if ! found_lib; then
+        if have brew; then fix "brew tap slp/krun"; fi
+        brew_packages="$brew_packages libkrun"
+      fi
+    elif ! have qemu-system-x86_64; then
+      brew_packages="$brew_packages qemu"
+    fi
+    have_debugfs || brew_packages="$brew_packages e2fsprogs"
+    have ssh || brew_packages="$brew_packages openssh"
+    if [ -n "$brew_packages" ]; then
       if have brew; then
-        fix "brew tap slp/krun"
-        fix "brew install libkrun"
+        fix "brew install$brew_packages"
       else
-        note "Homebrew is needed to install libkrun: https://brew.sh"
+        note "Install Homebrew first to install these dependencies automatically: https://brew.sh"
       fi
     fi
     return 0
@@ -341,7 +357,12 @@ plan_fixes() {
 show_needs() {
   missing=0
   if [ "$system" = macOS ]; then
-    check "$(result found_lib)" "libkrun (runs the sandboxes)" "brew tap slp/krun && brew install libkrun"
+    if [ "$cpu" = aarch64 ]; then
+      check "$(result found_lib)" "libkrun (runs the sandboxes)" "brew tap slp/krun && brew install libkrun"
+    else
+      check "$(result have qemu-system-x86_64)" "QEMU (runs the sandboxes)" "brew install qemu"
+    fi
+    check "$(result have_debugfs)" "e2fsprogs (updates existing sandboxes)" "brew install e2fsprogs"
   else
     check "$(result has_runner)" "libkrun or QEMU (runs the sandboxes)" "install libkrun and libkrunfw, or qemu-system-x86_64"
     if [ -e /dev/kvm ]; then

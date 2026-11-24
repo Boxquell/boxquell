@@ -4,6 +4,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+- macOS `install.sh --deps` can install e2fsprogs and the host's default sandbox backend with Homebrew.
+
 ### Fixed
 - Failed SSH-agent forwarding now reports `ssh` errors in the daemon log instead of hiding them.
 - DNS filtering logs private and local IP addresses returned for an allowed hostname, and returns `NXDOMAIN` when all addresses are blocked.
