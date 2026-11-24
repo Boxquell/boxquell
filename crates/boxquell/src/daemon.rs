@@ -2617,6 +2617,15 @@ fn sync_guest_scripts(disk: &Path) -> Result<()> {
     result
 }
 
+/// The `debugfs` commands that replace one guest script. debugfs splits its
+/// command lines at blanks, so the host path is quoted: a disk next to a
+/// folder such as "Application Support" would otherwise lose its script.
+fn guest_script_commands(source: &Path, path: &str) -> Result<String> {
+    let source = source.display().to_string();
+    ensure!(!source.contains(['"', '\n', '\r']), "cannot update the guest scripts from {source}: the path has quotes or line breaks");
+    Ok(format!("rm {path}\nwrite \"{source}\" {path}\nsif {path} mode 0100755\n"))
+}
+
 fn sync_into(
     disk: &Path,
     dir: &Path,
@@ -2630,7 +2639,7 @@ fn sync_into(
         }
         let source = dir.join(format!("script-{index}"));
         std::fs::write(&source, contents).with_context(|| format!("cannot write {}", source.display()))?;
-        commands += &format!("rm {path}\nwrite {} {path}\nsif {path} mode 0100755\n", source.display());
+        commands += &guest_script_commands(&source, path)?;
     }
     if commands.is_empty() {
         return Ok(());
@@ -2773,6 +2782,30 @@ fn end_leftover(pid: u32, marker: &str) {
 
 fn read_pid(file: &Path) -> Option<u32> {
     std::fs::read_to_string(file).ok()?.trim().parse().ok()
+}
+
+#[cfg(test)]
+mod guest_script_command_tests {
+    use super::*;
+
+    #[test]
+    fn a_source_with_blanks_is_quoted_for_debugfs() {
+        let text = guest_script_commands(
+            Path::new("/Users/me/Library/Application Support/boxquell/sandboxes/a/guest-scripts.tmp/script-0"),
+            "/usr/local/sbin/boxquell-init",
+        )
+        .unwrap();
+        assert_eq!(
+            text,
+            "rm /usr/local/sbin/boxquell-init\nwrite \"/Users/me/Library/Application Support/boxquell/sandboxes/a/guest-scripts.tmp/script-0\" /usr/local/sbin/boxquell-init\nsif /usr/local/sbin/boxquell-init mode 0100755\n"
+        );
+    }
+
+    #[test]
+    fn a_source_that_cannot_be_quoted_is_refused() {
+        assert!(guest_script_commands(Path::new("/tmp/a\"b/script-0"), "/usr/local/sbin/x").is_err());
+        assert!(guest_script_commands(Path::new("/tmp/a\nb/script-0"), "/usr/local/sbin/x").is_err());
+    }
 }
 
 #[cfg(test)]
