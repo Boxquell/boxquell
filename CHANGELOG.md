@@ -4,13 +4,17 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-24
+
 ## [0.1.3] - 2026-11-24
 
 ### Added
 - macOS `install.sh --deps` can install e2fsprogs and the host's default sandbox backend with Homebrew.
 - Software can declare a per-sandbox listener port (`port_env` with a `kind = "port"` setting). Boxquell picks a free port on install, forwards it from the same port on this computer, and the Config tab can set another or choose one at random.
 
-## [0.1.4] - Unreleased
+## [Unreleased]
+
+## [0.1.4] - 2026-11-24
 
 ### Fixed
 - Starting a sandbox stops with the reason when its guest scripts (`boxquell-init` and the others) cannot be written to its disk. Before, it booted without them and failed with "No such file or directory".
@@ -138,3 +142,4 @@ First public version, for testing. Built and tested on Linux; the macOS and Wind
 [0.1.1]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.1
 [0.1.2]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.2
 [0.1.3]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.3
+[0.1.4]: https://github.com/Boxquell/boxquell/releases/tag/v0.1.4
