@@ -29,7 +29,8 @@ install_allow = ["nodejs.org", "@packages"]   # open only while the install scri
 allow = ["registry.npmjs.org"]         # destinations the software needs afterwards
 secrets = ["anthropic"]                # optional; host secrets this software can use
 command = "node"                       # agents only: the command that starts it
-ports = [3000]                         # optional; forwarded from the same port on 127.0.0.1 of the host
+ports = [3000]                         # optional fixed host-to-guest forwards
+port_env = "APP_PORT"                  # optional managed service port; must match a config field with kind="port"
 
 install = '''
 # Runs in the sandbox as user `dev` with passwordless sudo, under `set -euo pipefail`.
@@ -103,11 +104,13 @@ options = ["https://registry.npmjs.org"]   # optional: suggestions, or the value
 env = "DISABLE_TELEMETRY"
 label = "No usage statistics"
 help = "Do not send usage statistics."
-kind = "switch"                        # text (default), number, switch or choice
+kind = "switch"                        # text (default), number, port, switch or choice
 on = "1"                               # for a switch: the value that means on
 ```
 
 A value the user sets is stored with the sandbox and exported in every session; an empty field removes the variable. Only describe variables the software documents. An agent's `model_env` shows up there too, as a field called Model.
+
+For a service that listens on one port, set `port_env` on the recipe and declare the matching `[[config]]` field with `kind = "port"`. Boxquell chooses a free host port on install, exports that same number to the guest, and forwards it from `127.0.0.1`. The Config field can set a specific port or choose another random one; stop the sandbox before changing an active listener. Keep `ports` for any additional fixed forwards.
 
 Rules of thumb:
 

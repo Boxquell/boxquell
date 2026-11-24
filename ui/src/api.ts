@@ -78,7 +78,7 @@ export interface ConfigOption {
   env: string;
   label: string;
   help?: string;
-  /** `text` (default), `number`, `switch` or `choice` */
+  /** `text` (default), `number`, `port`, `switch` or `choice` */
   kind?: string;
   options?: string[];
   placeholder?: string;
@@ -454,6 +454,8 @@ export const api = {
   addShare: (name: string, host: string, guest: string, read_only: boolean) => call<Sandbox>("POST", `${box(name)}/shares`, { host, guest, read_only }),
   removeShare: (name: string, guest: string) => call<Sandbox>("DELETE", `${box(name)}/shares`, { guest }),
   addPort: (name: string, host: number, guest: number) => call<Sandbox>("POST", `${box(name)}/ports`, { host, guest }),
+  setRecipePort: (name: string, recipe: string, port?: number, random = false, ensure = false) =>
+    call<Sandbox>("PUT", `${box(name)}/software-port`, { recipe, port, random, ensure }),
   removePort: (name: string, host: number) => call<Sandbox>("DELETE", `${box(name)}/ports/${host}`),
   setLocalSecret: (name: string, secret: string, value: string, hosts?: string[], env?: string[]) =>
     call<Sandbox>("PUT", `${box(name)}/secrets/${encodeURIComponent(secret)}`, { value, hosts, env }),

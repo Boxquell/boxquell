@@ -4,12 +4,12 @@
 use crate::ssh;
 use anyhow::{ensure, Context, Result};
 use boxquell_core::drive::{self, shell_quote, DriveFile};
-use boxquell_core::spec::{validate_name, SshKeys};
+use boxquell_core::spec::{validate_name, ManagedPort, SshKeys};
 use boxquell_core::{Backend, EventStore, Home, PortForward, SandboxSpec, SecretDef, SecretStore};
 use boxquell_net::{CertAuthority, GatewayHandle, Intercept, Policy, Rule, Secret, SystemUpstream};
 use boxquell_vm::{NetLink, VmSpec};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, RwLock};
@@ -438,6 +438,93 @@ impl Daemon {
         let dir = self.home.sandbox(name);
         ensure!(dir.join("sandbox.toml").exists(), "no sandbox named {name:?}");
         SandboxSpec::load(&dir)
+    }
+
+    fn host_ports_used_by_other_sandboxes(&self, name: &str) -> Result<HashSet<u16>> {
+        let mut used = HashSet::new();
+        for entry in std::fs::read_dir(self.home.sandboxes())? {
+            let entry = entry?;
+            if entry.file_name() == name {
+                continue;
+            }
+            if let Ok(spec) = SandboxSpec::load(&entry.path()) {
+                used.extend(spec.ports.iter().map(|port| port.host));
+            }
+        }
+        Ok(used)
+    }
+
+    fn free_host_port(&self, name: &str, spec: &SandboxSpec) -> Result<u16> {
+        let mut used = self.host_ports_used_by_other_sandboxes(name)?;
+        used.extend(spec.ports.iter().map(|port| port.host));
+        for _ in 0..64 {
+            let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).context("cannot choose a free host port")?;
+            let port = listener.local_addr()?.port();
+            if !used.contains(&port) {
+                return Ok(port);
+            }
+        }
+        anyhow::bail!("could not choose a free host port after 64 attempts")
+    }
+
+    /// Reserve and reconcile all recipe-owned ports before writing the guest environment.
+    async fn prepare_managed_ports(&self, name: &str, spec: &mut SandboxSpec) -> Result<HashMap<u16, TcpListener>> {
+        let catalog = boxquell_core::recipe::Catalog::of(&self.home).ok();
+        let mut changed = false;
+        for installed in spec.recipes.clone() {
+            let recipe_id = installed.split('@').next().unwrap_or(&installed);
+            let Some(recipe) = catalog.as_ref().and_then(|catalog| catalog.find(recipe_id).ok()) else { continue };
+            let Some(env) = recipe.port_env.as_deref() else { continue };
+            if spec.managed_ports.contains_key(recipe_id) {
+                continue;
+            }
+            let configured = spec.env.get(env).and_then(|value| value.parse::<u16>().ok()).filter(|port| *port >= 1024);
+            let (port, automatic) = match configured {
+                Some(port) => (port, false),
+                None => (self.free_host_port(name, spec)?, true),
+            };
+            spec.env.insert(env.to_string(), port.to_string());
+            spec.managed_ports.insert(recipe_id.to_string(), ManagedPort { env: env.to_string(), port, automatic });
+            let forward = PortForward { host: port, guest: port, bind: None };
+            if !spec.ports.contains(&forward) {
+                spec.ports.push(forward);
+            }
+            changed = true;
+        }
+
+        let managed_hosts: HashSet<u16> = spec.managed_ports.values().map(|managed| managed.port).collect();
+        let mut used = self.host_ports_used_by_other_sandboxes(name)?;
+        used.extend(spec.ports.iter().filter(|port| !managed_hosts.contains(&port.host)).map(|port| port.host));
+        let mut listeners = HashMap::new();
+        for (recipe_id, mut managed) in spec.managed_ports.clone() {
+            // A missing mapping means the user removed the forward; keep it disabled.
+            if !spec.ports.iter().any(|forward| forward.host == managed.port && forward.guest == managed.port && forward.bind.is_none()) {
+                continue;
+            }
+            let listener = if used.contains(&managed.port) { None } else { TcpListener::bind(("127.0.0.1", managed.port)).await.ok() };
+            let (port, listener) = match listener {
+                Some(listener) => (managed.port, listener),
+                None if managed.automatic => bind_free_host_port(&used).await?,
+                None => anyhow::bail!("port {} for {} is in use; choose another in Software settings", managed.port, recipe_id),
+            };
+            if port != managed.port {
+                spec.ports.retain(|forward| !(forward.host == managed.port && forward.guest == managed.port && forward.bind.is_none()));
+                managed.port = port;
+                spec.env.insert(managed.env.clone(), port.to_string());
+                spec.managed_ports.insert(recipe_id.clone(), managed.clone());
+                spec.ports.push(PortForward { host: port, guest: port, bind: None });
+                changed = true;
+            } else if !spec.ports.iter().any(|forward| forward.host == port && forward.guest == port && forward.bind.is_none()) {
+                spec.ports.push(PortForward { host: port, guest: port, bind: None });
+                changed = true;
+            }
+            used.insert(port);
+            listeners.insert(port, listener);
+        }
+        if changed {
+            spec.save(&self.home.sandbox(name))?;
+        }
+        Ok(listeners)
     }
 
     pub fn info(&self, name: &str) -> Result<Value> {
@@ -1103,12 +1190,90 @@ impl Daemon {
         self.info(name)
     }
 
+    /// Set a recipe-owned service port. `ensure_default` preserves an existing value during install;
+    /// `randomize` allocates a new free one; a number selects that exact host/guest port.
+    pub async fn set_recipe_port(&self, name: &str, recipe_id: &str, requested: Option<u16>, randomize: bool, ensure_default: bool) -> Result<Value> {
+        ensure!(!(requested.is_some() && randomize), "choose a port or request a random one, not both");
+        let _guard = self.lifecycle.lock().await;
+        let mut spec = self.spec(name)?;
+        let catalog = boxquell_core::recipe::Catalog::of(&self.home)?;
+        let recipe = catalog.find(recipe_id)?;
+        let env = recipe.port_env.as_deref().context("this software has no managed port setting")?;
+        ensure!(recipe.config.iter().any(|option| option.env == env && option.kind == "port"), "{} has no matching port field", recipe.name);
+        let installed = spec.recipes.iter().any(|entry| entry.split('@').next() == Some(recipe_id));
+        ensure!(installed || ensure_default, "install {} before changing its port", recipe.name);
+
+        let old = spec.managed_ports.get(recipe_id).cloned();
+        let old_forward_active = old.as_ref().is_some_and(|managed| {
+            spec.ports.iter().any(|forward| forward.host == managed.port && forward.guest == managed.port && forward.bind.is_none())
+        });
+        let old_env_matches = old.as_ref().is_some_and(|managed| spec.env.get(&managed.env).is_some_and(|value| value == &managed.port.to_string()));
+        if requested.is_none() && !randomize && old_forward_active && old_env_matches {
+            return self.info(name);
+        }
+        if randomize && old.is_some() && self.running(name).is_some() {
+            anyhow::bail!("stop {name} before changing its managed software port");
+        }
+        let configured = spec.env.get(env).and_then(|value| value.parse::<u16>().ok());
+        let (port, automatic) = if let Some(port) = requested {
+            (port, false)
+        } else if !randomize {
+            match &old {
+                Some(managed) => (managed.port, managed.automatic),
+                None => match configured {
+                    Some(port) => (port, false),
+                    None => (self.free_host_port(name, &spec)?, true),
+                },
+            }
+        } else {
+            (self.free_host_port(name, &spec)?, true)
+        };
+        ensure!(port >= 1024, "use a host port from 1024 through 65535");
+
+        let old_port = old.as_ref().map(|managed| managed.port);
+        if self.running(name).is_some() && old_port.is_some_and(|old| old != port) {
+            anyhow::bail!("stop {name} before changing its managed software port");
+        }
+        let used_elsewhere = self.host_ports_used_by_other_sandboxes(name)?;
+        ensure!(!used_elsewhere.contains(&port), "port {port} is assigned to another sandbox");
+        let conflicts_with_other_port = spec.ports.iter().any(|forward| forward.host == port && old_port != Some(port));
+        ensure!(!conflicts_with_other_port, "port {port} is already assigned in {name}");
+        if old_port != Some(port) {
+            std::net::TcpListener::bind(("127.0.0.1", port)).with_context(|| format!("host port {port} is already in use"))?;
+        }
+
+        let before = spec.clone();
+        if let Some(old) = &old {
+            spec.ports.retain(|forward| !(forward.host == old.port && forward.guest == old.port && forward.bind.is_none()));
+        }
+        let forward = PortForward { host: port, guest: port, bind: None };
+        if !spec.ports.contains(&forward) {
+            spec.ports.push(forward);
+        }
+        spec.env.insert(env.to_string(), port.to_string());
+        spec.managed_ports.insert(recipe_id.to_string(), ManagedPort { env: env.to_string(), port, automatic });
+        spec.save(&self.home.sandbox(name))?;
+
+        if let Some(running) = self.running(name) {
+            if !old_forward_active {
+                if let Err(err) = open_forward(&running, forward).await {
+                    before.save(&self.home.sandbox(name))?;
+                    return Err(err);
+                }
+            }
+            self.push_env(name);
+        }
+        self.info(name)
+    }
+
     /// Set or remove (empty value) environment variables for sessions in the guest, from its next start.
     pub fn set_env(&self, name: &str, changes: std::collections::BTreeMap<String, String>) -> Result<()> {
         if changes.is_empty() {
             return Ok(());
         }
         let mut spec = self.spec(name)?;
+        let managed_envs: HashSet<String> = spec.managed_ports.values().map(|managed| managed.env.clone()).collect();
+        ensure!(!changes.keys().any(|key| managed_envs.contains(key)), "use the software port setting; it also updates the host forward");
         for (key, value) in changes {
             let valid = !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') && !key.as_bytes()[0].is_ascii_digit();
             ensure!(valid, "invalid variable name {key:?}: use letters, digits and '_'");
@@ -1932,15 +2097,33 @@ impl Daemon {
     /// Take recipes off the list of what is installed, after they were removed from the guest.
     pub fn forget_recipes(&self, name: &str, ids: &[String]) -> Result<Value> {
         let mut spec = self.spec(name)?;
+        let mut removed_envs = HashSet::new();
+        let mut removed_ports = Vec::new();
         for id in ids {
             let id = id.split('@').next().unwrap_or(id);
             spec.recipes.retain(|old| old.split('@').next() != Some(id));
             spec.recipe_revisions.remove(id);
             spec.auto_off.retain(|off| off != id && !off.starts_with(&format!("{id} ")));
+            if let Some(managed) = spec.managed_ports.remove(id) {
+                removed_envs.insert(managed.env);
+                removed_ports.push(managed.port);
+                spec.ports.retain(|forward| !(forward.host == managed.port && forward.guest == managed.port && forward.bind.is_none()));
+            }
+        }
+        for env in removed_envs {
+            if !spec.managed_ports.values().any(|managed| managed.env == env) {
+                spec.env.remove(&env);
+            }
         }
         spec.save(&self.home.sandbox(name))?;
         if let Some(running) = self.running(name) {
+            for host in removed_ports {
+                if let Some(task) = running.forwards.lock().unwrap().remove(&host) {
+                    task.abort();
+                }
+            }
             running.policy.write().unwrap().rules = self.effective_rules(&spec);
+            self.push_env(name);
         }
         self.info(name)
     }
@@ -2046,7 +2229,7 @@ impl Daemon {
 
     pub async fn start(self: &Arc<Self>, name: &str) -> Result<Value> {
         let _guard = self.lifecycle.lock().await;
-        let spec = self.spec(name)?;
+        let mut spec = self.spec(name)?;
         if self.running(name).is_some() {
             // Whoever asks for a running sandbox wants to use it.
             self.set_paused(name, false)?;
@@ -2083,6 +2266,11 @@ impl Daemon {
             file.set_len(wanted).context("cannot grow the sandbox disk")?;
         }
         drop(file);
+
+        // Reserve recipe-managed host ports before the VM boots. If a previously
+        // chosen automatic port was taken while the sandbox was stopped, move it
+        // and pass the replacement into the guest's boot environment.
+        let mut managed_port_listeners = self.prepare_managed_ports(name, &mut spec).await?;
 
         let key = dir.join("id_ed25519");
         if !key.exists() {
@@ -2265,7 +2453,11 @@ impl Daemon {
         self.connect_ssh_keys(name, &running, &spec);
         for port in &spec.ports {
             // A port taken by another program must not keep the sandbox from starting.
-            if let Err(err) = open_forward(&running, *port).await {
+            let opened = match managed_port_listeners.remove(&port.host) {
+                Some(listener) => open_forward_listener(&running, *port, listener).await,
+                None => open_forward(&running, *port).await,
+            };
+            if let Err(err) = opened {
                 eprintln!("boxquell: {name}: {err:#}");
             }
         }
@@ -2353,9 +2545,24 @@ impl Daemon {
     }
 }
 
+async fn bind_free_host_port(used: &HashSet<u16>) -> Result<(u16, TcpListener)> {
+    for _ in 0..64 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.context("cannot bind an available host port")?;
+        let port = listener.local_addr()?.port();
+        if !used.contains(&port) {
+            return Ok((port, listener));
+        }
+    }
+    anyhow::bail!("could not bind an unassigned host port after 64 attempts")
+}
+
 async fn open_forward(running: &Running, port: PortForward) -> Result<()> {
     let address = port.bind.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
     let listener = TcpListener::bind((address, port.host)).await.with_context(|| format!("cannot listen on {address}:{}", port.host))?;
+    open_forward_listener(running, port, listener).await
+}
+
+async fn open_forward_listener(running: &Running, port: PortForward, listener: TcpListener) -> Result<()> {
     let task = tokio::spawn(forward_port(listener, running.gateway.clone(), port.guest));
     if let Some(old) = running.forwards.lock().unwrap().insert(port.host, task) {
         old.abort();
@@ -2551,4 +2758,168 @@ fn end_leftover(pid: u32, marker: &str) {
 
 fn read_pid(file: &Path) -> Option<u32> {
     std::fs::read_to_string(file).ok()?.trim().parse().ok()
+}
+
+#[cfg(test)]
+mod managed_port_tests {
+    use super::*;
+
+    const ORCA: &str = r#"
+name = "Orca"
+category = "agent"
+description = "service"
+install = "true"
+port_env = "ORCA_PORT"
+
+[[config]]
+env = "ORCA_PORT"
+label = "Listener port"
+kind = "port"
+"#;
+
+    struct Fixture {
+        daemon: Arc<Daemon>,
+        root: PathBuf,
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn fixture(tag: &str) -> Fixture {
+        let root = std::env::temp_dir().join(format!("boxquell-port-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("recipes")).unwrap();
+        std::fs::write(root.join("recipes/orca.toml"), ORCA).unwrap();
+        let daemon = Daemon::new(Home::at(root.clone())).unwrap();
+        Fixture { daemon, root }
+    }
+
+    fn sandbox(f: &Fixture, name: &str, recipes: &[&str]) {
+        let dir = f.daemon.home.sandbox(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = format!("name = \"{name}\"\ncpus = 2\nram_mib = 2048\nbackend = \"qemu\"\nrecipes = {recipes:?}\n");
+        std::fs::write(dir.join("sandbox.toml"), text).unwrap();
+    }
+
+    fn load(f: &Fixture, name: &str) -> SandboxSpec {
+        SandboxSpec::load(&f.daemon.home.sandbox(name)).unwrap()
+    }
+
+    async fn free_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port()
+    }
+
+    fn forward(port: u16) -> PortForward {
+        PortForward { host: port, guest: port, bind: None }
+    }
+
+    #[tokio::test]
+    async fn installing_reserves_one_port_for_env_and_forward() {
+        let f = fixture("reserve");
+        sandbox(&f, "box", &["orca"]);
+        let mut spec = load(&f, "box");
+        let listeners = f.daemon.prepare_managed_ports("box", &mut spec).await.unwrap();
+
+        let managed = spec.managed_ports.get("orca").expect("recipe has a managed port").clone();
+        assert!(managed.automatic && managed.port >= 1024);
+        assert_eq!(spec.env.get("ORCA_PORT"), Some(&managed.port.to_string()));
+        assert!(spec.ports.contains(&forward(managed.port)));
+        assert!(listeners.contains_key(&managed.port), "the port stays held until the VM boots");
+        assert_eq!(load(&f, "box").managed_ports, spec.managed_ports, "the reservation is saved");
+    }
+
+    #[tokio::test]
+    async fn a_port_setting_only_applies_to_installed_software() {
+        let f = fixture("installed");
+        sandbox(&f, "box", &[]);
+        let port = free_port().await;
+        assert!(f.daemon.set_recipe_port("box", "orca", Some(port), false, false).await.is_err());
+        assert!(f.daemon.set_recipe_port("box", "orca", Some(port), false, true).await.is_ok(), "install may reserve");
+    }
+
+    #[tokio::test]
+    async fn choosing_a_port_moves_forward_and_env_together() {
+        let f = fixture("choose");
+        sandbox(&f, "box", &["orca"]);
+        let first = free_port().await;
+        f.daemon.set_recipe_port("box", "orca", Some(first), false, false).await.unwrap();
+        let spec = load(&f, "box");
+        assert_eq!(spec.env.get("ORCA_PORT"), Some(&first.to_string()));
+        assert!(spec.ports.contains(&forward(first)));
+        assert!(!spec.managed_ports["orca"].automatic);
+
+        let second = free_port().await;
+        f.daemon.set_recipe_port("box", "orca", Some(second), false, false).await.unwrap();
+        let spec = load(&f, "box");
+        assert_eq!(spec.env.get("ORCA_PORT"), Some(&second.to_string()));
+        assert!(spec.ports.contains(&forward(second)));
+        assert!(!spec.ports.contains(&forward(first)), "the old forward is gone");
+    }
+
+    #[tokio::test]
+    async fn random_choice_avoids_other_sandboxes() {
+        let f = fixture("random");
+        sandbox(&f, "one", &["orca"]);
+        sandbox(&f, "two", &["orca"]);
+        f.daemon.set_recipe_port("one", "orca", None, true, false).await.unwrap();
+        let taken = load(&f, "one").managed_ports["orca"].port;
+        f.daemon.set_recipe_port("two", "orca", None, true, false).await.unwrap();
+        let other = load(&f, "two").managed_ports["orca"].port;
+        assert_ne!(taken, other, "a port used by another sandbox is not handed out again");
+    }
+
+    #[tokio::test]
+    async fn an_occupied_automatic_port_moves_but_a_chosen_one_fails() {
+        let f = fixture("occupied");
+        sandbox(&f, "box", &["orca"]);
+        let held = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let mut spec = load(&f, "box");
+        spec.managed_ports.insert("orca".into(), ManagedPort { env: "ORCA_PORT".into(), port: busy, automatic: true });
+        spec.ports.push(forward(busy));
+        spec.env.insert("ORCA_PORT".into(), busy.to_string());
+        spec.save(&f.daemon.home.sandbox("box")).unwrap();
+
+        let mut spec = load(&f, "box");
+        f.daemon.prepare_managed_ports("box", &mut spec).await.unwrap();
+        let moved = spec.managed_ports["orca"].port;
+        assert_ne!(moved, busy);
+        assert_eq!(spec.env.get("ORCA_PORT"), Some(&moved.to_string()));
+        assert!(!spec.ports.contains(&forward(busy)));
+
+        spec.managed_ports.get_mut("orca").unwrap().automatic = false;
+        spec.managed_ports.get_mut("orca").unwrap().port = busy;
+        spec.ports.push(forward(busy));
+        let err = f.daemon.prepare_managed_ports("box", &mut spec).await.unwrap_err();
+        assert!(err.to_string().contains("Software settings"), "{err:#}");
+    }
+
+    #[tokio::test]
+    async fn removing_software_releases_its_port_and_variable() {
+        let f = fixture("forget");
+        sandbox(&f, "box", &["orca"]);
+        let mut spec = load(&f, "box");
+        f.daemon.prepare_managed_ports("box", &mut spec).await.unwrap();
+        let port = spec.managed_ports["orca"].port;
+
+        f.daemon.forget_recipes("box", &["orca".into()]).unwrap();
+        let spec = load(&f, "box");
+        assert!(spec.managed_ports.is_empty());
+        assert!(!spec.env.contains_key("ORCA_PORT"));
+        assert!(!spec.ports.contains(&forward(port)));
+    }
+
+    #[tokio::test]
+    async fn a_managed_variable_is_only_changed_through_its_port_setting() {
+        let f = fixture("env");
+        sandbox(&f, "box", &["orca"]);
+        let mut spec = load(&f, "box");
+        f.daemon.prepare_managed_ports("box", &mut spec).await.unwrap();
+        let changes = std::collections::BTreeMap::from([("ORCA_PORT".to_string(), "5000".to_string())]);
+        assert!(f.daemon.set_env("box", changes).is_err());
+        assert_eq!(load(&f, "box").env.get("ORCA_PORT"), spec.env.get("ORCA_PORT"));
+    }
 }

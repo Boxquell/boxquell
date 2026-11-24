@@ -32,6 +32,15 @@ pub struct PortForward {
     pub bind: Option<std::net::IpAddr>,
 }
 
+/// A per-recipe port whose host and guest number are linked to one setting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManagedPort {
+    pub env: String,
+    pub port: u16,
+    #[serde(default)]
+    pub automatic: bool,
+}
+
 /// A directory of this computer mounted in the guest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Share {
@@ -133,6 +142,9 @@ pub struct SandboxSpec {
     /// Ports of this computer (127.0.0.1) that lead to a port in the guest.
     #[serde(default)]
     pub ports: Vec<PortForward>,
+    /// Per-recipe ports that link a software setting to a host-to-guest forward.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub managed_ports: BTreeMap<String, ManagedPort>,
     /// Recipes installed into this sandbox.
     #[serde(default)]
     pub recipes: Vec<String>,

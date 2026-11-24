@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ExternalLink } from "lucide-react";
 import { api, type ConfigOption, type Credential, type Recipe, type RecipeAction, type Sandbox, type Secret } from "./api";
 import { BrandIcon, brandColors } from "./BrandIcon";
@@ -68,9 +68,13 @@ export function Config(props: {
           {(recipe.actions ?? []).map((action, index) => (
             <ActionRow key={action.label} sandbox={sandbox.name} recipe={recipe.id} index={index} action={action} openTerminal={props.openTerminal} />
           ))}
-          {optionsOf(recipe).map((option) => (
-            <Field key={option.env} option={option} value={env[option.env] ?? ""} save={(value) => save(option.env, value)} />
-          ))}
+          {optionsOf(recipe).map((option) =>
+            option.kind === "port" ? (
+              <PortField key={option.env} sandbox={sandbox} recipe={recipe.id} option={option} value={env[option.env] ?? ""} act={act} />
+            ) : (
+              <Field key={option.env} option={option} value={env[option.env] ?? ""} save={(value) => save(option.env, value)} />
+            ),
+          )}
         </section>
       ))}
       <section>
@@ -233,6 +237,56 @@ function ActionRow(props: { sandbox: string; recipe: string; index: number; acti
         </pre>
       )}
     </form>
+  );
+}
+
+function PortField(props: { sandbox: Sandbox; recipe: string; option: ConfigOption; value: string; act: Act }) {
+  const { sandbox, recipe, option, value, act } = props;
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState("");
+  useEffect(() => setDraft(value), [value]);
+  const canChange = !sandbox.running || value === "";
+  const update = (port?: number, random = false) =>
+    act(() => api.setRecipePort(sandbox.name, recipe, port, random)).then(() => setError(""));
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const port = Number(draft);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      setError("Enter a free port from 1024 to 65535.");
+      return;
+    }
+    update(port);
+  };
+  const mapped = Number(value);
+  const forward = sandbox.ports.find((port) => port.host === mapped && port.guest === mapped);
+  return (
+    <>
+      <form className="setting field" onSubmit={submit}>
+        <span className="row tight">
+          <input
+            type="number"
+            min="1024"
+            max="65535"
+            required
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            aria-label={option.label}
+            disabled={!canChange}
+          />
+          <button type="submit" disabled={!canChange}>Set</button>
+          <button type="button" onClick={() => update(undefined, true)} disabled={!canChange}>Random</button>
+        </span>
+        <span>
+          {option.label}
+          <small className="muted block">
+            {option.help} <code className="faint">{option.env}</code>
+          </small>
+          {forward && <small className="muted block">Host forward: 127.0.0.1:{forward.host} → guest {forward.guest}</small>}
+          {sandbox.running && value && <small className="muted block">Stop and start the sandbox before changing its active listener port.</small>}
+        </span>
+      </form>
+      {error && <p className="warning" role="alert">{error}</p>}
+    </>
   );
 }
 
