@@ -1,7 +1,7 @@
 //! Recipes: what can be installed into a sandbox (agents, languages, tools)
 //! and which network destinations and secrets each one needs.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -67,6 +67,11 @@ pub struct Recipe {
     /// same port on 127.0.0.1 of the host when the recipe is installed.
     #[serde(default)]
     pub ports: Vec<u16>,
+    /// Environment variable for a dynamic per-sandbox listener port. The
+    /// matching `config` option uses `kind = "port"`; Boxquell exports the
+    /// selected value and forwards that same port from the host.
+    #[serde(default)]
+    pub port_env: Option<String>,
     /// For agents: the command that starts it.
     #[serde(default)]
     pub command: Option<String>,
@@ -183,7 +188,7 @@ pub struct ConfigOption {
     /// One sentence on what it does.
     #[serde(default)]
     pub help: String,
-    /// `text` (the default), `number`, `switch` or `choice`.
+    /// `text` (the default), `number`, `port`, `switch` or `choice`.
     #[serde(default)]
     pub kind: String,
     /// For `choice`: the values on offer. For `text`: suggestions.
@@ -237,6 +242,16 @@ fn fingerprint(text: &str) -> String {
 
 fn parse(id: &str, source: &str, text: &str) -> Result<Recipe> {
     let mut recipe: Recipe = toml::from_str(text).with_context(|| format!("recipe {id} is invalid"))?;
+    let port_options: Vec<_> = recipe.config.iter().filter(|option| option.kind == "port").collect();
+    ensure!(port_options.len() <= 1, "recipe {id} may declare at most one dynamic port setting");
+    if let Some(option) = port_options.first() {
+        ensure!(recipe.port_env.as_deref() == Some(option.env.as_str()), "recipe {id} must set port_env to the env variable of its port setting");
+    }
+    if let Some(env) = &recipe.port_env {
+        let valid = !env.is_empty() && env.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') && !env.as_bytes()[0].is_ascii_digit();
+        ensure!(valid, "recipe {id} has invalid port_env {env:?}");
+        ensure!(port_options.len() == 1, "recipe {id} must declare port_env as a kind='port' config field");
+    }
     recipe.revision = fingerprint(text);
     recipe.id = id.to_string();
     recipe.source = source.to_string();
@@ -483,6 +498,28 @@ pub fn fixture_catalog(extra: &[(&str, &str, &str)]) -> Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_port_requires_a_matching_port_field() {
+        let valid = r#"
+name = "Orca"
+category = "agent"
+description = "service"
+port_env = "ORCA_PORT"
+install = "true"
+[[config]]
+env = "ORCA_PORT"
+label = "Listener port"
+kind = "port"
+"#;
+        let recipe = parse("agents:orca", "agents", valid).unwrap();
+        assert_eq!(recipe.port_env.as_deref(), Some("ORCA_PORT"));
+
+        let missing = valid.replace("[[config]]\nenv = \"ORCA_PORT\"\nlabel = \"Listener port\"\nkind = \"port\"", "");
+        assert!(parse("agents:orca", "agents", &missing).unwrap_err().to_string().contains("kind='port'"));
+        let mismatch = valid.replace("[[config]]\nenv = \"ORCA_PORT\"", "[[config]]\nenv = \"OTHER_PORT\"");
+        assert!(parse("agents:orca", "agents", &mismatch).unwrap_err().to_string().contains("port_env"));
+    }
 
     #[test]
     fn a_required_version_picks_one_that_fits() {

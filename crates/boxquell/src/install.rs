@@ -128,6 +128,14 @@ pub fn install(client: &Client, sandbox: &str, catalog: &Catalog, ids: &[String]
         }
     }
 
+    // Reserve managed service ports before the sandbox starts, so the recipe's
+    // install and start commands see the same per-sandbox value.
+    for recipe in &recipes {
+        if recipe.port_env.is_some() {
+            client.put(&format!("{path}/software-port"), json!({ "recipe": recipe.id, "ensure": true }))?;
+        }
+    }
+
     // Secrets first: a sandbox that is not running yet starts with their placeholders.
     let stored: Vec<String> =
         client.get("/api/secrets")?.as_array().into_iter().flatten().filter_map(|s| s["name"].as_str().map(str::to_string)).collect();

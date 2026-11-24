@@ -655,6 +655,20 @@ async fn add_port(State(daemon): App, Path(name): Path<String>, Json(port): Json
     Ok(Json(daemon.add_port(&name, port).await?))
 }
 
+#[derive(Deserialize)]
+struct RecipePortBody {
+    recipe: String,
+    port: Option<u16>,
+    #[serde(default)]
+    random: bool,
+    #[serde(default)]
+    ensure: bool,
+}
+
+async fn set_recipe_port(State(daemon): App, Path(name): Path<String>, Json(body): Json<RecipePortBody>) -> ApiResult {
+    Ok(Json(daemon.set_recipe_port(&name, &body.recipe, body.port, body.random, body.ensure).await?))
+}
+
 async fn remove_port(State(daemon): App, Path((name, host)): Path<(String, u16)>) -> ApiResult {
     Ok(Json(daemon.remove_port(&name, host)?))
 }
@@ -1046,6 +1060,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/sandboxes/{name}/claude-settings", put(set_claude_settings).delete(clear_claude_settings))
         .route("/api/sandboxes/{name}/shares", post(add_share).delete(remove_share))
         .route("/api/sandboxes/{name}/ports", post(add_port))
+        .route("/api/sandboxes/{name}/software-port", put(set_recipe_port))
         .route("/api/sandboxes/{name}/ports/{host}", delete(remove_port))
         .route("/api/stats", get(stats))
         .route("/api/os", get(systems))

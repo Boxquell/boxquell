@@ -29,6 +29,12 @@ impl Home {
         Ok(Self(std::path::absolute(root)?))
     }
 
+    /// A home at `root`, for tests; the directory must exist.
+    #[doc(hidden)]
+    pub fn at(root: PathBuf) -> Self {
+        Self(root)
+    }
+
     pub fn root(&self) -> &Path {
         &self.0
     }
