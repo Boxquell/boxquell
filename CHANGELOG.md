@@ -4,7 +4,11 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
-## [0.1.5] - Unreleased
+## [0.1.5] - 2026-11-24
+
+## [Unreleased]
+
+## [0.1.5] - 2026-11-24
 
 ### Fixed
 - Sandboxes on macOS could not start after the guest scripts were updated: the path of the sandbox disk contains a blank ("Application Support"), which split the script's path, so the old `boxquell-init` was removed and the new one never written. The path is quoted now.
