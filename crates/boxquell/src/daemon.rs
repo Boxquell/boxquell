@@ -2257,7 +2257,9 @@ impl Daemon {
         }
 
         let script_disk = disk.clone();
-        tokio::task::spawn_blocking(move || sync_guest_scripts(&script_disk)).await?;
+        tokio::task::spawn_blocking(move || sync_guest_scripts(&script_disk))
+            .await?
+            .context("the guest's scripts could not be installed on the sandbox disk")?;
 
         // Growing is sparse and costs no space until the guest writes to it.
         let wanted = u64::from(spec.disk_gib) << 30;
@@ -2594,51 +2596,64 @@ use boxquell_core::os::GUEST_SCRIPTS;
 
 /// Bring the guest's start and stop scripts on a stopped sandbox disk up to
 /// this version, so sandboxes created by an older version keep booting.
-/// Uses `debugfs` from e2fsprogs, which edits an ext4 image without root.
-/// Without it nothing is changed and the disk boots with what it has.
-fn sync_guest_scripts(disk: &Path) {
-    let debugfs = |args: &[&std::ffi::OsStr]| {
-        std::process::Command::new(boxquell_core::os::e2fs_tool("debugfs")).args(args).arg(disk).stdin(Stdio::null()).stderr(Stdio::null()).output()
+/// Uses `debugfs` and `e2fsck` from e2fsprogs, which edit an ext4 image without root.
+/// Every script is read back afterwards: a write that did not land is an error.
+fn sync_guest_scripts(disk: &Path) -> Result<()> {
+    let tool = |name: &str, args: &[&std::ffi::OsStr]| -> Result<std::process::Output> {
+        let program = boxquell_core::os::e2fs_tool(name);
+        std::process::Command::new(&program)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .with_context(|| format!("cannot run {} (install e2fsprogs)", program.display()))
     };
-    let Ok(dir) = tempdir_for(disk) else { return };
+    let read = |path: &str| -> Result<Vec<u8>> {
+        let output = tool("debugfs", &["-R".as_ref(), format!("cat {path}").as_ref(), disk.as_os_str()])?;
+        Ok(output.stdout)
+    };
+    let dir = tempdir_for(disk).context("cannot make a scratch directory next to the disk")?;
+    let result = sync_into(disk, &dir, &tool, &read);
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+fn sync_into(
+    disk: &Path,
+    dir: &Path,
+    tool: &dyn Fn(&str, &[&std::ffi::OsStr]) -> Result<std::process::Output>,
+    read: &dyn Fn(&str) -> Result<Vec<u8>>,
+) -> Result<()> {
     let mut commands = String::new();
     for (index, (path, contents)) in GUEST_SCRIPTS.iter().enumerate() {
-        let current = debugfs(&["-R".as_ref(), format!("cat {path}").as_ref()]);
-        match current {
-            Ok(output) if output.stdout == contents.as_bytes() => continue,
-            Ok(_) => {}
-            Err(err) => {
-                eprintln!("boxquell: cannot update guest scripts on {}: {err}; install e2fsprogs and start the sandbox again", disk.display());
-                return;
-            }
+        if read(path)? == contents.as_bytes() {
+            continue;
         }
         let source = dir.join(format!("script-{index}"));
-        if std::fs::write(&source, contents).is_err() {
-            return;
-        }
+        std::fs::write(&source, contents).with_context(|| format!("cannot write {}", source.display()))?;
         commands += &format!("rm {path}\nwrite {} {path}\nsif {path} mode 0100755\n", source.display());
     }
-    if !commands.is_empty() {
-        // A disk whose last run did not end cleanly still has changes waiting in
-        // its journal. Writing next to them would damage the filesystem, so the
-        // journal is applied first; without the checker the disk is left alone.
-        let checked = std::process::Command::new(boxquell_core::os::e2fs_tool("e2fsck"))
-            .arg("-p")
-            .arg(disk)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        // 0: clean, 1: problems corrected. Anything else needs a person to look.
-        let safe = checked.is_ok_and(|status| matches!(status.code(), Some(0 | 1)));
-        let list = dir.join("commands");
-        if safe && std::fs::write(&list, commands).is_ok() {
-            let _ = debugfs(&["-w".as_ref(), "-f".as_ref(), list.as_os_str()]);
-        } else if !safe {
-            eprintln!("boxquell: {} was not updated: its filesystem could not be checked (is e2fsck installed?)", disk.display());
-        }
+    if commands.is_empty() {
+        return Ok(());
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    // A disk whose last run did not end cleanly still has changes waiting in
+    // its journal. Writing next to them would damage the filesystem, so the
+    // journal is applied first; the checker's own verdict decides.
+    let checked = tool("e2fsck", &["-p".as_ref(), disk.as_os_str()])?;
+    // 0: clean, 1: problems corrected. Anything else needs a person to look.
+    ensure!(
+        matches!(checked.status.code(), Some(0 | 1)),
+        "{} has a filesystem that needs a manual check (e2fsck -p: {}); the guest scripts were not written",
+        disk.display(),
+        String::from_utf8_lossy(&checked.stdout).trim()
+    );
+    let list = dir.join("commands");
+    std::fs::write(&list, commands).context("cannot write the list of guest script changes")?;
+    let written = tool("debugfs", &["-w".as_ref(), "-f".as_ref(), list.as_os_str(), disk.as_os_str()])?;
+    ensure!(written.status.success(), "debugfs could not write the guest scripts: {}", String::from_utf8_lossy(&written.stderr).trim());
+    for (path, contents) in GUEST_SCRIPTS {
+        ensure!(read(path)? == contents.as_bytes(), "{path} on {} does not match after the update", disk.display());
+    }
+    Ok(())
 }
 
 /// A scratch directory next to the disk.
