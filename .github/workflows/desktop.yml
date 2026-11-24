@@ -54,11 +54,34 @@ jobs:
         if: inputs.version != ''
         shell: bash
         run: scripts/set-version.sh "${{ inputs.version }}"
+      - name: Key apt cache to Ubuntu image
+        id: apt
+        if: runner.os == 'Linux'
+        run: echo "image=$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Restore cached apt packages
+        id: apt-cache
+        if: runner.os == 'Linux'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: apt-ubuntu-${{ steps.apt.outputs.image }}
+          restore-keys: apt-ubuntu-
       - name: Install what the Linux build needs
         if: runner.os == 'Linux'
+        timeout-minutes: 20
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+          bash scripts/ci/apt-install.sh --cache-dir "$HOME/apt-archives" \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+      # apt's locks and partial downloads are root-owned; don't cache them.
+      - name: Clean apt cache
+        if: always() && runner.os == 'Linux' && steps.apt-cache.outputs.cache-hit != 'true'
+        run: sudo rm -rf "$HOME/apt-archives/lock" "$HOME/apt-archives/partial"
+      - name: Save apt packages
+        if: always() && github.ref == 'refs/heads/main' && runner.os == 'Linux' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: apt-ubuntu-${{ steps.apt.outputs.image }}
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable

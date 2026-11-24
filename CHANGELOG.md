@@ -7,6 +7,7 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 ### Fixed
 - Failed SSH-agent forwarding now reports `ssh` errors in the daemon log instead of hiding them.
 - DNS filtering logs private and local IP addresses returned for an allowed hostname, and returns `NXDOMAIN` when all addresses are blocked.
+- Linux desktop builds cache Ubuntu packages on `main`, retry slow apt downloads, and switch mirrors after repeated failures.
 
 ### Changed
 - The network log no longer offers a host-name allow action for a blocked private IP; Claude Code settings show a clear restart notice while the sandbox is running.

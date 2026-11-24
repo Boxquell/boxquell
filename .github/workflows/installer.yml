@@ -6,9 +6,9 @@ name: Installer
 on:
   push:
     branches: [main]
-    paths: ["scripts/install.sh", "scripts/install.ps1", ".github/workflows/installer.yml"]
+    paths: ["scripts/install.sh", "scripts/install.ps1", "scripts/ci/apt-install.sh", ".github/workflows/installer.yml"]
   pull_request:
-    paths: ["scripts/install.sh", "scripts/install.ps1", ".github/workflows/installer.yml"]
+    paths: ["scripts/install.sh", "scripts/install.ps1", "scripts/ci/apt-install.sh", ".github/workflows/installer.yml"]
 
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Lint
         if: runner.os == 'Linux'
-        run: shellcheck scripts/*.sh
+        run: shellcheck scripts/*.sh scripts/ci/apt-install.sh
       - name: Pretend release
         run: |
           case "$(uname -s)-$(uname -m)" in
