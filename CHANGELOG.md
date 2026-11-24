@@ -4,6 +4,9 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+- macOS `install.sh --deps` can install e2fsprogs and the host's default sandbox backend with Homebrew.
+
 ## [0.1.2] - 2026-11-24
 
 ### Fixed

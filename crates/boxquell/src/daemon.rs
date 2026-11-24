@@ -2400,8 +2400,10 @@ fn sync_guest_scripts(disk: &Path) {
         match current {
             Ok(output) if output.stdout == contents.as_bytes() => continue,
             Ok(_) => {}
-            // debugfs is not installed.
-            Err(_) => return,
+            Err(err) => {
+                eprintln!("boxquell: cannot update guest scripts on {}: {err}; install e2fsprogs and start the sandbox again", disk.display());
+                return;
+            }
         }
         let source = dir.join(format!("script-{index}"));
         if std::fs::write(&source, contents).is_err() {
