@@ -101,18 +101,28 @@ impl<U: Upstream> Shared<U> {
 
     /// Remember that `name` resolved to `ips` and return the addresses the guest may be told.
     pub fn pin(&self, name: &str, ips: Vec<Ipv4Addr>) -> Vec<Ipv4Addr> {
-        let ips: Vec<_> = ips.into_iter().filter(|ip| is_public(*ip) || self.literal_allowed(*ip, None).is_some()).collect();
+        let mut allowed = Vec::new();
+        for ip in ips {
+            if is_public(ip) || self.literal_allowed(ip, None).is_some() {
+                allowed.push(ip);
+            } else {
+                let mut event =
+                    NetEvent::new(EventKind::Dns, false, format!("private or local address {ip} needs an explicit address rule")).host(name);
+                event.ip = Some(ip);
+                self.emit(event);
+            }
+        }
         let mut pins = self.pins.lock().unwrap();
         let now = Instant::now();
         pins.retain(|_, entry| now.duration_since(entry.seen) < PIN_LIFETIME);
-        for ip in &ips {
+        for ip in &allowed {
             let entry = pins.entry(*ip).or_insert_with(|| PinEntry { names: Vec::new(), seen: now });
             entry.seen = now;
             if !entry.names.iter().any(|n| n == name) {
                 entry.names.push(name.to_string());
             }
         }
-        ips
+        allowed
     }
 
     /// Whether a secret is meant for `ip` itself or for a name that resolved to it.

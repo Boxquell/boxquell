@@ -156,7 +156,21 @@ pub async fn serve(key: PathBuf, ssh_port: u16, sandbox_dir: PathBuf, keys: SshK
     args.extend(destination);
     loop {
         // Ends while the guest still boots, when it pauses and when it stops; try again.
-        let _ = Command::new("ssh").args(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true).status().await;
+        // Keep stderr: a failed remote socket bind otherwise looks like an empty
+        // SSH_AUTH_SOCK in the guest, with no clue in the daemon log.
+        match Command::new("ssh").args(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).kill_on_drop(true).output().await {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => {
+                let detail = String::from_utf8_lossy(&output.stderr);
+                let detail = detail.trim();
+                if detail.is_empty() {
+                    eprintln!("boxquell: SSH agent forwarding ended ({:?})", output.status);
+                } else {
+                    eprintln!("boxquell: SSH agent forwarding failed ({:?}): {detail}", output.status);
+                }
+            }
+            Err(err) => eprintln!("boxquell: cannot run SSH agent forwarding: {err}"),
+        }
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 }

@@ -32,12 +32,18 @@ pub(crate) async fn answer<U: Upstream>(shared: &Shared<U>, query: &[u8]) -> Opt
     // The guest is IPv4-only: every other record type gets an empty answer.
     if question.query_type() == RecordType::A {
         match shared.upstream.resolve(&name).await {
-            Ok(ips) => {
-                let ips = shared.pin(&name, ips);
-                for ip in &ips {
-                    response.add_answer(Record::from_rdata(question.name().clone(), TTL, RData::A(A(*ip))));
+            Ok(resolved) => {
+                let had_addresses = !resolved.is_empty();
+                let ips = shared.pin(&name, resolved);
+                if had_addresses && ips.is_empty() {
+                    // Every upstream address was private/local and filtered by policy.
+                    response.metadata.response_code = ResponseCode::NXDomain;
+                } else {
+                    for ip in &ips {
+                        response.add_answer(Record::from_rdata(question.name().clone(), TTL, RData::A(A(*ip))));
+                    }
+                    shared.emit(NetEvent::new(EventKind::Dns, true, verdict.reason).host(&name));
                 }
-                shared.emit(NetEvent::new(EventKind::Dns, true, verdict.reason).host(&name));
             }
             Err(err) => {
                 response.metadata.response_code = ResponseCode::ServFail;
