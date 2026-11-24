@@ -10,6 +10,11 @@ All notable changes to Boxquell. The format follows [Keep a Changelog](https://k
 - macOS `install.sh --deps` can install e2fsprogs and the host's default sandbox backend with Homebrew.
 - Software can declare a per-sandbox listener port (`port_env` with a `kind = "port"` setting). Boxquell picks a free port on install, forwards it from the same port on this computer, and the Config tab can set another or choose one at random.
 
+## [0.1.5] - Unreleased
+
+### Fixed
+- Sandboxes on macOS could not start after the guest scripts were updated: the path of the sandbox disk contains a blank ("Application Support"), which split the script's path, so the old `boxquell-init` was removed and the new one never written. The path is quoted now.
+
 ## [0.1.4] - Unreleased
 
 ### Fixed
